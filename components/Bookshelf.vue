@@ -4,7 +4,7 @@ import { ref, onMounted, onUnmounted, watch, computed, reactive, nextTick } from
 import { ABSLibraryItem, ABSProgress } from '../types';
 import { ABSService, LibraryQueryParams } from '../services/absService';
 import BookCard from './BookCard.vue';
-import { PackageOpen, Activity, MousePointer2 } from 'lucide-vue-next';
+import { PackageOpen, Activity } from 'lucide-vue-next';
 
 const props = defineProps<{
   absService: ABSService,
@@ -29,7 +29,6 @@ const entities = ref<(ABSLibraryItem | null)[]>([]);
 const totalEntities = ref(0);
 const loadingPages = new Set<number>();
 const selectedIds = ref<Set<string>>(new Set());
-const lastSelectedIndex = ref(-1);
 
 // Configuration Constants
 const CARD_ASPECT_RATIO = 1.5; // 2:3
@@ -102,7 +101,7 @@ const fetchPage = async (page: number) => {
     const params: LibraryQueryParams = {
       limit: ITEMS_PER_FETCH,
       offset: page * ITEMS_PER_FETCH,
-      sort: props.sortMethod.toLowerCase(),
+      sort: props.sortMethod,
       desc: props.desc,
       search: props.search
     };
@@ -110,21 +109,24 @@ const fetchPage = async (page: number) => {
     const { results, total } = await props.absService.getLibraryItemsPaged(params);
     
     // Safety check for total entities to avoid RangeError
-    const validTotal = Math.max(0, Math.min(1000000, parseInt(total as any) || 0));
+    const parsedTotal = parseInt(total as any);
+    const validTotal = isNaN(parsedTotal) ? (results?.length || 0) : Math.max(0, parsedTotal);
     
     if (totalEntities.value !== validTotal) {
       totalEntities.value = validTotal;
-      // Use a more memory-efficient approach if possible, but for virtual lists this is usually fine
-      entities.value = new Array(validTotal).fill(null);
+      // Initialize sparse array safely
+      entities.value = validTotal > 0 ? new Array(validTotal).fill(null) : [];
       await calculateLayout();
     }
 
-    results.forEach((item, idx) => {
-      const targetIdx = page * ITEMS_PER_FETCH + idx;
-      if (targetIdx < entities.value.length) {
-        entities.value[targetIdx] = item;
-      }
-    });
+    if (results && Array.isArray(results)) {
+      results.forEach((item, idx) => {
+        const targetIdx = (page * ITEMS_PER_FETCH) + idx;
+        if (targetIdx < entities.value.length) {
+          entities.value[targetIdx] = item;
+        }
+      });
+    }
   } catch (e) {
     console.error("Failed to fetch shelf page", e);
   } finally {
@@ -146,6 +148,11 @@ const handleScroll = (e: Event) => {
       fetchPage(p);
     }
   }
+};
+
+const handleSelect = (item: ABSLibraryItem | null, index: number, event: MouseEvent) => {
+  if (!item) return;
+  emit('select-item', item);
 };
 
 const reset = async () => {
@@ -185,7 +192,7 @@ const totalHeight = computed(() => layout.totalRows * layout.shelfHeight + (prop
 <template>
   <div 
     ref="bookshelfRef"
-    class="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar relative"
+    class="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar relative h-full"
     @scroll="handleScroll"
   >
     <div :style="{ height: totalHeight + 'px' }" class="relative w-full">
@@ -204,7 +211,7 @@ const totalHeight = computed(() => layout.totalRows * layout.shelfHeight + (prop
             height: layout.cardHeight + 'px'
           }"
         >
-          <div v-if="!entity.data" class="w-full h-full bg-neutral-900/40 rounded-[28px] border border-white/5 animate-shimmer flex items-center justify-center">
+          <div v-if="!entity.data" class="w-full h-full bg-neutral-900/40 rounded-[24px] border border-white/5 animate-shimmer flex items-center justify-center">
             <Activity :size="20" class="text-neutral-800" />
           </div>
 

@@ -92,14 +92,15 @@ const fetchPage = async (page: number) => {
     const params: LibraryQueryParams = {
       limit: ITEMS_PER_FETCH,
       offset: page * ITEMS_PER_FETCH,
-      sort: props.sortMethod.toLowerCase(),
+      sort: props.sortMethod === 'addedAt' ? 'addedDate' : props.sortMethod,
       desc: props.desc
     };
     
     const { results, total } = await props.absService.getLibrarySeriesPaged(params);
     
-    // RangeError fix: Validate total
-    const validTotal = Math.max(0, parseInt(total as any) || 0);
+    // Robust parsing for total
+    const parsedTotal = parseInt(total as any);
+    const validTotal = isNaN(parsedTotal) ? (results?.length || 0) : Math.max(0, parsedTotal);
     
     if (totalEntities.value !== validTotal) {
       totalEntities.value = validTotal;
@@ -107,12 +108,14 @@ const fetchPage = async (page: number) => {
       await calculateLayout();
     }
 
-    results.forEach((item, idx) => {
-      const targetIdx = page * ITEMS_PER_FETCH + idx;
-      if (targetIdx < entities.value.length) {
-        entities.value[targetIdx] = item;
-      }
-    });
+    if (results && Array.isArray(results)) {
+      results.forEach((item, idx) => {
+        const targetIdx = (page * ITEMS_PER_FETCH) + idx;
+        if (targetIdx < entities.value.length) {
+          entities.value[targetIdx] = item;
+        }
+      });
+    }
   } catch (e) {
     console.error("Failed to fetch series shelf page", e);
   } finally {
@@ -165,7 +168,7 @@ const totalHeight = computed(() => layout.totalRows * layout.shelfHeight + (prop
 <template>
   <div 
     ref="shelfRef"
-    class="flex-1 overflow-y-auto overflow-x-hidden no-scrollbar relative"
+    class="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar relative h-full"
     @scroll="handleScroll"
   >
     <div :style="{ height: totalHeight + 'px' }" class="relative w-full">
@@ -184,14 +187,14 @@ const totalHeight = computed(() => layout.totalRows * layout.shelfHeight + (prop
             height: layout.cardHeight + 'px'
           }"
         >
-          <div v-if="!entity.data" class="series-cover-container animate-pulse flex items-center justify-center bg-neutral-900/40 border border-white/5">
+          <div v-if="!entity.data" class="w-full h-full animate-pulse flex items-center justify-center bg-neutral-900/40 border border-white/5 rounded-[24px]">
             <Activity :size="20" class="text-neutral-800" />
           </div>
 
           <SeriesCard 
             v-else
             :series="entity.data"
-            :coverUrl="absService.getCoverUrl(entity.data.books[0]?.id)"
+            :coverUrl="absService.getCoverUrl(entity.data.books?.[0]?.id || '')"
             @click="emit('select-series', entity.data)"
             class="animate-fade-in"
           />
