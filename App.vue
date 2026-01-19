@@ -1,0 +1,70 @@
+
+<script setup lang="ts">
+import { ref, onMounted } from 'vue';
+import { AuthState, ABSLibraryItem } from './types';
+import Login from './components/Login.vue';
+import Library from './components/Library.vue';
+import Player from './components/Player.vue';
+
+const currentView = ref<'login' | 'library' | 'player'>('login');
+const auth = ref<AuthState | null>(null);
+const selectedItem = ref<ABSLibraryItem | null>(null);
+const isInitializing = ref(true);
+
+onMounted(() => {
+  const savedAuth = localStorage.getItem('rs_auth');
+  if (savedAuth) {
+    try {
+      auth.value = JSON.parse(savedAuth);
+      currentView.value = 'library';
+    } catch (e) {
+      localStorage.removeItem('rs_auth');
+    }
+  }
+  isInitializing.value = false;
+});
+
+const handleLogin = (newAuth: AuthState) => {
+  auth.value = newAuth;
+  localStorage.setItem('rs_auth', JSON.stringify(newAuth));
+  currentView.value = 'library';
+};
+
+const handleLogout = () => {
+  auth.value = null;
+  localStorage.removeItem('rs_auth');
+  currentView.value = 'login';
+};
+
+const openPlayer = (item: ABSLibraryItem) => {
+  selectedItem.value = item;
+  currentView.value = 'player';
+};
+
+const closePlayer = () => {
+  currentView.value = 'library';
+};
+</script>
+
+<template>
+  <div class="min-h-screen bg-black text-white selection:bg-purple-900 flex flex-col font-sans overflow-hidden">
+    <!-- Loader -->
+    <div v-if="isInitializing" class="fixed inset-0 bg-black flex flex-col items-center justify-center gap-6 z-[200]">
+      <div class="w-16 h-16 border-4 border-purple-600/10 border-t-purple-600 rounded-full animate-spin" />
+      <h2 class="font-black text-purple-500 tracking-[0.6em] text-[10px] uppercase">R.S ARCHIVE</h2>
+    </div>
+
+    <template v-else>
+      <Transition name="fade" mode="out-in">
+        <Login v-if="currentView === 'login'" @login="handleLogin" />
+        <Library v-else-if="currentView === 'library' && auth" :auth="auth" @select-item="openPlayer" @logout="handleLogout" />
+        <Player v-else-if="currentView === 'player' && auth && selectedItem" :auth="auth" :item="selectedItem" @back="closePlayer" />
+      </Transition>
+    </template>
+  </div>
+</template>
+
+<style>
+.fade-enter-active, .fade-leave-active { transition: opacity 0.3s ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
+</style>
