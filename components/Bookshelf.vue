@@ -69,6 +69,7 @@ const calculateLayout = async () => {
 
 // Virtual Visibility Logic
 const visibleRange = computed(() => {
+  if (totalEntities.value === 0) return { start: 0, end: 0 };
   const startRow = Math.max(0, Math.floor(scrollTop.value / layout.shelfHeight) - 1);
   const endRow = Math.ceil((scrollTop.value + containerHeight.value) / layout.shelfHeight) + 1;
   
@@ -108,14 +109,17 @@ const fetchPage = async (page: number) => {
     
     const { results, total } = await props.absService.getLibraryItemsPaged(params);
     
-    // Safety check for total entities to avoid RangeError
-    const parsedTotal = parseInt(total as any);
-    const validTotal = isNaN(parsedTotal) ? (results?.length || 0) : Math.max(0, parsedTotal);
+    // Improved safety check for total entities to avoid RangeError
+    const rawTotal = typeof total === 'number' ? total : parseInt(total as any) || 0;
+    const validTotal = Math.max(0, Math.min(rawTotal, 100000)); // Cap at a sane limit
     
     if (totalEntities.value !== validTotal) {
       totalEntities.value = validTotal;
-      // Initialize sparse array safely
-      entities.value = validTotal > 0 ? new Array(validTotal).fill(null) : [];
+      // Use a more resilient approach for array initialization
+      if (entities.value.length !== validTotal) {
+        // Splice/Push is safer than Array.from for very large lengths
+        entities.value = new Array(validTotal).fill(null);
+      }
       await calculateLayout();
     }
 
@@ -150,7 +154,7 @@ const handleScroll = (e: Event) => {
   }
 };
 
-const handleSelect = (item: ABSLibraryItem | null, index: number, event: MouseEvent) => {
+const handleSelect = (item: ABSLibraryItem | null) => {
   if (!item) return;
   emit('select-item', item);
 };
@@ -186,7 +190,10 @@ onUnmounted(() => {
 
 watch(() => [props.sortMethod, props.desc, props.search], () => reset(), { deep: true });
 
-const totalHeight = computed(() => layout.totalRows * layout.shelfHeight + (props.isStreaming ? 180 : 80));
+const totalHeight = computed(() => {
+  if (totalEntities.value === 0) return 400;
+  return layout.totalRows * layout.shelfHeight + (props.isStreaming ? 180 : 80);
+});
 </script>
 
 <template>
@@ -221,7 +228,7 @@ const totalHeight = computed(() => layout.totalRows * layout.shelfHeight + (prop
             :coverUrl="absService.getCoverUrl(entity.data.id)"
             :isSelected="selectedIds.has(entity.data.id)"
             class="animate-fade-in"
-            @click="handleSelect(entity.data, entity.index, $event)"
+            @click="handleSelect(entity.data)"
           />
         </div>
       </template>

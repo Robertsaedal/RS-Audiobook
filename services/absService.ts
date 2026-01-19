@@ -125,7 +125,19 @@ export class ABSService {
         },
       });
       if (!response.ok) return null;
-      return response.json();
+      
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        // Double check for "OK" strings returned as application/json (incorrect server behavior)
+        const text = await response.text();
+        if (text === 'OK') return text;
+        try {
+          return JSON.parse(text);
+        } catch (e) {
+          return text;
+        }
+      }
+      return response.text(); 
     } catch (e) {
       console.error(`API Fetch Error: ${endpoint}`, e);
       return null;
@@ -163,8 +175,8 @@ export class ABSService {
 
     const data = await this.fetchApi(`/libraries/${libId}/items?${query.toString()}`);
     return {
-      results: data?.results || data || [],
-      total: data?.total || (data?.results?.length || 0)
+      results: data?.results || (Array.isArray(data) ? data : []),
+      total: typeof data?.total === 'number' ? data.total : (Array.isArray(data) ? data.length : 0)
     };
   }
 
@@ -175,16 +187,25 @@ export class ABSService {
     const query = new URLSearchParams();
     if (params.limit) query.append('limit', params.limit.toString());
     if (params.offset) query.append('offset', params.offset.toString());
-    if (params.sort) query.append('sort', params.sort);
+    const sort = params.sort === 'addedAt' ? 'addedDate' : params.sort;
+    if (sort) query.append('sort', sort);
     if (params.desc !== undefined) query.append('desc', params.desc.toString());
-    if (params.filter) query.append('filter', params.filter);
     query.append('include', 'books'); 
 
     const data = await this.fetchApi(`/libraries/${libId}/series?${query.toString()}`);
-    return {
-      results: data?.results || data || [],
-      total: data?.total || (data?.results?.length || 0)
-    };
+    
+    // Handle various ABS API response formats for series
+    let results = [];
+    if (data?.results) results = data.results;
+    else if (data?.series) results = data.series;
+    else if (Array.isArray(data)) results = data;
+
+    let total = 0;
+    if (typeof data?.total === 'number') total = data.total;
+    else if (typeof data?.totalSeries === 'number') total = data.totalSeries;
+    else total = results.length;
+
+    return { results, total };
   }
 
   async scanLibrary(): Promise<boolean> {

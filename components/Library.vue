@@ -1,6 +1,6 @@
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
 import { AuthState, ABSLibraryItem, ABSSeries } from '../types';
 import { ABSService } from '../services/absService';
 import LibraryLayout, { LibraryTab } from './LibraryLayout.vue';
@@ -8,7 +8,7 @@ import Bookshelf from './Bookshelf.vue';
 import SeriesShelf from './SeriesShelf.vue';
 import SeriesView from './SeriesView.vue';
 import RequestPortal from './RequestPortal.vue';
-import { ArrowUpDown, Check } from 'lucide-vue-next';
+import { ArrowUpDown, Check, Play } from 'lucide-vue-next';
 
 const props = defineProps<{
   auth: AuthState,
@@ -24,26 +24,32 @@ const absService = new ABSService(props.auth.serverUrl, props.auth.user?.token |
 
 const activeTab = ref<LibraryTab>('HOME');
 const searchTerm = ref('');
-const sortMethod = ref('addedAt'); // Enforce correct API sort key for 'Recently Added'
+const sortMethod = ref('addedAt'); 
 const desc = ref(1);
 const showSortMenu = ref(false);
 const selectedSeries = ref<ABSSeries | null>(null);
 const isScanning = ref(false);
 const selectedCount = ref(0);
 
-const resumeHero = ref<ABSLibraryItem | null>(null);
+const currentlyReading = ref<ABSLibraryItem[]>([]);
 
-const fetchResume = async () => {
+const fetchCurrentlyReading = async () => {
   try {
-    const { results } = await absService.getLibraryItemsPaged({ limit: 10, sort: 'lastUpdate', desc: 1 });
-    resumeHero.value = results.find(i => i.userProgress && !i.userProgress.isFinished && i.userProgress.progress > 0) || null;
+    const { results } = await absService.getLibraryItemsPaged({ 
+      limit: 5, 
+      sort: 'lastUpdate', 
+      desc: 1,
+      filter: 'progress' 
+    });
+    // Filter out finished books and only include those with progress
+    currentlyReading.value = results.filter(i => i.userProgress && !i.userProgress.isFinished && i.userProgress.progress > 0);
   } catch (e) {
-    console.error("Failed to fetch resume item");
+    console.error("Failed to fetch currently reading items");
   }
 };
 
 onMounted(() => {
-  fetchResume();
+  fetchCurrentlyReading();
 });
 
 onUnmounted(() => {
@@ -67,6 +73,7 @@ const handleTabChange = (tab: LibraryTab) => {
   if (tab === 'HOME') {
     sortMethod.value = 'addedAt';
     desc.value = 1;
+    fetchCurrentlyReading();
   }
 };
 
@@ -83,8 +90,13 @@ const handleScan = async () => {
 };
 
 absService.onProgressUpdate((updated) => {
-  if (resumeHero.value?.id === updated.itemId) {
-    resumeHero.value = { ...resumeHero.value, userProgress: updated };
+  // Update currently reading list if it's there
+  const idx = currentlyReading.value.findIndex(i => i.id === updated.itemId);
+  if (idx !== -1) {
+    currentlyReading.value[idx] = { ...currentlyReading.value[idx], userProgress: updated };
+    if (updated.isFinished) currentlyReading.value.splice(idx, 1);
+  } else if (!updated.isFinished && updated.progress > 0) {
+    fetchCurrentlyReading(); // Refresh if new item started
   }
 });
 </script>
@@ -102,7 +114,7 @@ absService.onProgressUpdate((updated) => {
     @scan="handleScan"
     @clear-selection="selectedCount = 0"
   >
-    <!-- Local Header (Refined for Dashboard/Library meta) -->
+    <!-- Local Header -->
     <header v-if="activeTab !== 'REQUEST' && !selectedSeries" class="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6 animate-fade-in">
       <div class="space-y-1">
         <h2 class="text-3xl font-black uppercase tracking-tighter text-white">
@@ -167,27 +179,57 @@ absService.onProgressUpdate((updated) => {
 
       <template v-else>
         <!-- HOME TAB -->
-        <div v-if="activeTab === 'HOME'" class="space-y-12 h-full overflow-y-auto no-scrollbar">
-          <!-- Continue Reading -->
-          <section v-if="resumeHero" class="space-y-6">
-             <h3 class="text-[10px] font-bold uppercase tracking-[0.5em] text-neutral-700">Continue Listening</h3>
-            <div class="relative group w-full aspect-[21/9] bg-[#1a1a1a] rounded-2xl overflow-hidden border border-white/5 cursor-pointer shadow-2xl transition-all hover:border-purple-500/20" @click="emit('select-item', resumeHero!)">
-              <img :src="absService.getCoverUrl(resumeHero.id)" class="w-full h-full object-cover opacity-40 group-hover:opacity-60 transition-opacity" />
-              <div class="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent p-8 flex flex-col justify-end">
-                <h4 class="text-3xl md:text-5xl font-black uppercase tracking-tighter text-white mb-1 leading-none">{{ resumeHero.media.metadata.title }}</h4>
-                <p class="text-[10px] font-black text-purple-400 uppercase tracking-[0.3em] mb-6">
-                  {{ resumeHero.media.metadata.authorName }}
-                </p>
-                <div class="w-full h-1 bg-white/5 rounded-full overflow-hidden">
-                  <div class="h-full bg-purple-500 shadow-[0_0_10px_rgba(168,85,247,0.5)]" :style="{ width: `${(resumeHero.userProgress?.progress || 0) * 100}%` }" />
+        <div v-if="activeTab === 'HOME'" class="space-y-16 h-full overflow-y-auto no-scrollbar pb-20">
+          <!-- Currently Reading Hero -->
+          <section v-if="currentlyReading.length > 0" class="space-y-6">
+             <div class="flex items-center justify-between">
+                <h3 class="text-[10px] font-bold uppercase tracking-[0.5em] text-neutral-700">Currently Reading</h3>
+                <span class="text-[8px] font-bold text-neutral-800 uppercase tracking-widest">{{ currentlyReading.length }} Items In Queue</span>
+             </div>
+             
+             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div 
+                  v-for="item in currentlyReading" 
+                  :key="item.id"
+                  class="relative group bg-[#161616] rounded-3xl overflow-hidden border border-white/5 cursor-pointer shadow-2xl transition-all hover:border-purple-500/20 h-48 flex"
+                  @click="emit('select-item', item)"
+                >
+                  <div class="w-32 h-full shrink-0 relative overflow-hidden">
+                    <img :src="absService.getCoverUrl(item.id)" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
+                    <div class="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div class="w-10 h-10 rounded-full bg-purple-600 flex items-center justify-center text-white">
+                        <Play :size="20" fill="currentColor" class="translate-x-0.5" />
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div class="flex-1 p-6 flex flex-col justify-center gap-4">
+                    <div class="space-y-1">
+                      <h4 class="text-xl font-black uppercase tracking-tighter text-white leading-tight line-clamp-2">
+                        {{ item.media.metadata.title }}
+                      </h4>
+                      <p class="text-[9px] font-black text-neutral-500 uppercase tracking-[0.2em]">
+                        {{ item.media.metadata.authorName }}
+                      </p>
+                    </div>
+                    
+                    <div class="space-y-2">
+                      <div class="flex justify-between items-center text-[8px] font-bold text-neutral-700 uppercase tracking-widest">
+                        <span>Progress</span>
+                        <span>{{ Math.floor((item.userProgress?.progress || 0) * 100) }}%</span>
+                      </div>
+                      <div class="w-full h-1 bg-white/5 rounded-full overflow-hidden">
+                        <div class="h-full bg-purple-500 shadow-[0_0_10px_rgba(168,85,247,0.5)] transition-all duration-1000" :style="{ width: `${(item.userProgress?.progress || 0) * 100}%` }" />
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
+             </div>
           </section>
 
           <!-- Dashboard Shelf (Recently Added) -->
           <section class="h-full">
-            <h3 class="text-[10px] font-bold uppercase tracking-[0.5em] text-neutral-700 mb-6">Recently Added</h3>
+            <h3 class="text-[10px] font-bold uppercase tracking-[0.5em] text-neutral-700 mb-8">Recently Added</h3>
             <Bookshelf 
               :absService="absService" 
               :sortMethod="'addedAt'" 

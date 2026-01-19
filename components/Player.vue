@@ -4,7 +4,7 @@ import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { AuthState, ABSLibraryItem, ABSChapter } from '../types';
 import { usePlayer } from '../composables/usePlayer';
 import { 
-  ChevronDown, Play, Pause, Info, X, Activity, Plus, Minus, 
+  ChevronDown, Play, Pause, Info, X, SkipBack, SkipForward,
   RotateCcw, RotateCw, ChevronRight, Gauge, Moon, Mic, Clock, Database
 } from 'lucide-vue-next';
 
@@ -102,6 +102,31 @@ const toggleChapterSleep = () => {
 
 const metadata = computed(() => props.item?.media?.metadata || {});
 const media = computed(() => props.item?.media || {});
+
+const skipToNextChapter = () => {
+  if (currentChapterIndex.value === -1 || currentChapterIndex.value >= chapters.value.length - 1) return;
+  const next = chapters.value[currentChapterIndex.value + 1];
+  seek(next.start);
+};
+
+const skipToPrevChapter = () => {
+  if (currentChapterIndex.value <= 0) {
+    seek(0);
+    return;
+  }
+  // If we are more than 3 seconds into the chapter, restart current chapter
+  if (state.currentTime - (currentChapter.value?.start || 0) > 3) {
+    seek(currentChapter.value!.start);
+  } else {
+    const prev = chapters.value[currentChapterIndex.value - 1];
+    seek(prev.start);
+  }
+};
+
+const handleChapterClick = (time: number) => {
+  seek(time);
+  showChapters.value = false;
+};
 </script>
 
 <template>
@@ -144,8 +169,8 @@ const media = computed(() => props.item?.media || {});
 
       <!-- Central Artifact Area -->
       <div class="flex-1 flex flex-col items-center justify-center px-8 relative gap-10">
-        <!-- Artifact Cover -->
-        <div class="relative w-full max-w-[260px] aspect-square group">
+        <!-- Artifact Cover (Click for Info) -->
+        <div @click="showInfo = true" class="relative w-full max-w-[260px] aspect-square group cursor-pointer">
           <div class="absolute -inset-10 bg-purple-600/5 blur-[100px] rounded-full opacity-50" />
           <div class="relative z-10 w-full h-full rounded-[40px] overflow-hidden border border-white/10 shadow-[0_30px_60px_-15px_rgba(0,0,0,0.8)] transition-transform duration-700 group-hover:scale-[1.02]">
             <img :src="coverUrl" class="w-full h-full object-cover" />
@@ -156,7 +181,7 @@ const media = computed(() => props.item?.media || {});
         <div class="text-center space-y-4 w-full max-w-md px-4 z-10">
           <div class="space-y-1">
             <p v-if="metadata.seriesName" class="text-[8px] font-black uppercase tracking-[0.4em] text-neutral-500">
-              {{ metadata.seriesName }} <span class="mx-1 text-purple-900">—</span> BOOK {{ metadata.sequence || '01' }}
+              {{ metadata.seriesName }}, BOOK {{ metadata.sequence || '01' }}
             </p>
             <h1 class="text-lg md:text-xl font-black uppercase tracking-tight text-white leading-tight line-clamp-2">{{ metadata.title }}</h1>
             <p class="text-[9px] font-black uppercase tracking-[0.3em] text-neutral-600">{{ metadata.authorName }}</p>
@@ -177,25 +202,28 @@ const media = computed(() => props.item?.media || {});
           <div 
             class="h-1 w-full bg-neutral-900 rounded-full relative cursor-pointer overflow-hidden group" 
             @click="(e: any) => {
-              if(!currentChapter) return;
               const clickPos = e.offsetX / e.currentTarget.clientWidth;
-              const chapterDur = currentChapter.end - currentChapter.start;
-              seek(currentChapter.start + (clickPos * chapterDur));
+              seek(clickPos * state.duration);
             }"
           >
             <div 
               class="absolute inset-y-0 left-0 bg-purple-500 shadow-[0_0_12px_rgba(157,80,187,1)] transition-all duration-150" 
-              :style="{ width: chapterProgressPercent + '%' }"
+              :style="{ width: (state.currentTime / state.duration * 100) + '%' }"
             />
           </div>
           <div class="flex justify-between items-center text-[8px] font-bold font-mono text-neutral-600 tracking-widest tabular-nums">
-            <span>{{ secondsToTimestamp(state.currentTime - (currentChapter?.start || 0)) }}</span>
-            <span class="text-purple-900/40 uppercase tracking-[0.3em] font-black">Segment {{ (currentChapterIndex + 1).toString().padStart(2, '0') }}</span>
-            <span>-{{ secondsToTimestamp(timeRemainingInChapter) }}</span>
+            <span>{{ secondsToTimestamp(state.currentTime) }}</span>
+            <span class="text-purple-900/40 uppercase tracking-[0.3em] font-black">Archive Playback</span>
+            <span>-{{ secondsToTimestamp(state.duration - state.currentTime) }}</span>
           </div>
         </div>
 
-        <div class="flex items-center justify-center gap-10">
+        <!-- Master Control Row -->
+        <div class="flex items-center justify-center gap-6 md:gap-10">
+          <button @click="skipToPrevChapter" class="text-neutral-700 hover:text-purple-400 transition-colors active:scale-90" title="Previous Chapter">
+            <SkipBack :size="24" />
+          </button>
+          
           <button @click="seek(state.currentTime - 15)" class="text-neutral-700 hover:text-purple-500 transition-colors active:scale-90">
             <RotateCcw :size="28" stroke-width="1.5" />
           </button>
@@ -208,6 +236,10 @@ const media = computed(() => props.item?.media || {});
 
           <button @click="seek(state.currentTime + 30)" class="text-neutral-700 hover:text-purple-500 transition-colors active:scale-90">
             <RotateCw :size="28" stroke-width="1.5" />
+          </button>
+
+          <button @click="skipToNextChapter" class="text-neutral-700 hover:text-purple-400 transition-colors active:scale-90" title="Next Chapter">
+            <SkipForward :size="24" />
           </button>
         </div>
 
@@ -238,7 +270,10 @@ const media = computed(() => props.item?.media || {});
                 <Minus :size="14" />
               </button>
               <button @click="toggleChapterSleep" class="flex flex-col items-center">
-                <span v-if="sleepAtChapterEnd" class="text-[7px] font-black text-purple-500 uppercase">END CH.</span>
+                <div v-if="sleepAtChapterEnd" class="flex flex-col items-center">
+                  <span class="text-[7px] font-black text-purple-500 uppercase">IN {{ secondsToTimestamp(timeRemainingInChapter) }}</span>
+                  <span class="text-[6px] font-black text-neutral-600 uppercase">END CH.</span>
+                </div>
                 <span v-else class="text-xs font-black font-mono" :class="sleepSeconds > 0 ? 'text-purple-500' : 'text-neutral-600'">
                   {{ sleepSeconds > 0 ? Math.ceil(sleepSeconds / 60) + 'm' : 'OFF' }}
                 </span>
@@ -252,7 +287,7 @@ const media = computed(() => props.item?.media || {});
       </footer>
     </template>
 
-    <!-- Info Overlay (LibraryItemDetails logic) -->
+    <!-- Info Overlay -->
     <Transition name="slide-up">
       <div v-if="showInfo" class="fixed inset-0 bg-black/95 backdrop-blur-3xl z-[160] flex flex-col">
         <header class="p-10 flex justify-between items-center bg-transparent shrink-0">
@@ -272,7 +307,14 @@ const media = computed(() => props.item?.media || {});
           </div>
 
           <div class="grid grid-cols-1 gap-4">
-            <!-- Refined Detail Panels -->
+            <div v-if="metadata.seriesName" class="flex items-center gap-6 p-6 bg-neutral-950/60 rounded-[32px] border border-white/5">
+              <Database :size="24" class="text-purple-500" />
+              <div class="flex flex-col gap-1">
+                <span class="text-[8px] font-black uppercase text-neutral-700 tracking-[0.5em]">SERIES</span>
+                <span class="text-sm font-bold text-neutral-300">{{ metadata.seriesName }}, Book {{ metadata.sequence || '1' }}</span>
+              </div>
+            </div>
+
             <div class="flex items-center gap-6 p-6 bg-neutral-950/60 rounded-[32px] border border-white/5">
               <Mic :size="24" class="text-purple-500" />
               <div class="flex flex-col gap-1">
@@ -318,7 +360,7 @@ const media = computed(() => props.item?.media || {});
           <button 
             v-for="(ch, i) in chapters" 
             :key="i" 
-            @click="seek(ch.start); showChapters = false;"
+            @click="handleChapterClick(ch.start)"
             class="w-full flex items-center justify-between p-6 rounded-[28px] mb-3 transition-all border border-transparent group"
             :class="currentChapterIndex === i ? 'bg-purple-600/5 border-purple-500/20' : 'hover:bg-neutral-900/30'"
           >
