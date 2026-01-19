@@ -112,13 +112,14 @@ const Player: React.FC<PlayerProps> = ({ auth, item, onBack }) => {
       setError(null);
       setIsLoading(true);
 
+      // Increased timeout to 30 seconds as requested for slower server response
       loadTimeoutRef.current = window.setTimeout(() => {
         if (isLoading && isMounted.current) {
-          setError('Unable to stream from server. Link timed out.');
+          setError('Unable to stream from server. Link timed out after 30s.');
           setIsLoading(false);
           if (hlsRef.current) hlsRef.current.destroy();
         }
-      }, 10000);
+      }, 30000);
 
       try {
         const [details] = await Promise.all([
@@ -144,7 +145,6 @@ const Player: React.FC<PlayerProps> = ({ auth, item, onBack }) => {
         if (audio) {
           audio.crossOrigin = 'anonymous';
           
-          // Use the service helper for the requested HLS URL format
           const hlsUrl = absService.getHlsStreamUrl(item.id);
           
           if (Hls.isSupported()) {
@@ -160,7 +160,10 @@ const Player: React.FC<PlayerProps> = ({ auth, item, onBack }) => {
               backBufferLength: 60,
               manifestLoadingMaxRetry: 5,
               levelLoadingMaxRetry: 5,
-              // VITAL for cross-domain streaming with credentials
+              // Added requested loader timeouts
+              fragLoadingTimeOut: 30000,
+              manifestLoadingTimeOut: 30000,
+              levelLoadingTimeOut: 30000,
               xhrSetup: (xhr) => { xhr.withCredentials = true; }
             });
             
@@ -172,6 +175,7 @@ const Player: React.FC<PlayerProps> = ({ auth, item, onBack }) => {
             });
             
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
+              console.log("HLS Manifest Parsed - Stream Ready");
               if (isMounted.current) {
                 if (loadTimeoutRef.current) clearTimeout(loadTimeoutRef.current);
                 setIsLoading(false);
