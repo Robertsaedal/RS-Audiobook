@@ -1,4 +1,5 @@
-import { ABSUser, ABSLibraryItem, ABSProgress } from '../types';
+
+import { ABSUser, ABSLibraryItem, ABSProgress, ABSPlaybackSession } from '../types';
 import { io, Socket } from 'socket.io-client';
 
 export class ABSService {
@@ -37,78 +38,41 @@ export class ABSService {
 
   private static async fetchWithRetry(url: string, options: RequestInit, retries = 3, timeout = 5000): Promise<Response> {
     let lastError: Error | null = null;
-    
     for (let i = 0; i < retries; i++) {
       const controller = new AbortController();
       const id = setTimeout(() => controller.abort(), timeout);
-      
       try {
-        const response = await fetch(url, {
-          ...options,
-          signal: controller.signal
-        });
+        const response = await fetch(url, { ...options, signal: controller.signal });
         clearTimeout(id);
-        
-        if (response.ok || (response.status >= 400 && response.status < 500)) {
-          return response;
-        }
-        
+        if (response.ok || (response.status >= 400 && response.status < 500)) return response;
         throw new Error(`SERVER_ERROR_${response.status}`);
       } catch (e: any) {
         clearTimeout(id);
         lastError = e;
-        if (e.name === 'AbortError') console.warn(`Attempt ${i + 1} timed out for ${url}`);
         if (i < retries - 1) await new Promise(resolve => setTimeout(resolve, 500 * (i + 1)));
       }
     }
-    
     throw lastError || new Error('FAILED_AFTER_RETRIES');
   }
 
   static async login(serverUrl: string, username: string, password: string): Promise<any> {
     const baseUrl = this.normalizeUrl(serverUrl);
-    // Specifically /login without /api as per latest server configuration
     const loginUrl = `${baseUrl}/login`;
-    
-    try {
-      const response = await this.fetchWithRetry(loginUrl, {
-        method: 'POST',
-        mode: 'cors',
-        credentials: 'include', 
-        headers: { 
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        body: JSON.stringify({ 
-          username: username.trim(), 
-          password: password 
-        }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(errorText || `Login failed: ${response.status}`);
-      }
-      return response.json();
-    } catch (err: any) {
-      if (err.name === 'AbortError' || err.message === 'FAILED_AFTER_RETRIES') {
-        throw new Error('Archive sync timed out. Check your link.');
-      }
-      if (err.name === 'TypeError' && err.message === 'Failed to fetch') throw new Error('CORS_ERROR');
-      throw err;
-    }
+    const response = await this.fetchWithRetry(loginUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ username: username.trim(), password }),
+    });
+    if (!response.ok) throw new Error(await response.text() || `Login failed: ${response.status}`);
+    return response.json();
   }
 
   private async fetchApi(endpoint: string, options: RequestInit = {}) {
     const path = endpoint.startsWith('/api/') ? endpoint : `/api${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
     const url = `${this.serverUrl}${path}`;
-    
     try {
       const response = await ABSService.fetchWithRetry(url, {
         ...options,
-        mode: 'cors',
-        credentials: 'include',
-        cache: 'no-store',
         headers: {
           'Authorization': `Bearer ${this.token}`,
           'Content-Type': 'application/json',
@@ -116,10 +80,7 @@ export class ABSService {
           ...options.headers,
         },
       });
-
-      if (response.status === 404) return null;
       if (!response.ok) return null;
-      
       return response.json();
     } catch (e) {
       console.error(`API Fetch Error: ${endpoint}`, e);
@@ -134,11 +95,22 @@ export class ABSService {
     return isNaN(parsed) ? (parseInt(date, 10) || 0) : parsed;
   }
 
-  /**
-   * Reverted to /api/me/progress/:id as /api/users/me/progress was returning 404
-   */
   async getProgress(itemId: string): Promise<ABSProgress | null> {
     return this.fetchApi(`/me/progress/${itemId}`);
+  }
+
+  // Implementation of saveProgress to fix the missing property error in Player.tsx
+  async saveProgress(itemId: string, currentTime: number, duration: number): Promise<void> {
+    const progress = duration > 0 ? currentTime / duration : 0;
+    await this.fetchApi(`/me/progress/${itemId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        currentTime,
+        duration,
+        progress,
+        isFinished: progress >= 0.99
+      })
+    });
   }
 
   async ensureLibraryId(): Promise<string> {
@@ -161,31 +133,32 @@ export class ABSService {
     return this.fetchApi(`/items/${id}?include=progress`);
   }
 
-  async startPlaybackSession(itemId: string): Promise<any> {
-    return this.fetchApi(`/items/${itemId}/play`, { method: 'POST' });
+  async startPlaybackSession(itemId: string, deviceInfo: any, supportedMimeTypes: string[], forceTranscode = false): Promise<ABSPlaybackSession | null> {
+    const payload = {
+      deviceInfo,
+      supportedMimeTypes,
+      mediaPlayer: 'html5',
+      forceTranscode,
+      forceDirectPlay: false
+    };
+    return this.fetchApi(`/items/${itemId}/play`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
   }
 
-  async saveProgress(itemId: string, currentTime: number, duration: number): Promise<void> {
-    const progressData = {
-      currentTime,
-      progress: duration > 0 ? currentTime / duration : 0,
-      isFinished: currentTime >= duration - 10 && duration > 0
-    };
-    try {
-      // Reverted to /api/me/progress/:id
-      await ABSService.fetchWithRetry(`${this.serverUrl}/api/me/progress/${itemId}`, {
-        method: 'PATCH',
-        mode: 'cors',
-        credentials: 'include',
-        headers: {
-          'Authorization': `Bearer ${this.token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(progressData),
-      });
-    } catch (e) {
-      console.warn("Progress sync failed", e);
-    }
+  async syncSession(sessionId: string, timeListened: number, currentTime: number): Promise<void> {
+    await this.fetchApi(`/session/${sessionId}/sync`, {
+      method: 'POST',
+      body: JSON.stringify({ timeListened, currentTime })
+    });
+  }
+
+  async closeSession(sessionId: string, syncData?: { timeListened: number, currentTime: number }): Promise<void> {
+    await this.fetchApi(`/session/${sessionId}/close`, {
+      method: 'POST',
+      body: syncData ? JSON.stringify(syncData) : undefined
+    });
   }
 
   getCoverUrl(itemId: string): string {

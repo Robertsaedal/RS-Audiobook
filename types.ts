@@ -20,6 +20,16 @@ export interface ABSAudioFile {
   metadata?: any;
 }
 
+export interface ABSAudioTrack {
+  index: number;
+  startOffset: number;
+  duration: number;
+  title: string;
+  contentUrl: string;
+  mimeType: string;
+  metadata?: any;
+}
+
 export interface ABSLibraryItem {
   id: string;
   addedDate: number | string;
@@ -51,6 +61,12 @@ export interface ABSProgress {
 
 export interface ABSPlaybackSession {
   id: string;
+  libraryItem: ABSLibraryItem;
+  audioTracks: ABSAudioTrack[];
+  displayTitle: string;
+  displayAuthor: string;
+  currentTime: number;
+  playMethod: number;
 }
 
 export interface AuthState {
@@ -63,3 +79,8 @@ export enum AppScreen {
   LIBRARY = 'LIBRARY',
   PLAYER = 'PLAYER'
 }
+
+export const PlayMethod = {
+  DIRECTPLAY: 0,
+  TRANSCODE: 1
+};
