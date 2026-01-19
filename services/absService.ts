@@ -13,14 +13,8 @@ export class ABSService {
     this.initSocket();
   }
 
-  /**
-   * Cleans and normalizes the server URL, stripping trailing slashes
-   * and ensuring the /api segment is managed by the service methods.
-   */
   private static normalizeUrl(url: string): string {
     let clean = url.trim().replace(/\/+$/, '');
-    
-    // Specifically remove /api or /api/ if the user included it
     clean = clean.replace(/\/api\/?$/, '');
     
     if (clean && !clean.startsWith('http')) {
@@ -41,9 +35,6 @@ export class ABSService {
     });
   }
 
-  /**
-   * Enhanced fetch with 5s timeout and 3 retries for high availability.
-   */
   private static async fetchWithRetry(url: string, options: RequestInit, retries = 3, timeout = 5000): Promise<Response> {
     let lastError: Error | null = null;
     
@@ -58,8 +49,6 @@ export class ABSService {
         });
         clearTimeout(id);
         
-        // Return if successful or a standard client error (e.g. 401, 404, 403)
-        // We only retry on network failures or 5xx server errors
         if (response.ok || (response.status >= 400 && response.status < 500)) {
           return response;
         }
@@ -68,16 +57,8 @@ export class ABSService {
       } catch (e: any) {
         clearTimeout(id);
         lastError = e;
-        
-        // If it's an abort, it's a timeout
-        if (e.name === 'AbortError') {
-          console.warn(`Attempt ${i + 1} timed out for ${url}`);
-        }
-        
-        if (i < retries - 1) {
-          // Exponential backoff
-          await new Promise(resolve => setTimeout(resolve, 500 * (i + 1)));
-        }
+        if (e.name === 'AbortError') console.warn(`Attempt ${i + 1} timed out for ${url}`);
+        if (i < retries - 1) await new Promise(resolve => setTimeout(resolve, 500 * (i + 1)));
       }
     }
     
@@ -86,8 +67,10 @@ export class ABSService {
 
   static async login(serverUrl: string, username: string, password: string): Promise<any> {
     const baseUrl = this.normalizeUrl(serverUrl);
+    const loginUrl = `${baseUrl}/api/login`;
+    
     try {
-      const response = await this.fetchWithRetry(`${baseUrl}/login`, {
+      const response = await this.fetchWithRetry(loginUrl, {
         method: 'POST',
         mode: 'cors',
         headers: { 
@@ -110,12 +93,8 @@ export class ABSService {
     }
   }
 
-  /**
-   * Standard fetch utility for all API calls
-   */
   private async fetchApi(endpoint: string, options: RequestInit = {}) {
-    // Ensure we don't double up on slashes
-    const path = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    const path = endpoint.startsWith('/api/') ? endpoint : `/api${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
     const url = `${this.serverUrl}${path}`;
     
     try {
@@ -148,17 +127,15 @@ export class ABSService {
   }
 
   /**
-   * Fetches user progress. Returns null if not found (404), which allows the 
-   * player to default to 0.
+   * Fetches user progress using corrected path /api/users/me/progress/:id
    */
   async getProgress(itemId: string): Promise<ABSProgress | null> {
-    // Standard Audiobookshelf path is /api/me/progress/:id
-    return this.fetchApi(`/api/me/progress/${itemId}`);
+    return this.fetchApi(`/users/me/progress/${itemId}`);
   }
 
   async ensureLibraryId(): Promise<string> {
     if (this.libraryId) return this.libraryId;
-    const data = await this.fetchApi('/api/libraries');
+    const data = await this.fetchApi('/libraries');
     const libraries = data?.libraries || data || [];
     const audioLibrary = libraries.find((l: any) => l.mediaType === 'audiobook') || libraries[0];
     this.libraryId = audioLibrary?.id;
@@ -168,16 +145,16 @@ export class ABSService {
   async getLibraryItems(): Promise<ABSLibraryItem[]> {
     const libId = await this.ensureLibraryId();
     if (!libId) return [];
-    const data = await this.fetchApi(`/api/libraries/${libId}/items?include=progress`);
+    const data = await this.fetchApi(`/libraries/${libId}/items?include=progress`);
     return data?.results || data || [];
   }
 
   async getItemDetails(id: string): Promise<ABSLibraryItem> {
-    return this.fetchApi(`/api/items/${id}?include=progress`);
+    return this.fetchApi(`/items/${id}?include=progress`);
   }
 
   async startPlaybackSession(itemId: string): Promise<any> {
-    return this.fetchApi(`/api/items/${itemId}/play`, { method: 'POST' });
+    return this.fetchApi(`/items/${itemId}/play`, { method: 'POST' });
   }
 
   async saveProgress(itemId: string, currentTime: number, duration: number): Promise<void> {
@@ -187,7 +164,7 @@ export class ABSService {
       isFinished: currentTime >= duration - 10 && duration > 0
     };
     try {
-      await ABSService.fetchWithRetry(`${this.serverUrl}/api/me/progress/${itemId}`, {
+      await ABSService.fetchWithRetry(`${this.serverUrl}/api/users/me/progress/${itemId}`, {
         method: 'PATCH',
         mode: 'cors',
         headers: {
@@ -203,6 +180,13 @@ export class ABSService {
 
   getCoverUrl(itemId: string): string {
     return `${this.serverUrl}/api/items/${itemId}/cover?token=${this.token}`;
+  }
+
+  /**
+   * Constructs the HLS stream URL using the domain and token.
+   */
+  getHlsStreamUrl(itemId: string): string {
+    return `${this.serverUrl}/hls/${itemId}?token=${this.token}`;
   }
 
   onProgressUpdate(callback: (progress: ABSProgress) => void) {
