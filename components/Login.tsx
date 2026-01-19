@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { AuthState } from '../types';
 import { ABSService } from '../services/absService';
-import { ShieldAlert, Link as LinkIcon, User, Lock, Activity } from 'lucide-react';
+import { ShieldAlert, Link as LinkIcon, User, Lock, Activity, Headphones } from 'lucide-react';
 
 interface LoginProps {
   onLogin: (auth: AuthState) => void;
@@ -29,7 +29,11 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
       onLogin({
         serverUrl: finalUrl,
-        user: { id: data.user.id, username: data.user.username, token: data.user.token }
+        user: { 
+          id: data.user.id, 
+          username: data.user.username, 
+          token: data.user.token 
+        }
       });
     } catch (err: any) {
       if (err.message === 'CORS_ERROR') {
@@ -44,7 +48,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
           </div>
         );
       } else {
-        setError(err.message || 'Connection failed');
+        setError(err.message || 'Access Denied: Check Credentials');
       }
     } finally {
       setLoading(false);
@@ -57,8 +61,16 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         <div className="absolute -top-24 left-1/2 -translate-x-1/2 w-64 h-64 bg-purple-600/10 rounded-full blur-[100px] pointer-events-none" />
         
         <div className="text-center relative flex flex-col items-center">
-          <div className="w-20 h-20 rounded-3xl overflow-hidden shadow-2xl mb-6 bg-neutral-900 border border-white/5">
-            <img src="/logo.png" alt="Logo" className="w-full h-full object-cover" />
+          <div className="w-20 h-20 rounded-3xl overflow-hidden shadow-2xl mb-6 bg-neutral-900 border border-white/5 flex items-center justify-center relative">
+            <img 
+              src="/logo.png" 
+              alt="R.S Audio Logo" 
+              className="w-full h-full object-cover z-10" 
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.display = 'none';
+              }}
+            />
+            <Headphones size={32} className="text-purple-500 absolute" />
           </div>
           <h1 className="text-3xl font-black tracking-tighter text-purple-500 mb-2 drop-shadow-aether-glow leading-tight">R.S AUDIOBOOK PLAYER</h1>
           <div className="flex items-center justify-center gap-2">
@@ -120,7 +132,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             disabled={loading}
             className="w-full gradient-aether py-6 rounded-[24px] font-black text-lg tracking-[0.2em] shadow-aether-glow active:scale-95 transition-all text-white mt-4 disabled:opacity-50 disabled:scale-100"
           >
-            {loading ? 'INITIALIZING LINK...' : 'CONNECT'}
+            {loading ? 'AUTHENTICATING...' : 'CONNECT'}
           </button>
         </form>
 

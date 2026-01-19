@@ -67,16 +67,22 @@ export class ABSService {
 
   static async login(serverUrl: string, username: string, password: string): Promise<any> {
     const baseUrl = this.normalizeUrl(serverUrl);
-    const loginUrl = `${baseUrl}/api/login`;
+    // User explicitly requested /login instead of /api/login for this specific server config
+    const loginUrl = `${baseUrl}/login`;
     
     try {
       const response = await this.fetchWithRetry(loginUrl, {
         method: 'POST',
         mode: 'cors',
+        credentials: 'include', 
         headers: { 
-          'Content-Type': 'application/json' 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
         },
-        body: JSON.stringify({ username: username.trim(), password }),
+        body: JSON.stringify({ 
+          username: username.trim(), 
+          password: password 
+        }),
       });
 
       if (!response.ok) {
@@ -101,10 +107,12 @@ export class ABSService {
       const response = await ABSService.fetchWithRetry(url, {
         ...options,
         mode: 'cors',
+        credentials: 'include',
         cache: 'no-store',
         headers: {
           'Authorization': `Bearer ${this.token}`,
           'Content-Type': 'application/json',
+          'Accept': 'application/json',
           ...options.headers,
         },
       });
@@ -126,10 +134,8 @@ export class ABSService {
     return isNaN(parsed) ? (parseInt(date, 10) || 0) : parsed;
   }
 
-  /**
-   * Fetches user progress using corrected path /api/users/me/progress/:id
-   */
   async getProgress(itemId: string): Promise<ABSProgress | null> {
+    // Standard ABS path: /api/users/me/progress/:id
     return this.fetchApi(`/users/me/progress/${itemId}`);
   }
 
@@ -167,6 +173,7 @@ export class ABSService {
       await ABSService.fetchWithRetry(`${this.serverUrl}/api/users/me/progress/${itemId}`, {
         method: 'PATCH',
         mode: 'cors',
+        credentials: 'include',
         headers: {
           'Authorization': `Bearer ${this.token}`,
           'Content-Type': 'application/json',
@@ -182,9 +189,6 @@ export class ABSService {
     return `${this.serverUrl}/api/items/${itemId}/cover?token=${this.token}`;
   }
 
-  /**
-   * Constructs the HLS stream URL using the domain and token.
-   */
   getHlsStreamUrl(itemId: string): string {
     return `${this.serverUrl}/hls/${itemId}?token=${this.token}`;
   }
