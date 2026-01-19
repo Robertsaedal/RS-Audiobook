@@ -2,6 +2,15 @@
 import { ABSUser, ABSLibraryItem, ABSProgress, ABSPlaybackSession } from '../types';
 import { io, Socket } from 'socket.io-client';
 
+export interface LibraryQueryParams {
+  limit?: number;
+  offset?: number;
+  sort?: string;
+  desc?: number;
+  filter?: string;
+  search?: string;
+}
+
 export class ABSService {
   private serverUrl: string;
   private token: string;
@@ -66,9 +75,6 @@ export class ABSService {
     throw lastError || new Error('FAILED_AFTER_RETRIES');
   }
 
-  /**
-   * Official Login Pattern: POST to /login
-   */
   static async login(serverUrl: string, username: string, password: string): Promise<any> {
     const baseUrl = this.normalizeUrl(serverUrl);
     const loginUrl = `${baseUrl}/login`;
@@ -85,10 +91,6 @@ export class ABSService {
     return data;
   }
 
-  /**
-   * Official Authorization Pattern: POST /api/authorize
-   * Updated to POST with empty body to match official API spec requirements.
-   */
   static async authorize(serverUrl: string, token: string): Promise<any> {
     const baseUrl = this.normalizeUrl(serverUrl);
     const authUrl = `${baseUrl}/api/authorize`;
@@ -137,6 +139,41 @@ export class ABSService {
     return isNaN(parsed) ? (parseInt(date, 10) || 0) : parsed;
   }
 
+  async ensureLibraryId(): Promise<string> {
+    if (this.libraryId) return this.libraryId;
+    const data = await this.fetchApi('/libraries');
+    const libraries = data?.libraries || data || [];
+    const audioLibrary = libraries.find((l: any) => l.mediaType === 'audiobook') || libraries[0];
+    this.libraryId = audioLibrary?.id;
+    return this.libraryId!;
+  }
+
+  async getLibraryItemsPaged(params: LibraryQueryParams): Promise<{ results: ABSLibraryItem[], total: number }> {
+    const libId = await this.ensureLibraryId();
+    if (!libId) return { results: [], total: 0 };
+    
+    const query = new URLSearchParams();
+    if (params.limit) query.append('limit', params.limit.toString());
+    if (params.offset) query.append('offset', params.offset.toString());
+    if (params.sort) query.append('sort', params.sort);
+    if (params.desc !== undefined) query.append('desc', params.desc.toString());
+    if (params.filter) query.append('filter', params.filter);
+    if (params.search) query.append('search', params.search);
+    query.append('include', 'progress');
+
+    const data = await this.fetchApi(`/libraries/${libId}/items?${query.toString()}`);
+    return {
+      results: data?.results || data || [],
+      total: data?.total || (data?.results?.length || 0)
+    };
+  }
+
+  async getSeriesItems(seriesId: string): Promise<ABSLibraryItem[]> {
+    const libId = await this.ensureLibraryId();
+    const data = await this.fetchApi(`/libraries/${libId}/series/${seriesId}?include=progress`);
+    return data?.books || data?.results || [];
+  }
+
   async getProgress(itemId: string): Promise<ABSProgress | null> {
     return this.fetchApi(`/me/progress/${itemId}`);
   }
@@ -152,26 +189,6 @@ export class ABSService {
         isFinished: progress >= 0.99
       })
     });
-  }
-
-  async ensureLibraryId(): Promise<string> {
-    if (this.libraryId) return this.libraryId;
-    const data = await this.fetchApi('/libraries');
-    const libraries = data?.libraries || data || [];
-    const audioLibrary = libraries.find((l: any) => l.mediaType === 'audiobook') || libraries[0];
-    this.libraryId = audioLibrary?.id;
-    return this.libraryId!;
-  }
-
-  async getLibraryItems(): Promise<ABSLibraryItem[]> {
-    const libId = await this.ensureLibraryId();
-    if (!libId) return [];
-    const data = await this.fetchApi(`/libraries/${libId}/items?include=progress`);
-    return data?.results || data || [];
-  }
-
-  async getItemDetails(id: string): Promise<ABSLibraryItem> {
-    return this.fetchApi(`/items/${id}?include=progress`);
   }
 
   async startPlaybackSession(itemId: string, deviceInfo: any, supportedMimeTypes: string[], forceTranscode = false): Promise<ABSPlaybackSession | null> {
@@ -215,6 +232,7 @@ export class ABSService {
   onLibraryUpdate(callback: () => void) {
     this.socket?.on('item_added', callback);
     this.socket?.on('item_removed', callback);
+    this.socket?.on('series_updated', callback);
   }
 
   disconnect() {

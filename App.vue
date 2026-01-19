@@ -10,6 +10,7 @@ const currentView = ref<'login' | 'library' | 'player'>('login');
 const auth = ref<AuthState | null>(null);
 const selectedItem = ref<ABSLibraryItem | null>(null);
 const isInitializing = ref(true);
+const isStreaming = ref(false);
 
 onMounted(() => {
   const savedAuth = localStorage.getItem('rs_auth');
@@ -39,6 +40,7 @@ const handleLogout = () => {
 const openPlayer = (item: ABSLibraryItem) => {
   selectedItem.value = item;
   currentView.value = 'player';
+  isStreaming.value = true;
 };
 
 const closePlayer = () => {
@@ -57,7 +59,7 @@ const closePlayer = () => {
     <template v-else>
       <Transition name="fade" mode="out-in">
         <Login v-if="currentView === 'login'" @login="handleLogin" />
-        <Library v-else-if="currentView === 'library' && auth" :auth="auth" @select-item="openPlayer" @logout="handleLogout" />
+        <Library v-else-if="currentView === 'library' && auth" :auth="auth" :isStreaming="isStreaming" @select-item="openPlayer" @logout="handleLogout" />
         <Player v-else-if="currentView === 'player' && auth && selectedItem" :auth="auth" :item="selectedItem" @back="closePlayer" />
       </Transition>
     </template>
