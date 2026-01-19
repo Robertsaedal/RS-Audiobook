@@ -13,9 +13,15 @@ export class ABSService {
     this.initSocket();
   }
 
+  /**
+   * Cleans and normalizes the server URL, stripping trailing slashes
+   * and ensuring the /api segment is managed by the service methods.
+   */
   private static normalizeUrl(url: string): string {
     let clean = url.trim().replace(/\/+$/, '');
-    clean = clean.replace(/\/api$/, '');
+    
+    // Specifically remove /api or /api/ if the user included it
+    clean = clean.replace(/\/api\/?$/, '');
     
     if (clean && !clean.startsWith('http')) {
       const protocol = window.location.protocol === 'https:' ? 'https://' : 'http://';
@@ -36,7 +42,7 @@ export class ABSService {
   }
 
   /**
-   * Enhanced fetch with 5s timeout and 3 retries
+   * Enhanced fetch with 5s timeout and 3 retries for high availability.
    */
   private static async fetchWithRetry(url: string, options: RequestInit, retries = 3, timeout = 5000): Promise<Response> {
     let lastError: Error | null = null;
@@ -52,25 +58,24 @@ export class ABSService {
         });
         clearTimeout(id);
         
-        // Return if successful or if it's a client error (no point retrying 401/404)
-        if (response.ok || response.status < 500) {
+        // Return if successful or a standard client error (e.g. 401, 404, 403)
+        // We only retry on network failures or 5xx server errors
+        if (response.ok || (response.status >= 400 && response.status < 500)) {
           return response;
         }
         
-        // Server errors (5xx) might benefit from retry
         throw new Error(`SERVER_ERROR_${response.status}`);
       } catch (e: any) {
         clearTimeout(id);
         lastError = e;
         
+        // If it's an abort, it's a timeout
         if (e.name === 'AbortError') {
           console.warn(`Attempt ${i + 1} timed out for ${url}`);
-        } else {
-          console.warn(`Attempt ${i + 1} failed for ${url}:`, e.message);
         }
         
-        // Wait before retrying (exponential backoff)
         if (i < retries - 1) {
+          // Exponential backoff
           await new Promise(resolve => setTimeout(resolve, 500 * (i + 1)));
         }
       }
@@ -98,15 +103,21 @@ export class ABSService {
       return response.json();
     } catch (err: any) {
       if (err.name === 'AbortError' || err.message === 'FAILED_AFTER_RETRIES') {
-        throw new Error('Server link timeout. Check connection.');
+        throw new Error('Archive sync timed out. Check your link.');
       }
       if (err.name === 'TypeError' && err.message === 'Failed to fetch') throw new Error('CORS_ERROR');
       throw err;
     }
   }
 
+  /**
+   * Standard fetch utility for all API calls
+   */
   private async fetchApi(endpoint: string, options: RequestInit = {}) {
-    const url = `${this.serverUrl}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
+    // Ensure we don't double up on slashes
+    const path = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    const url = `${this.serverUrl}${path}`;
+    
     try {
       const response = await ABSService.fetchWithRetry(url, {
         ...options,
@@ -118,7 +129,10 @@ export class ABSService {
           ...options.headers,
         },
       });
+
+      if (response.status === 404) return null;
       if (!response.ok) return null;
+      
       return response.json();
     } catch (e) {
       console.error(`API Fetch Error: ${endpoint}`, e);
@@ -133,7 +147,12 @@ export class ABSService {
     return isNaN(parsed) ? (parseInt(date, 10) || 0) : parsed;
   }
 
+  /**
+   * Fetches user progress. Returns null if not found (404), which allows the 
+   * player to default to 0.
+   */
   async getProgress(itemId: string): Promise<ABSProgress | null> {
+    // Standard Audiobookshelf path is /api/me/progress/:id
     return this.fetchApi(`/api/me/progress/${itemId}`);
   }
 
@@ -168,7 +187,6 @@ export class ABSService {
       isFinished: currentTime >= duration - 10 && duration > 0
     };
     try {
-      // Use retry logic even for progress saving to ensure continuity
       await ABSService.fetchWithRetry(`${this.serverUrl}/api/me/progress/${itemId}`, {
         method: 'PATCH',
         mode: 'cors',
@@ -179,7 +197,7 @@ export class ABSService {
         body: JSON.stringify(progressData),
       });
     } catch (e) {
-      console.warn("Sync failed", e);
+      console.warn("Progress sync failed", e);
     }
   }
 

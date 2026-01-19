@@ -129,12 +129,21 @@ const Player: React.FC<PlayerProps> = ({ auth, item, onBack }) => {
         }
 
         setChapters(details.media.chapters || []);
-        const progress = details.userProgress || await absService.getProgress(item.id);
+        
+        // Error resilient progress fetching
+        let progress = details.userProgress;
+        if (!progress) {
+          try {
+            progress = await absService.getProgress(item.id);
+          } catch (e) {
+            console.warn("Failed to fetch progress, defaulting to zero.", e);
+          }
+        }
+        
         const startAt = progress?.currentTime || 0;
 
         const audio = audioRef.current;
         if (audio) {
-          // CRITICAL: Set crossOrigin BEFORE any source assignment
           audio.crossOrigin = 'anonymous';
           
           const hlsUrl = `${auth.serverUrl}/api/items/${item.id}/play/${playbackSession.id}/hls/m3u8?token=${auth.user?.token}`;
@@ -194,7 +203,6 @@ const Player: React.FC<PlayerProps> = ({ auth, item, onBack }) => {
             // Native HLS (iOS/Safari)
             audio.src = hlsUrl;
             
-            // For iOS, wait for canplay to seek correctly
             const onCanPlay = () => {
               if (isMounted.current) {
                 if (loadTimeoutRef.current) clearTimeout(loadTimeoutRef.current);
@@ -246,7 +254,6 @@ const Player: React.FC<PlayerProps> = ({ auth, item, onBack }) => {
   }, [item.id, duration, absService]);
 
   useEffect(() => {
-    // Sync progress to server every 10 seconds while playing
     if (isPlaying) syncIntervalRef.current = window.setInterval(saveProgress, 10000);
     return () => { 
       if (syncIntervalRef.current) clearInterval(syncIntervalRef.current); 
