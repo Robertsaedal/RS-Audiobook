@@ -67,7 +67,7 @@ export class ABSService {
 
   static async login(serverUrl: string, username: string, password: string): Promise<any> {
     const baseUrl = this.normalizeUrl(serverUrl);
-    // User explicitly requested /login instead of /api/login for this specific server config
+    // Specifically /login without /api as per latest server configuration
     const loginUrl = `${baseUrl}/login`;
     
     try {
@@ -134,9 +134,11 @@ export class ABSService {
     return isNaN(parsed) ? (parseInt(date, 10) || 0) : parsed;
   }
 
+  /**
+   * Reverted to /api/me/progress/:id as /api/users/me/progress was returning 404
+   */
   async getProgress(itemId: string): Promise<ABSProgress | null> {
-    // Standard ABS path: /api/users/me/progress/:id
-    return this.fetchApi(`/users/me/progress/${itemId}`);
+    return this.fetchApi(`/me/progress/${itemId}`);
   }
 
   async ensureLibraryId(): Promise<string> {
@@ -170,7 +172,8 @@ export class ABSService {
       isFinished: currentTime >= duration - 10 && duration > 0
     };
     try {
-      await ABSService.fetchWithRetry(`${this.serverUrl}/api/users/me/progress/${itemId}`, {
+      // Reverted to /api/me/progress/:id
+      await ABSService.fetchWithRetry(`${this.serverUrl}/api/me/progress/${itemId}`, {
         method: 'PATCH',
         mode: 'cors',
         credentials: 'include',
