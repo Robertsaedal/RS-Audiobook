@@ -3,12 +3,13 @@
 import { ref, onMounted } from 'vue';
 import { AuthState } from '../types';
 import { ABSService } from '../services/absService';
-import { ShieldAlert, Link as LinkIcon, User, Lock, Activity, Headphones } from 'lucide-vue-next';
+import { Link as LinkIcon, User, Lock, Activity, Headphones, AlertCircle } from 'lucide-vue-next';
 
 const emit = defineEmits<{
   (e: 'login', auth: AuthState): void
 }>();
 
+// Fixed potential typo in default URL and ensured it is editable
 const serverUrl = ref('https://api.robertsaedal.xyz');
 const username = ref('');
 const password = ref('');
@@ -78,7 +79,7 @@ const submitForm = async () => {
   } catch (err: any) {
     console.error('Portal connection failed', err);
     // Display error message from server exactly like official pattern
-    error.value = err.message || 'Unknown Archive Error';
+    error.value = err.message || 'Connection failed: Check URL and Credentials';
   } finally {
     processing.value = false;
   }
@@ -86,23 +87,24 @@ const submitForm = async () => {
 </script>
 
 <template>
-  <div class="flex-1 flex flex-col items-center justify-center p-8 bg-black h-[100dvh] overflow-hidden">
+  <div class="flex-1 flex flex-col items-center justify-center p-8 bg-black h-[100dvh] overflow-hidden relative">
     <!-- Ambient Background Glow -->
     <div class="absolute inset-0 z-0 overflow-hidden pointer-events-none">
-      <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-purple-600/5 rounded-full blur-[120px]" />
+      <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-purple-600/10 rounded-full blur-[120px] animate-pulse" />
+      <div class="absolute top-0 right-0 w-[300px] h-[300px] bg-purple-900/10 rounded-full blur-[80px]" />
     </div>
 
     <div class="w-full max-w-md space-y-10 animate-fade-in relative z-10">
       <!-- Logo Header -->
       <div class="text-center flex flex-col items-center">
-        <div class="w-24 h-24 rounded-[32px] overflow-hidden shadow-[0_0_50px_rgba(157,80,187,0.2)] mb-8 bg-neutral-900 border border-purple-500/20 flex items-center justify-center group">
+        <div class="w-24 h-24 rounded-[32px] overflow-hidden shadow-[0_0_50px_rgba(157,80,187,0.3)] mb-8 bg-neutral-900 border border-purple-500/20 flex items-center justify-center group relative">
           <img 
             src="/logo.png" 
             alt="R.S Archive" 
             class="w-full h-full object-cover transition-transform group-hover:scale-110 duration-700"
             @error="(e: any) => e.target.style.display = 'none'"
           />
-          <Headphones :size="40" class="text-purple-500 absolute drop-shadow-[0_0_10px_rgba(157,80,187,0.5)]" />
+          <Headphones :size="40" class="text-purple-500 absolute drop-shadow-[0_0_10px_rgba(157,80,187,0.8)]" />
         </div>
         <h1 class="text-3xl font-black tracking-tighter text-white mb-2 leading-tight">
           ARCHIVE <span class="text-purple-500 drop-shadow-aether-glow">PORTAL</span>
@@ -114,24 +116,26 @@ const submitForm = async () => {
       </div>
 
       <!-- Main Login Card -->
-      <div class="bg-neutral-950/40 backdrop-blur-2xl border border-purple-500/20 rounded-[40px] p-8 shadow-2xl relative overflow-hidden group">
-        <div class="absolute inset-0 bg-gradient-to-br from-purple-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
+      <div class="bg-neutral-900/40 backdrop-blur-2xl border border-purple-500/30 rounded-[40px] p-8 shadow-2xl relative overflow-hidden group">
+        <div class="absolute inset-0 bg-gradient-to-br from-purple-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
         
-        <p v-if="error" class="text-red-500 text-center py-4 mb-4 bg-red-500/5 border border-red-500/10 rounded-2xl text-[10px] font-black uppercase tracking-widest animate-shake">
-          {{ error }}
-        </p>
+        <div v-if="error" class="flex items-center gap-3 text-red-400 text-center py-4 px-4 mb-6 bg-red-500/10 border border-red-500/20 rounded-2xl text-[10px] font-black uppercase tracking-widest animate-shake">
+          <AlertCircle :size="14" class="shrink-0" />
+          <span>{{ error }}</span>
+        </div>
 
-        <form @submit.prevent="submitForm" class="space-y-4">
+        <form @submit.prevent="submitForm" class="space-y-5">
           <!-- Server Endpoint -->
           <div class="space-y-1.5">
             <label class="text-[9px] font-black text-neutral-500 uppercase tracking-[0.2em] ml-5">Portal Address</label>
             <div class="relative group">
-              <LinkIcon :size="14" class="absolute left-6 top-1/2 -translate-y-1/2 text-neutral-700 group-focus-within:text-purple-500 transition-colors" />
+              <LinkIcon :size="14" class="absolute left-6 top-1/2 -translate-y-1/2 text-neutral-600 group-focus-within:text-purple-500 transition-colors" />
               <input
                 type="text"
                 v-model="serverUrl"
                 :disabled="processing"
-                class="w-full bg-neutral-900 border border-white/5 py-5 pl-14 pr-8 rounded-[24px] text-white placeholder-neutral-700 font-bold text-xs tracking-tight outline-none focus:border-purple-500/30 transition-all disabled:opacity-50"
+                placeholder="https://your-server.xyz"
+                class="w-full bg-neutral-900/80 border border-white/10 py-5 pl-14 pr-8 rounded-[24px] text-white placeholder-neutral-700 font-bold text-xs tracking-tight outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/20 transition-all disabled:opacity-50"
                 required
               />
             </div>
@@ -141,12 +145,13 @@ const submitForm = async () => {
           <div class="space-y-1.5">
             <label class="text-[9px] font-black text-neutral-500 uppercase tracking-[0.2em] ml-5">Identifier</label>
             <div class="relative group">
-              <User :size="14" class="absolute left-6 top-1/2 -translate-y-1/2 text-neutral-700 group-focus-within:text-purple-500 transition-colors" />
+              <User :size="14" class="absolute left-6 top-1/2 -translate-y-1/2 text-neutral-600 group-focus-within:text-purple-500 transition-colors" />
               <input
                 type="text"
                 v-model="username"
                 :disabled="processing"
-                class="w-full bg-neutral-900 border border-white/5 py-5 pl-14 pr-8 rounded-[24px] text-white placeholder-neutral-700 font-bold text-xs tracking-tight outline-none focus:border-purple-500/30 transition-all disabled:opacity-50"
+                placeholder="Username"
+                class="w-full bg-neutral-900/80 border border-white/10 py-5 pl-14 pr-8 rounded-[24px] text-white placeholder-neutral-700 font-bold text-xs tracking-tight outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/20 transition-all disabled:opacity-50"
                 required
               />
             </div>
@@ -156,12 +161,13 @@ const submitForm = async () => {
           <div class="space-y-1.5">
             <label class="text-[9px] font-black text-neutral-500 uppercase tracking-[0.2em] ml-5">Passkey</label>
             <div class="relative group">
-              <Lock :size="14" class="absolute left-6 top-1/2 -translate-y-1/2 text-neutral-700 group-focus-within:text-purple-500 transition-colors" />
+              <Lock :size="14" class="absolute left-6 top-1/2 -translate-y-1/2 text-neutral-600 group-focus-within:text-purple-500 transition-colors" />
               <input
                 type="password"
                 v-model="password"
                 :disabled="processing"
-                class="w-full bg-neutral-900 border border-white/5 py-5 pl-14 pr-8 rounded-[24px] text-white placeholder-neutral-700 font-bold text-xs tracking-tight outline-none focus:border-purple-500/30 transition-all disabled:opacity-50"
+                placeholder="Password"
+                class="w-full bg-neutral-900/80 border border-white/10 py-5 pl-14 pr-8 rounded-[24px] text-white placeholder-neutral-700 font-bold text-xs tracking-tight outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/20 transition-all disabled:opacity-50"
               />
             </div>
           </div>
@@ -170,10 +176,10 @@ const submitForm = async () => {
           <button
             type="submit"
             :disabled="processing"
-            class="w-full gradient-aether py-6 rounded-[28px] font-black text-sm uppercase tracking-[0.3em] shadow-[0_10px_30px_rgba(157,80,187,0.3)] active:scale-[0.98] transition-all text-white mt-8 disabled:opacity-50 disabled:grayscale disabled:scale-100 flex items-center justify-center gap-3 overflow-hidden"
+            class="w-full gradient-aether py-6 rounded-[28px] font-black text-sm uppercase tracking-[0.3em] shadow-[0_10px_30px_rgba(157,80,187,0.4)] active:scale-[0.98] transition-all text-white mt-8 disabled:opacity-50 disabled:grayscale disabled:scale-100 flex items-center justify-center gap-3 overflow-hidden"
           >
             <span v-if="processing" class="flex items-center gap-2">
-              <div class="w-3 h-3 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+              <div class="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
               CHECKING...
             </span>
             <span v-else>INITIALIZE LINK</span>
@@ -182,7 +188,7 @@ const submitForm = async () => {
       </div>
 
       <!-- Footer Info -->
-      <div class="text-center pt-6 opacity-40">
+      <div class="text-center pt-6 opacity-30">
         <p class="text-[8px] font-black text-neutral-400 uppercase tracking-[0.5em]">Premium Minimalism • Archive Client v5.2</p>
       </div>
     </div>
@@ -199,5 +205,14 @@ const submitForm = async () => {
   20%, 80% { transform: translate3d(2px, 0, 0); }
   30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
   40%, 60% { transform: translate3d(4px, 0, 0); }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 </style>

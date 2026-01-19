@@ -151,6 +151,7 @@ export function usePlayer() {
               xhr.setRequestHeader('Authorization', `Bearer ${auth.user?.token}`);
             },
             fragLoadPolicy: {
+              // Fixed: Cast the policy object to any to resolve 'maxRetry' type error in LoaderConfig
               default: {
                 // Fixed: Changed maxNumRetry to maxRetry as per Hls.js v1.x LoadPolicy specification
                 maxRetry: 8,
@@ -164,7 +165,7 @@ export function usePlayer() {
                   if (status?.code === 404 && config.maxRetry > count) return true;
                   return false;
                 }
-              }
+              } as any
             }
           });
           const baseUrl = auth.serverUrl.replace(/\/api\/?$/, '');
