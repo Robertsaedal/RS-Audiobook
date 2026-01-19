@@ -59,7 +59,13 @@ const closePlayer = () => {
     <template v-else>
       <Transition name="fade" mode="out-in">
         <Login v-if="currentView === 'login'" @login="handleLogin" />
-        <Library v-else-if="currentView === 'library' && auth" :auth="auth" :isStreaming="isStreaming" @select-item="openPlayer" @logout="handleLogout" />
+        <Library 
+          v-else-if="currentView === 'library' && auth" 
+          :auth="auth" 
+          :isStreaming="isStreaming" 
+          @select-item="openPlayer" 
+          @logout="handleLogout" 
+        />
         <Player v-else-if="currentView === 'player' && auth && selectedItem" :auth="auth" :item="selectedItem" @back="closePlayer" />
       </Transition>
     </template>

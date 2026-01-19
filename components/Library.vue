@@ -1,14 +1,14 @@
 
 <script setup lang="ts">
-import { ref, onMounted, computed, onUnmounted, watch } from 'vue';
-import { AuthState, ABSLibraryItem, ABSProgress, ABSSeries } from '../types';
+import { ref, onMounted, onUnmounted } from 'vue';
+import { AuthState, ABSLibraryItem, ABSSeries } from '../types';
 import { ABSService } from '../services/absService';
-import Navigation from './Navigation.vue';
+import LibraryLayout, { LibraryTab } from './LibraryLayout.vue';
 import Bookshelf from './Bookshelf.vue';
 import SeriesShelf from './SeriesShelf.vue';
-import BookCard from './BookCard.vue';
-import { NavTab } from './Navigation.vue';
-import { Search, ChevronRight, Play, ArrowUpDown, Check, LayoutGrid, Layers, Database } from 'lucide-vue-next';
+import SeriesView from './SeriesView.vue';
+import RequestPortal from './RequestPortal.vue';
+import { Search, ArrowUpDown, Check } from 'lucide-vue-next';
 
 const props = defineProps<{
   auth: AuthState,
@@ -22,14 +22,14 @@ const emit = defineEmits<{
 
 const absService = new ABSService(props.auth.serverUrl, props.auth.user?.token || '');
 
-const activeTab = ref<NavTab>('HOME');
-const viewMode = ref<'BOOKS' | 'SERIES'>('BOOKS');
+const activeTab = ref<LibraryTab>('HOME');
 const searchTerm = ref('');
 const sortMethod = ref('ADDEDDATE');
 const desc = ref(1);
 const showSortMenu = ref(false);
 const selectedSeries = ref<ABSSeries | null>(null);
-const seriesItems = ref<ABSLibraryItem[]>([]);
+const isScanning = ref(false);
+const selectedCount = ref(0);
 
 const resumeHero = ref<ABSLibraryItem | null>(null);
 
@@ -50,9 +50,8 @@ onUnmounted(() => {
   absService.disconnect();
 });
 
-const handleSeriesSelect = async (series: ABSSeries) => {
+const handleSeriesSelect = (series: ABSSeries) => {
   selectedSeries.value = series;
-  seriesItems.value = await absService.getSeriesItems(series.id);
 };
 
 const sortOptions = [
@@ -62,17 +61,23 @@ const sortOptions = [
   { value: 'AUTHOR', label: 'By Author' },
 ] as const;
 
-const handleTabChange = (tab: NavTab) => {
+const handleTabChange = (tab: LibraryTab) => {
   activeTab.value = tab;
   selectedSeries.value = null;
-  if (tab === 'SERIES') {
-    viewMode.value = 'SERIES';
-  } else {
-    viewMode.value = 'BOOKS';
+};
+
+const handleScan = async () => {
+  if (isScanning.value) return;
+  isScanning.value = true;
+  try {
+    await absService.scanLibrary();
+  } catch (e) {
+    console.error("Scan failed", e);
+  } finally {
+    setTimeout(() => { isScanning.value = false; }, 5000);
   }
 };
 
-// Listen for updates to hero if playing
 absService.onProgressUpdate((updated) => {
   if (resumeHero.value?.id === updated.itemId) {
     resumeHero.value = { ...resumeHero.value, userProgress: updated };
@@ -81,187 +86,157 @@ absService.onProgressUpdate((updated) => {
 </script>
 
 <template>
-  <div class="flex-1 flex flex-col bg-black min-h-[100dvh]">
-    <Navigation 
-      :activeTab="activeTab" 
-      @tab-change="handleTabChange" 
-      @logout="emit('logout')" 
-    />
-
-    <main class="flex-1 md:ml-64 pb-24 md:pb-8 safe-top overflow-x-hidden">
-      <!-- Search & Sort Header -->
-      <div class="px-6 pt-10 pb-4 space-y-6 shrink-0 md:px-12">
-        <div class="md:hidden flex items-center justify-between mb-8">
-          <div class="flex items-center gap-3">
-            <img src="/logo.png" alt="Logo" class="w-8 h-8 rounded-lg" />
-            <h2 class="text-lg font-black tracking-tighter text-purple-500 drop-shadow-aether-glow">ARCHIVE</h2>
-          </div>
-        </div>
-
-        <div class="flex flex-col sm:flex-row sm:items-center gap-4 max-w-4xl relative">
-          <!-- Search Bar -->
-          <div class="relative group flex-1">
-            <input
-              type="text"
-              placeholder="Search artifacts..."
-              v-model="searchTerm"
-              class="w-full bg-neutral-900/50 border border-white/5 rounded-[24px] py-4 pl-14 pr-6 text-sm text-white placeholder-neutral-800 transition-all focus:ring-1 focus:ring-purple-600/40 outline-none backdrop-blur-sm"
-            />
-            <Search class="w-5 h-5 text-neutral-800 absolute left-5 top-1/2 -translate-y-1/2 group-focus-within:text-purple-500 transition-colors" />
-          </div>
-          
-          <div class="flex items-center gap-3">
-            <!-- View Mode Toggle -->
-            <div class="bg-neutral-950 border border-white/5 p-1 rounded-3xl flex items-center shadow-inner">
-              <button 
-                @click="viewMode = 'BOOKS'; activeTab = 'HOME'"
-                class="flex items-center gap-2 px-5 py-2.5 rounded-2xl transition-all font-black text-[9px] uppercase tracking-widest"
-                :class="viewMode === 'BOOKS' ? 'bg-purple-600 text-white shadow-[0_0_15px_rgba(157,80,187,0.4)]' : 'text-neutral-600 hover:text-neutral-300'"
-              >
-                <Database :size="12" />
-                <span class="hidden sm:inline">Repository</span>
-              </button>
-              <button 
-                @click="viewMode = 'SERIES'; activeTab = 'SERIES'"
-                class="flex items-center gap-2 px-5 py-2.5 rounded-2xl transition-all font-black text-[9px] uppercase tracking-widest"
-                :class="viewMode === 'SERIES' ? 'bg-purple-600 text-white shadow-[0_0_15px_rgba(157,80,187,0.4)]' : 'text-neutral-600 hover:text-neutral-300'"
-              >
-                <Layers :size="12" />
-                <span class="hidden sm:inline">Stacks</span>
-              </button>
-            </div>
-
-            <!-- Sort Menu -->
-            <div class="relative">
-              <button 
-                @click="showSortMenu = !showSortMenu"
-                class="p-4 rounded-[24px] border border-white/5 bg-neutral-900/50 backdrop-blur-sm transition-all active:scale-90"
-                :class="showSortMenu ? 'text-purple-500 border-purple-600/40' : 'text-neutral-500'"
-              >
-                <ArrowUpDown :size="20" />
-              </button>
-              
-              <template v-if="showSortMenu">
-                <div class="fixed inset-0 z-[60]" @click="showSortMenu = false" />
-                <div class="absolute right-0 top-full mt-2 w-56 bg-neutral-950 border border-white/10 rounded-[28px] p-2 shadow-2xl z-[70] animate-fade-in backdrop-blur-xl">
-                  <button
-                    v-for="opt in sortOptions"
-                    :key="opt.value"
-                    @click="sortMethod = opt.value; showSortMenu = false;"
-                    class="w-full flex items-center justify-between px-6 py-4 rounded-[20px] transition-all"
-                    :class="sortMethod === opt.value ? 'bg-purple-600/10 text-white' : 'text-neutral-500 hover:text-neutral-300'"
-                  >
-                    <span class="text-[11px] font-black uppercase tracking-widest">{{ opt.label }}</span>
-                    <Check v-if="sortMethod === opt.value" :size="14" class="text-purple-500" />
-                  </button>
-                </div>
-              </template>
-            </div>
-          </div>
-        </div>
+  <LibraryLayout 
+    :activeTab="activeTab" 
+    :isScanning="isScanning"
+    :isStreaming="isStreaming"
+    :username="auth.user?.username"
+    :selectedCount="selectedCount"
+    @tab-change="handleTabChange" 
+    @logout="emit('logout')"
+    @scan="handleScan"
+    @clear-selection="selectedCount = 0"
+  >
+    <!-- Header Controls (Sub-navigation / Filters) -->
+    <header v-if="activeTab !== 'REQUEST' && !selectedSeries" class="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
+      <div class="space-y-1">
+        <h2 class="text-3xl font-bold tracking-tight text-white uppercase">
+          {{ activeTab === 'HOME' ? 'Dashboard' : activeTab }}
+        </h2>
+        <p class="text-[9px] font-bold uppercase tracking-[0.4em] text-neutral-600">
+          Archives Sector {{ activeTab }}
+        </p>
       </div>
 
-      <div class="px-6 py-4 md:px-12 animate-fade-in max-w-[1600px] mx-auto">
-        
-        <!-- Search Results Overide -->
-        <div v-if="searchTerm" class="space-y-10">
-          <div class="space-y-2">
-            <h3 class="text-3xl font-black uppercase tracking-tighter text-white">Searching Archive</h3>
-            <p class="text-[10px] font-black uppercase tracking-[0.3em] text-neutral-700">QUERYING PORTAL...</p>
-          </div>
+      <div class="flex items-center gap-4">
+        <!-- Search -->
+        <div class="relative group min-w-[280px]">
+          <input
+            type="text"
+            placeholder="Search artifacts..."
+            v-model="searchTerm"
+            class="w-full bg-[#1a1a1a] border border-white/5 rounded-md py-2.5 pl-10 pr-4 text-xs text-white placeholder-neutral-700 focus:border-purple-600/30 outline-none transition-all"
+          />
+          <Search class="w-4 h-4 text-neutral-700 absolute left-3 top-1/2 -translate-y-1/2 group-focus-within:text-purple-500 transition-colors" />
+        </div>
+
+        <!-- Sort -->
+        <div class="relative">
+          <button 
+            @click="showSortMenu = !showSortMenu"
+            class="p-2.5 rounded-md border border-white/5 bg-[#1a1a1a] text-neutral-500 hover:text-white transition-all"
+            :class="{ 'text-purple-400 border-purple-500/20': showSortMenu }"
+          >
+            <ArrowUpDown :size="16" />
+          </button>
+          
+          <Transition name="fade-pop">
+            <div v-if="showSortMenu" class="absolute right-0 top-full mt-2 w-48 bg-[#1a1a1a] border border-white/10 rounded-lg p-1 shadow-2xl z-[70]">
+              <button
+                v-for="opt in sortOptions"
+                :key="opt.value"
+                @click="sortMethod = opt.value; showSortMenu = false;"
+                class="w-full flex items-center justify-between px-4 py-2.5 rounded text-[10px] font-bold uppercase tracking-widest transition-all"
+                :class="sortMethod === opt.value ? 'bg-purple-600/20 text-white' : 'text-neutral-500 hover:text-neutral-300'"
+              >
+                {{ opt.label }}
+                <Check v-if="sortMethod === opt.value" :size="12" class="text-purple-500" />
+              </button>
+            </div>
+          </Transition>
+        </div>
+      </div>
+    </header>
+
+    <!-- Detailed Content View -->
+    <div class="flex-1 min-h-0">
+      <div v-if="searchTerm && !selectedSeries" class="space-y-10">
+        <Bookshelf 
+          :absService="absService" 
+          :sortMethod="sortMethod" 
+          :desc="desc" 
+          :search="searchTerm"
+          :isStreaming="isStreaming"
+          @select-item="emit('select-item', $event)"
+        />
+      </div>
+
+      <SeriesView 
+        v-else-if="selectedSeries"
+        :series="selectedSeries"
+        :absService="absService"
+        @back="selectedSeries = null"
+        @select-item="emit('select-item', $event)"
+      />
+
+      <template v-else>
+        <!-- HOME TAB -->
+        <div v-if="activeTab === 'HOME'" class="space-y-12">
+          <!-- Continue Reading -->
+          <section v-if="resumeHero" class="space-y-6">
+             <h3 class="text-[10px] font-bold uppercase tracking-[0.5em] text-neutral-700">Continue Listening</h3>
+            <div class="relative group w-full aspect-[21/9] bg-[#1a1a1a] rounded-2xl overflow-hidden border border-white/5 cursor-pointer shadow-2xl transition-all hover:border-purple-500/20" @click="emit('select-item', resumeHero!)">
+              <img :src="absService.getCoverUrl(resumeHero.id)" class="w-full h-full object-cover opacity-40 group-hover:opacity-60 transition-opacity" />
+              <div class="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent p-8 flex flex-col justify-end">
+                <h4 class="text-3xl md:text-5xl font-black uppercase tracking-tighter text-white mb-1">{{ resumeHero.media.metadata.title }}</h4>
+                <p class="text-[10px] font-black text-purple-400 uppercase tracking-[0.3em] mb-6">
+                  {{ resumeHero.media.metadata.authorName }}
+                </p>
+                <div class="w-full h-1 bg-white/5 rounded-full overflow-hidden">
+                  <div class="h-full bg-purple-500" :style="{ width: `${(resumeHero.userProgress?.progress || 0) * 100}%` }" />
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Recent Items -->
+          <section class="space-y-6">
+            <h3 class="text-[10px] font-bold uppercase tracking-[0.5em] text-neutral-700">Recently Added</h3>
+            <Bookshelf 
+              :absService="absService" 
+              :sortMethod="'addedDate'" 
+              :desc="1"
+              :isStreaming="isStreaming"
+              @select-item="emit('select-item', $event)"
+            />
+          </section>
+        </div>
+
+        <div v-else-if="activeTab === 'LIBRARY'" class="h-full">
           <Bookshelf 
             :absService="absService" 
             :sortMethod="sortMethod" 
-            :desc="desc" 
-            :search="searchTerm"
+            :desc="desc"
             :isStreaming="isStreaming"
             @select-item="emit('select-item', $event)"
           />
         </div>
 
-        <!-- Series Detail View -->
-        <div v-else-if="selectedSeries" class="space-y-10">
-          <button @click="selectedSeries = null" class="flex items-center gap-2 text-purple-500 text-[10px] font-black uppercase tracking-widest bg-neutral-900/40 px-5 py-2.5 rounded-full border border-white/5 active:scale-95">
-            <ChevronRight class="rotate-180" :size="14" />
-            Back to Archives
-          </button>
-          <div class="space-y-2">
-            <h3 class="text-3xl font-black uppercase tracking-tighter text-white">{{ selectedSeries.name }}</h3>
-            <p class="text-[10px] font-black uppercase tracking-[0.3em] text-neutral-700">COLLECTION SEGMENTS</p>
-          </div>
-          <!-- Reusing standard BookCard grid for series books -->
-          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-x-6 gap-y-12 pb-32">
-            <BookCard 
-              v-for="item in seriesItems"
-              :key="item.id" 
-              :item="item" 
-              @click="emit('select-item', item)" 
-              :coverUrl="absService.getCoverUrl(item.id)" 
-            />
-          </div>
+        <div v-else-if="activeTab === 'SERIES'" class="h-full">
+          <SeriesShelf 
+            :absService="absService" 
+            :sortMethod="sortMethod" 
+            :desc="desc"
+            @select-series="handleSeriesSelect"
+          />
         </div>
 
-        <!-- Main Dashboard -->
-        <div v-else class="space-y-12">
-          <!-- Hero Section (Only in Books Mode) -->
-          <section v-if="viewMode === 'BOOKS' && activeTab === 'HOME'" class="space-y-6">
-            <div class="flex items-center gap-2 text-neutral-800">
-              <Play :size="12" />
-              <h3 class="text-[10px] font-black uppercase tracking-[0.4em]">RESUME LINK</h3>
-            </div>
-            <div v-if="resumeHero" class="md:flex justify-center">
-              <div 
-                @click="emit('select-item', resumeHero!)"
-                class="relative group w-full md:max-w-4xl aspect-[21/9] bg-neutral-950 rounded-[40px] overflow-hidden border border-white/5 cursor-pointer shadow-2xl active:scale-[0.98] transition-all"
-              >
-                <img :src="absService.getCoverUrl(resumeHero.id)" class="w-full h-full object-cover opacity-50 transition-opacity" alt="" />
-                <div class="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent p-8 md:p-12 flex flex-col justify-end">
-                  <h4 class="text-3xl md:text-5xl font-black uppercase tracking-tighter text-white mb-1 truncate leading-none">{{ resumeHero.media.metadata.title }}</h4>
-                  <p class="text-[10px] md:text-xs font-black text-purple-500 uppercase tracking-[0.2em] mb-6">
-                    {{ resumeHero.media.metadata.authorName }}
-                  </p>
-                  <div class="w-full h-1.5 bg-white/5 rounded-full overflow-hidden border border-white/5 relative">
-                    <div class="absolute inset-0 h-full gradient-aether shadow-aether-glow transition-all" :style="{ width: `${(resumeHero.userProgress?.progress || 0) * 100}%` }" />
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div v-else class="bg-neutral-900/5 rounded-[40px] p-16 text-center border border-dashed border-white/5">
-              <p class="text-[10px] font-black uppercase tracking-[0.4em] text-neutral-800">No active link established</p>
-            </div>
-          </section>
-
-          <!-- Repository (All Books) -->
-          <section v-if="viewMode === 'BOOKS'" class="space-y-8">
-            <div class="flex items-center gap-2 text-neutral-800">
-              <LayoutGrid :size="12" />
-              <h3 class="text-[10px] font-black uppercase tracking-[0.4em]">ARCHIVE REPOSITORY</h3>
-            </div>
-            <Bookshelf 
-              :absService="absService" 
-              :sortMethod="sortMethod" 
-              :desc="desc" 
-              :isStreaming="isStreaming"
-              @select-item="emit('select-item', $event)"
-            />
-          </section>
-
-          <!-- Stacks (Series) -->
-          <section v-else class="space-y-8">
-            <div class="flex items-center gap-2 text-neutral-800">
-              <Layers :size="12" />
-              <h3 class="text-[10px] font-black uppercase tracking-[0.4em]">SERIES STACKS</h3>
-            </div>
-            <SeriesShelf 
-              :absService="absService" 
-              :sortMethod="sortMethod" 
-              :desc="desc" 
-              :isStreaming="isStreaming"
-              @select-series="handleSeriesSelect"
-            />
-          </section>
+        <div v-else-if="activeTab === 'REQUEST'" class="animate-fade-in">
+          <RequestPortal />
         </div>
-      </div>
-    </main>
-  </div>
+
+        <div v-else class="flex flex-col items-center justify-center py-40 opacity-20 text-center">
+          <Search :size="64" class="mb-6" />
+          <h3 class="text-xl font-bold uppercase tracking-widest">Section Empty</h3>
+          <p class="text-xs mt-2 font-medium">No artifacts matching this classification found.</p>
+        </div>
+      </template>
+    </div>
+  </LibraryLayout>
 </template>
+
+<style scoped>
+.fade-pop-enter-active, .fade-pop-leave-active { transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.fade-pop-enter-from { opacity: 0; transform: scale(0.95) translateY(10px); }
+.fade-pop-leave-to { opacity: 0; transform: scale(1.05); }
+</style>

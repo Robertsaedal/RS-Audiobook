@@ -1,7 +1,8 @@
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { ref, computed } from 'vue';
 import { ABSLibraryItem } from '../types';
+import { Play, MoreVertical } from 'lucide-vue-next';
 
 const props = defineProps<{
   item: ABSLibraryItem,
@@ -9,51 +10,90 @@ const props = defineProps<{
   isSelected?: boolean
 }>();
 
+const imageReady = ref(false);
 const progress = computed(() => (props.item.userProgress?.progress || 0) * 100);
+const isFinished = computed(() => props.item.userProgress?.isFinished || false);
+const hasSeries = computed(() => !!props.item.media.metadata.seriesName);
+const sequence = computed(() => props.item.media.metadata.sequence);
+
+const handleImageLoad = () => {
+  imageReady.value = true;
+};
 </script>
 
 <template>
   <button 
-    class="flex flex-col text-left group active:scale-95 transition-all outline-none w-full h-full"
-    :class="{ 'scale-95': isSelected }"
+    class="flex flex-col text-left group transition-all outline-none w-full relative"
+    :class="{ 'scale-[0.98]': isSelected }"
   >
+    <!-- Cover Container -->
     <div 
-      class="relative w-full h-full bg-neutral-900 rounded-[28px] overflow-hidden border transition-all duration-300 shadow-xl"
-      :class="[
-        isSelected 
-          ? 'border-purple-500 shadow-[0_0_30px_rgba(157,80,187,0.4)]' 
-          : 'border-white/5 group-hover:shadow-[0_0_30px_rgba(157,80,187,0.2)] group-hover:border-purple-500/30'
-      ]"
+      class="relative w-full aspect-[2/3] bg-neutral-950 rounded-xl overflow-hidden border border-white/5 transition-all duration-500 group-hover:border-purple-500/40 group-hover:shadow-[0_0_25px_rgba(168,85,247,0.25)]"
     >
+      <!-- Shimmer Loading State -->
+      <div 
+        v-if="!imageReady" 
+        class="absolute inset-0 z-10 animate-shimmer"
+      />
+
+      <!-- Book Cover -->
       <img 
         :src="coverUrl" 
-        class="w-full h-full object-cover transition-transform duration-700" 
-        :class="{ 'scale-110 blur-sm grayscale-[0.5]': isSelected, 'group-hover:scale-110': !isSelected }"
+        @load="handleImageLoad"
+        class="w-full h-full object-cover transition-all duration-500 group-hover:scale-105" 
+        :class="{ 
+          'opacity-0': !imageReady, 
+          'opacity-100': imageReady, 
+          'blur-sm grayscale-[0.3]': isSelected 
+        }"
         loading="lazy" 
       />
       
-      <!-- Progress Bar Overlay -->
-      <div v-if="progress > 0" class="absolute bottom-0 left-0 h-1.5 w-full bg-black/80 backdrop-blur-md z-10">
-        <div class="h-full gradient-aether shadow-aether-glow transition-all" :style="{ width: progress + '%' }" />
+      <!-- Sequence Indicator (Top Left - Official Immersive Style) -->
+      <div 
+        v-if="sequence" 
+        class="absolute top-2 left-2 z-30 bg-black/60 backdrop-blur-md px-2 py-1 rounded-md border border-white/10 text-[10px] font-bold text-white shadow-xl"
+      >
+        #{{ sequence }}
       </div>
 
-      <!-- Play/Selected Overlay -->
-      <div class="absolute inset-0 bg-purple-900/20 opacity-0 transition-opacity flex items-center justify-center" :class="{ 'opacity-100': isSelected, 'group-hover:opacity-100': !isSelected }">
-        <div class="w-12 h-12 rounded-full bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center text-white transition-transform duration-300">
-          <svg v-if="!isSelected" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="none" class="translate-x-0.5"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-          <svg v-else xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+      <!-- Hover Overlay -->
+      <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-20 flex items-center justify-center">
+        <!-- More Icon (Top Right) -->
+        <div class="absolute top-3 right-3 p-1.5 rounded-full bg-black/40 backdrop-blur-md border border-white/10 text-white/70 hover:text-white hover:bg-black/60 transition-all">
+          <MoreVertical :size="16" />
         </div>
+        
+        <!-- Play Icon (Center) -->
+        <div class="w-14 h-14 rounded-full bg-purple-600 text-white flex items-center justify-center shadow-lg transform scale-90 group-hover:scale-100 transition-transform duration-300">
+          <Play :size="24" fill="currentColor" class="translate-x-0.5" />
+        </div>
+      </div>
+
+      <!-- Premium Progress Bar (2px Thin Line) -->
+      <div v-if="progress > 0" class="absolute bottom-0 left-0 h-[2px] w-full bg-white/10 z-40">
+        <div 
+          class="h-full transition-all duration-500" 
+          :class="isFinished ? 'bg-[#22C55E] shadow-[0_0_8px_#22C55E]' : 'bg-[#A855F7] shadow-[0_0_8px_#A855F7]'"
+          :style="{ width: progress + '%' }" 
+        />
       </div>
     </div>
     
-    <!-- Meta Info -->
-    <div class="mt-4 px-1 space-y-1">
+    <!-- Metadata Info -->
+    <div class="mt-3 px-1 space-y-0.5">
       <h3 class="text-[11px] font-black uppercase tracking-tight line-clamp-2 leading-tight text-neutral-200 group-hover:text-white transition-colors">
         {{ item.media.metadata.title }}
       </h3>
-      <p class="text-[8px] font-black text-neutral-600 uppercase tracking-widest line-clamp-1 group-hover:text-purple-500 transition-colors">
+      <p class="text-[9px] font-black text-neutral-600 uppercase tracking-widest line-clamp-1 group-hover:text-purple-400 transition-colors">
         {{ item.media.metadata.authorName }}
       </p>
     </div>
   </button>
 </template>
+
+<style scoped>
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+</style>

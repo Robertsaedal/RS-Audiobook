@@ -5,7 +5,7 @@
 
 @layer base {
   html, body {
-    @apply bg-black text-white h-[100dvh] w-full overflow-hidden;
+    @apply bg-[#0f0f0f] text-white h-[100dvh] w-full overflow-hidden;
     overscroll-behavior-y: contain;
     -webkit-tap-highlight-color: transparent;
   }
@@ -16,6 +16,34 @@
 }
 
 @layer components {
+  #app-content {
+    width: 100%;
+    transition: margin-left 0.2s ease-in-out, width 0.2s ease-in-out;
+  }
+
+  #app-content.has-siderail {
+    width: calc(100% - 80px);
+    max-width: calc(100% - 80px);
+    margin-left: 80px;
+  }
+
+  /* Padding for the Player Bar (Official Spec) */
+  .page-content.streaming {
+    padding-bottom: 160px;
+  }
+
+  @media (max-width: 768px) {
+    #app-content.has-siderail {
+      width: 100%;
+      max-width: 100%;
+      margin-left: 0px;
+    }
+  }
+
+  .box-shadow-side {
+    box-shadow: 2px 0 15px rgba(0,0,0,0.5);
+  }
+
   .gradient-aether {
     @apply bg-gradient-to-br from-[#9D50BB] to-[#6E48AA];
   }
@@ -24,70 +52,28 @@
     text-shadow: 0 0 15px rgba(157, 80, 187, 0.8);
   }
 
-  .drop-shadow-aether-glow {
-    filter: drop-shadow(0 0 8px rgba(157, 80, 187, 0.6));
+  .animate-shimmer {
+    background: linear-gradient(90deg, #171717 25%, #262626 50%, #171717 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite linear;
   }
 
-  .safe-bottom {
-    padding-bottom: env(safe-area-inset-bottom);
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
   }
-
-  .safe-top {
-    padding-top: env(safe-area-inset-top);
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
   }
-
-  .no-scrollbar::-webkit-scrollbar {
-    display: none;
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(168, 85, 247, 0.2);
+    border-radius: 10px;
   }
-
-  .no-scrollbar {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-  }
-
-  .scroll-container {
-    -webkit-overflow-scrolling: touch;
-    overflow-y: auto;
-    overscroll-behavior-y: auto;
-  }
-
-  /* Official ABS Series Stacking Effect */
-  .series-cover-container {
-    @apply relative w-full aspect-[2/3];
-  }
-
-  .series-cover-container::before,
-  .series-cover-container::after {
-    content: '';
-    @apply absolute inset-0 bg-neutral-800 rounded-[24px] border border-white/10 z-0 shadow-xl;
-    transition: transform 0.4s ease;
-  }
-
-  .series-cover-container::before {
-    transform: rotate(-3deg) translate(-6px, -2px);
-  }
-
-  .series-cover-container::after {
-    transform: rotate(2deg) translate(4px, 1px);
-    @apply bg-neutral-900;
-  }
-
-  .series-cover-container img {
-    @apply relative z-10 w-full h-full object-cover rounded-[24px] shadow-2xl;
-  }
-
-  .series-badge {
-    @apply absolute bottom-3 right-3 z-20 bg-black/80 backdrop-blur-md px-2 py-1 rounded-lg border border-white/10 text-[8px] font-black text-white uppercase tracking-tighter;
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(168, 85, 247, 0.5);
   }
 }
 
-::-webkit-scrollbar {
-  width: 3px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: #333;
-  border-radius: 10px;
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
 }

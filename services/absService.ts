@@ -178,13 +178,20 @@ export class ABSService {
     if (params.sort) query.append('sort', params.sort);
     if (params.desc !== undefined) query.append('desc', params.desc.toString());
     if (params.filter) query.append('filter', params.filter);
-    query.append('include', 'books'); // Get books minified for stack cover
+    query.append('include', 'books'); 
 
     const data = await this.fetchApi(`/libraries/${libId}/series?${query.toString()}`);
     return {
       results: data?.results || data || [],
       total: data?.total || (data?.results?.length || 0)
     };
+  }
+
+  async scanLibrary(): Promise<boolean> {
+    const libId = await this.ensureLibraryId();
+    if (!libId) return false;
+    const data = await this.fetchApi(`/libraries/${libId}/scan`, { method: 'POST' });
+    return !!data;
   }
 
   async getSeriesItems(seriesId: string): Promise<ABSLibraryItem[]> {

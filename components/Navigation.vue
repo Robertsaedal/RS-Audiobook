@@ -1,8 +1,8 @@
 
 <script setup lang="ts">
-import { Home, Layers, LogOut, Activity } from 'lucide-vue-next';
+import { Home, Layers, LogOut, Activity, PlusSquare } from 'lucide-vue-next';
 
-export type NavTab = 'HOME' | 'SERIES';
+export type NavTab = 'HOME' | 'SERIES' | 'REQUEST';
 
 const props = defineProps<{
   activeTab: NavTab
@@ -16,6 +16,7 @@ const emit = defineEmits<{
 const navItems = [
   { id: 'HOME' as NavTab, icon: Home, label: 'Home' },
   { id: 'SERIES' as NavTab, icon: Layers, label: 'Series' },
+  { id: 'REQUEST' as NavTab, icon: PlusSquare, label: 'Request' },
 ];
 </script>
 

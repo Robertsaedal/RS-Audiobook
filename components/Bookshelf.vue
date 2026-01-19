@@ -31,7 +31,7 @@ const loadingPages = new Set<number>();
 const selectedIds = ref<Set<string>>(new Set());
 const lastSelectedIndex = ref(-1);
 
-// Configuration Constants (Aether Theme Specs)
+// Configuration Constants
 const CARD_ASPECT_RATIO = 1.5; // 2:3
 const MIN_CARD_WIDTH = 140;
 const CARD_GUTTER = 24;
@@ -54,13 +54,12 @@ const calculateLayout = async () => {
   const width = bookshelfRef.value.clientWidth;
   const height = bookshelfRef.value.clientHeight;
   
-  if (width === 0) return; // Wait for visibility
+  if (width === 0) return;
 
   containerWidth.value = width;
   containerHeight.value = height;
 
-  // Calculate how many fit
-  const availableWidth = width - 48; // Padding
+  const availableWidth = width - 48;
   layout.entitiesPerRow = Math.max(2, Math.floor(availableWidth / (MIN_CARD_WIDTH + CARD_GUTTER)));
   layout.cardWidth = Math.floor((availableWidth - (layout.entitiesPerRow - 1) * CARD_GUTTER) / layout.entitiesPerRow);
   layout.cardHeight = layout.cardWidth * CARD_ASPECT_RATIO;
@@ -110,12 +109,13 @@ const fetchPage = async (page: number) => {
     
     const { results, total } = await props.absService.getLibraryItemsPaged(params);
     
-    // RangeError fix: Validate total and cast to number
-    const validTotal = Math.max(0, parseInt(total as any) || 0);
+    // Safety check for total entities to avoid RangeError
+    const validTotal = Math.max(0, Math.min(1000000, parseInt(total as any) || 0));
     
     if (totalEntities.value !== validTotal) {
       totalEntities.value = validTotal;
-      entities.value = validTotal > 0 ? new Array(validTotal).fill(null) : [];
+      // Use a more memory-efficient approach if possible, but for virtual lists this is usually fine
+      entities.value = new Array(validTotal).fill(null);
       await calculateLayout();
     }
 
@@ -142,7 +142,7 @@ const handleScroll = (e: Event) => {
 
   for (let p = startPage; p <= endPage; p++) {
     const startIdx = p * ITEMS_PER_FETCH;
-    if (startIdx < totalEntities.value && !entities.value[startIdx]) {
+    if (startIdx < totalEntities.value && (!entities.value[startIdx])) {
       fetchPage(p);
     }
   }
@@ -155,26 +155,6 @@ const reset = async () => {
   if (bookshelfRef.value) bookshelfRef.value.scrollTop = 0;
   await fetchPage(0);
   await calculateLayout();
-};
-
-const handleSelect = (item: ABSLibraryItem, index: number, event: MouseEvent) => {
-  if (event.shiftKey && lastSelectedIndex.value !== -1) {
-    const start = Math.min(index, lastSelectedIndex.value);
-    const end = Math.max(index, lastSelectedIndex.value);
-    for (let i = start; i <= end; i++) {
-      const ent = entities.value[i];
-      if (ent) selectedIds.value.add(ent.id);
-    }
-  } else if (event.ctrlKey || event.metaKey || selectedIds.value.size > 0) {
-    if (selectedIds.value.has(item.id)) {
-      selectedIds.value.delete(item.id);
-    } else {
-      selectedIds.value.add(item.id);
-    }
-  } else {
-    emit('select-item', item);
-  }
-  lastSelectedIndex.value = index;
 };
 
 let resizeObserver: ResizeObserver | null = null;
@@ -205,7 +185,7 @@ const totalHeight = computed(() => layout.totalRows * layout.shelfHeight + (prop
 <template>
   <div 
     ref="bookshelfRef"
-    class="flex-1 overflow-y-auto overflow-x-hidden no-scrollbar relative"
+    class="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar relative"
     @scroll="handleScroll"
   >
     <div :style="{ height: totalHeight + 'px' }" class="relative w-full">
@@ -224,7 +204,7 @@ const totalHeight = computed(() => layout.totalRows * layout.shelfHeight + (prop
             height: layout.cardHeight + 'px'
           }"
         >
-          <div v-if="!entity.data" class="w-full h-full bg-neutral-900/40 rounded-[28px] border border-white/5 animate-pulse flex items-center justify-center">
+          <div v-if="!entity.data" class="w-full h-full bg-neutral-900/40 rounded-[28px] border border-white/5 animate-shimmer flex items-center justify-center">
             <Activity :size="20" class="text-neutral-800" />
           </div>
 
@@ -236,51 +216,8 @@ const totalHeight = computed(() => layout.totalRows * layout.shelfHeight + (prop
             class="animate-fade-in"
             @click="handleSelect(entity.data, entity.index, $event)"
           />
-
-          <div v-if="selectedIds.has(entity.data?.id || '')" class="absolute -top-2 -right-2 z-30 bg-purple-600 p-2 rounded-full border-2 border-black shadow-lg">
-            <MousePointer2 :size="12" class="text-white fill-current" />
-          </div>
         </div>
-      </template>
-
-      <template v-for="i in Math.ceil(containerHeight / layout.shelfHeight) + 2" :key="'shelf-' + i">
-        <div 
-          class="absolute left-0 right-0 h-px bg-gradient-to-r from-transparent via-purple-500/10 to-transparent pointer-events-none"
-          :style="{ 
-            top: (Math.floor(scrollTop / layout.shelfHeight) + i - 1) * layout.shelfHeight + layout.cardHeight + 12 + 'px' 
-          }"
-        />
       </template>
     </div>
-
-    <Transition name="slide-up">
-      <div v-if="selectedIds.size > 0" class="fixed bottom-24 left-1/2 -translate-x-1/2 z-[60] bg-neutral-900/80 backdrop-blur-2xl border border-purple-500/30 px-8 py-4 rounded-[32px] flex items-center gap-6 shadow-2xl animate-slide-up">
-        <div class="flex flex-col">
-          <span class="text-[10px] font-black uppercase tracking-widest text-purple-500">Selection Active</span>
-          <span class="text-xs font-black uppercase tracking-tighter text-white">{{ selectedIds.size }} Artifacts</span>
-        </div>
-        <div class="h-8 w-px bg-white/10" />
-        <button @click="selectedIds.clear()" class="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-500 hover:text-white transition-colors">Clear</button>
-      </div>
-    </Transition>
   </div>
 </template>
-
-<style scoped>
-.animate-fade-in {
-  animation: fade-in 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
-}
-
-@keyframes fade-in {
-  from { opacity: 0; transform: scale(0.9) translateY(10px); }
-  to { opacity: 1; transform: scale(1) translateY(0); }
-}
-
-.slide-up-enter-active, .slide-up-leave-active {
-  transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.4s ease;
-}
-.slide-up-enter-from, .slide-up-leave-to {
-  transform: translate(-50%, 100%);
-  opacity: 0;
-}
-</style>
