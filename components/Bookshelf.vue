@@ -48,10 +48,14 @@ const layout = reactive({
   marginLeft: 0
 });
 
-const calculateLayout = () => {
+const calculateLayout = async () => {
+  await nextTick();
   if (!bookshelfRef.value) return;
   const width = bookshelfRef.value.clientWidth;
   const height = bookshelfRef.value.clientHeight;
+  
+  if (width === 0) return; // Wait for visibility
+
   containerWidth.value = width;
   containerHeight.value = height;
 
@@ -106,14 +110,20 @@ const fetchPage = async (page: number) => {
     
     const { results, total } = await props.absService.getLibraryItemsPaged(params);
     
-    if (totalEntities.value !== total) {
-      totalEntities.value = total;
-      entities.value = new Array(total).fill(null);
-      calculateLayout();
+    // RangeError fix: Validate total and cast to number
+    const validTotal = Math.max(0, parseInt(total as any) || 0);
+    
+    if (totalEntities.value !== validTotal) {
+      totalEntities.value = validTotal;
+      entities.value = validTotal > 0 ? new Array(validTotal).fill(null) : [];
+      await calculateLayout();
     }
 
     results.forEach((item, idx) => {
-      entities.value[page * ITEMS_PER_FETCH + idx] = item;
+      const targetIdx = page * ITEMS_PER_FETCH + idx;
+      if (targetIdx < entities.value.length) {
+        entities.value[targetIdx] = item;
+      }
     });
   } catch (e) {
     console.error("Failed to fetch shelf page", e);
@@ -126,13 +136,13 @@ const handleScroll = (e: Event) => {
   const target = e.target as HTMLElement;
   scrollTop.value = target.scrollTop;
   
-  // Check if we need to load pages in range
   const { start, end } = visibleRange.value;
   const startPage = Math.floor(start / ITEMS_PER_FETCH);
   const endPage = Math.floor(end / ITEMS_PER_FETCH);
 
   for (let p = startPage; p <= endPage; p++) {
-    if (p * ITEMS_PER_FETCH < totalEntities.value && !entities.value[p * ITEMS_PER_FETCH]) {
+    const startIdx = p * ITEMS_PER_FETCH;
+    if (startIdx < totalEntities.value && !entities.value[startIdx]) {
       fetchPage(p);
     }
   }
@@ -144,10 +154,9 @@ const reset = async () => {
   scrollTop.value = 0;
   if (bookshelfRef.value) bookshelfRef.value.scrollTop = 0;
   await fetchPage(0);
-  calculateLayout();
+  await calculateLayout();
 };
 
-// Selection Logic
 const handleSelect = (item: ABSLibraryItem, index: number, event: MouseEvent) => {
   if (event.shiftKey && lastSelectedIndex.value !== -1) {
     const start = Math.min(index, lastSelectedIndex.value);
@@ -168,11 +177,10 @@ const handleSelect = (item: ABSLibraryItem, index: number, event: MouseEvent) =>
   lastSelectedIndex.value = index;
 };
 
-// Lifecycle
 let resizeObserver: ResizeObserver | null = null;
-onMounted(() => {
-  reset();
-  resizeObserver = new ResizeObserver(calculateLayout);
+onMounted(async () => {
+  await reset();
+  resizeObserver = new ResizeObserver(() => calculateLayout());
   if (bookshelfRef.value) resizeObserver.observe(bookshelfRef.value);
 
   props.absService.onProgressUpdate((updated: ABSProgress) => {
@@ -200,17 +208,13 @@ const totalHeight = computed(() => layout.totalRows * layout.shelfHeight + (prop
     class="flex-1 overflow-y-auto overflow-x-hidden no-scrollbar relative"
     @scroll="handleScroll"
   >
-    <!-- Total Height Spacer -->
     <div :style="{ height: totalHeight + 'px' }" class="relative w-full">
-      
-      <!-- Empty State -->
       <div v-if="totalEntities === 0 && !loadingPages.size" class="absolute inset-0 flex flex-col items-center justify-center text-center opacity-40">
         <PackageOpen :size="64" class="text-neutral-800 mb-6" />
         <h3 class="text-xl font-black uppercase tracking-tighter">Repository Empty</h3>
         <p class="text-[9px] font-black uppercase tracking-widest mt-2">No artifacts detected in sector</p>
       </div>
 
-      <!-- Virtual Entities -->
       <template v-for="entity in visibleEntities" :key="entity.index">
         <div 
           class="absolute transition-transform duration-500"
@@ -220,12 +224,10 @@ const totalHeight = computed(() => layout.totalRows * layout.shelfHeight + (prop
             height: layout.cardHeight + 'px'
           }"
         >
-          <!-- Aether Skeleton -->
           <div v-if="!entity.data" class="w-full h-full bg-neutral-900/40 rounded-[28px] border border-white/5 animate-pulse flex items-center justify-center">
             <Activity :size="20" class="text-neutral-800" />
           </div>
 
-          <!-- Real Card -->
           <BookCard 
             v-else
             :item="entity.data"
@@ -235,14 +237,12 @@ const totalHeight = computed(() => layout.totalRows * layout.shelfHeight + (prop
             @click="handleSelect(entity.data, entity.index, $event)"
           />
 
-          <!-- Selection Badge -->
           <div v-if="selectedIds.has(entity.data?.id || '')" class="absolute -top-2 -right-2 z-30 bg-purple-600 p-2 rounded-full border-2 border-black shadow-lg">
             <MousePointer2 :size="12" class="text-white fill-current" />
           </div>
         </div>
       </template>
 
-      <!-- Shelf Dividers (Aether Styled) -->
       <template v-for="i in Math.ceil(containerHeight / layout.shelfHeight) + 2" :key="'shelf-' + i">
         <div 
           class="absolute left-0 right-0 h-px bg-gradient-to-r from-transparent via-purple-500/10 to-transparent pointer-events-none"
@@ -253,7 +253,6 @@ const totalHeight = computed(() => layout.totalRows * layout.shelfHeight + (prop
       </template>
     </div>
 
-    <!-- Batch Actions (Floating) -->
     <Transition name="slide-up">
       <div v-if="selectedIds.size > 0" class="fixed bottom-24 left-1/2 -translate-x-1/2 z-[60] bg-neutral-900/80 backdrop-blur-2xl border border-purple-500/30 px-8 py-4 rounded-[32px] flex items-center gap-6 shadow-2xl animate-slide-up">
         <div class="flex flex-col">

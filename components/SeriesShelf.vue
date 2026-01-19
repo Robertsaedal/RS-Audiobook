@@ -1,6 +1,6 @@
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, computed, reactive } from 'vue';
+import { ref, onMounted, onUnmounted, watch, computed, reactive, nextTick } from 'vue';
 import { ABSSeries } from '../types';
 import { ABSService, LibraryQueryParams } from '../services/absService';
 import SeriesCard from './SeriesCard.vue';
@@ -41,10 +41,14 @@ const layout = reactive({
   marginLeft: 0
 });
 
-const calculateLayout = () => {
+const calculateLayout = async () => {
+  await nextTick();
   if (!shelfRef.value) return;
   const width = shelfRef.value.clientWidth;
   const height = shelfRef.value.clientHeight;
+  
+  if (width === 0) return;
+
   containerWidth.value = width;
   containerHeight.value = height;
 
@@ -94,14 +98,20 @@ const fetchPage = async (page: number) => {
     
     const { results, total } = await props.absService.getLibrarySeriesPaged(params);
     
-    if (totalEntities.value !== total) {
-      totalEntities.value = total;
-      entities.value = new Array(total).fill(null);
-      calculateLayout();
+    // RangeError fix: Validate total
+    const validTotal = Math.max(0, parseInt(total as any) || 0);
+    
+    if (totalEntities.value !== validTotal) {
+      totalEntities.value = validTotal;
+      entities.value = validTotal > 0 ? new Array(validTotal).fill(null) : [];
+      await calculateLayout();
     }
 
     results.forEach((item, idx) => {
-      entities.value[page * ITEMS_PER_FETCH + idx] = item;
+      const targetIdx = page * ITEMS_PER_FETCH + idx;
+      if (targetIdx < entities.value.length) {
+        entities.value[targetIdx] = item;
+      }
     });
   } catch (e) {
     console.error("Failed to fetch series shelf page", e);
@@ -119,7 +129,8 @@ const handleScroll = (e: Event) => {
   const endPage = Math.floor(end / ITEMS_PER_FETCH);
 
   for (let p = startPage; p <= endPage; p++) {
-    if (p * ITEMS_PER_FETCH < totalEntities.value && !entities.value[p * ITEMS_PER_FETCH]) {
+    const startIdx = p * ITEMS_PER_FETCH;
+    if (startIdx < totalEntities.value && !entities.value[startIdx]) {
       fetchPage(p);
     }
   }
@@ -131,13 +142,13 @@ const reset = async () => {
   scrollTop.value = 0;
   if (shelfRef.value) shelfRef.value.scrollTop = 0;
   await fetchPage(0);
-  calculateLayout();
+  await calculateLayout();
 };
 
 let resizeObserver: ResizeObserver | null = null;
-onMounted(() => {
-  reset();
-  resizeObserver = new ResizeObserver(calculateLayout);
+onMounted(async () => {
+  await reset();
+  resizeObserver = new ResizeObserver(() => calculateLayout());
   if (shelfRef.value) resizeObserver.observe(shelfRef.value);
   props.absService.onLibraryUpdate(() => reset());
 });
@@ -187,7 +198,6 @@ const totalHeight = computed(() => layout.totalRows * layout.shelfHeight + (prop
         </div>
       </template>
 
-      <!-- Horizontal Dividers for series rows -->
       <template v-for="i in Math.ceil(containerHeight / layout.shelfHeight) + 2" :key="'shelf-s-' + i">
         <div 
           class="absolute left-0 right-0 h-px bg-gradient-to-r from-transparent via-purple-500/5 to-transparent pointer-events-none"
