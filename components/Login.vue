@@ -31,9 +31,10 @@ onMounted(async () => {
           emit('login', auth);
         }
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Auto-login check failed', e);
       localStorage.removeItem('rs_auth');
+      error.value = e.message || 'Stored session invalid.';
     } finally {
       processing.value = false;
     }
@@ -48,8 +49,10 @@ const submitForm = async () => {
   processing.value = true;
 
   try {
+    const normalizedUrl = ABSService.normalizeUrl(serverUrl.value);
+    
     // 1. Authenticate / Login
-    const authRes = await ABSService.login(serverUrl.value, username.value, password.value);
+    const authRes = await ABSService.login(normalizedUrl, username.value, password.value);
     
     // Official code handles re-login flags here, we prioritize the token
     const token = authRes.user.accessToken || authRes.user.token;
@@ -58,13 +61,12 @@ const submitForm = async () => {
       throw new Error('No access token received from portal.');
     }
 
-    // 2. Authorize
-    const authorizeRes = await ABSService.authorize(serverUrl.value, token);
+    // 2. Authorize (POST check)
+    const authorizeRes = await ABSService.authorize(normalizedUrl, token);
     
     if (authorizeRes) {
-      const finalUrl = serverUrl.value.trim().replace(/\/+$/, '').replace(/\/api$/, '');
       const authData: AuthState = {
-        serverUrl: finalUrl,
+        serverUrl: normalizedUrl,
         user: { 
           id: authorizeRes.user.id, 
           username: authorizeRes.user.username, 

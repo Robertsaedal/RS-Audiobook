@@ -14,7 +14,7 @@ export class ABSService {
     this.initSocket();
   }
 
-  private static normalizeUrl(url: string): string {
+  static normalizeUrl(url: string): string {
     let clean = url.trim().replace(/\/+$/, '');
     clean = clean.replace(/\/api\/?$/, '');
     
@@ -44,6 +44,17 @@ export class ABSService {
       try {
         const response = await fetch(url, { ...options, signal: controller.signal });
         clearTimeout(id);
+        
+        if (!response.ok) {
+          const contentType = response.headers.get('content-type');
+          if (contentType && contentType.includes('text/html')) {
+            const text = await response.text();
+            if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
+              throw new Error('Server returned HTML instead of JSON. Check your API URL configuration.');
+            }
+          }
+        }
+
         if (response.ok || (response.status >= 400 && response.status < 500)) return response;
         throw new Error(`SERVER_ERROR_${response.status}`);
       } catch (e: any) {
@@ -75,17 +86,20 @@ export class ABSService {
   }
 
   /**
-   * Official Authorization Pattern: GET /api/authorize
+   * Official Authorization Pattern: POST /api/authorize
+   * Updated to POST with empty body to match official API spec requirements.
    */
   static async authorize(serverUrl: string, token: string): Promise<any> {
     const baseUrl = this.normalizeUrl(serverUrl);
     const authUrl = `${baseUrl}/api/authorize`;
     const response = await this.fetchWithRetry(authUrl, {
-      method: 'GET',
+      method: 'POST',
       headers: { 
         'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
         'Accept': 'application/json' 
       },
+      body: JSON.stringify({}),
     });
 
     const data = await response.json();
