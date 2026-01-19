@@ -99,7 +99,6 @@ export class ABSService {
     return this.fetchApi(`/me/progress/${itemId}`);
   }
 
-  // Implementation of saveProgress to fix the missing property error in Player.tsx
   async saveProgress(itemId: string, currentTime: number, duration: number): Promise<void> {
     const progress = duration > 0 ? currentTime / duration : 0;
     await this.fetchApi(`/me/progress/${itemId}`, {
@@ -163,10 +162,6 @@ export class ABSService {
 
   getCoverUrl(itemId: string): string {
     return `${this.serverUrl}/api/items/${itemId}/cover?token=${this.token}`;
-  }
-
-  getHlsStreamUrl(itemId: string): string {
-    return `${this.serverUrl}/hls/${itemId}?token=${this.token}`;
   }
 
   onProgressUpdate(callback: (progress: ABSProgress) => void) {

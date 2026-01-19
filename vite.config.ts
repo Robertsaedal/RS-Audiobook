@@ -1,8 +1,7 @@
 
 import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
+import vue from '@vitejs/plugin-vue';
 
-// Fix: Use @vitejs/plugin-react for .tsx files as the codebase is built with React.
 export default defineConfig({
-  plugins: [react()],
+  plugins: [vue()],
 });
