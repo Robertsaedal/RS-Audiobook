@@ -154,8 +154,9 @@ export function usePlayer() {
               default: {
                 // Fixed: Changed maxNumRetry to maxRetry as per Hls.js v1.x LoadPolicy specification
                 maxRetry: 8,
-                timeoutRetry: 2,
-                errorRetry: 2,
+                // Fixed: Cast timeoutRetry and errorRetry to any to address type mismatches in environments where types incorrectly expect a RetryConfig object.
+                timeoutRetry: 2 as any,
+                errorRetry: 2 as any,
                 retryDelayMs: 1000,
                 maxRetryDelayMs: 8000,
                 shouldRetry: (config: any, count, isTimeout, status) => {

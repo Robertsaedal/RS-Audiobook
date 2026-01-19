@@ -36,7 +36,7 @@ export class ABSService {
     });
   }
 
-  private static async fetchWithRetry(url: string, options: RequestInit, retries = 3, timeout = 5000): Promise<Response> {
+  private static async fetchWithRetry(url: string, options: RequestInit, retries = 2, timeout = 5000): Promise<Response> {
     let lastError: Error | null = null;
     for (let i = 0; i < retries; i++) {
       const controller = new AbortController();
@@ -55,16 +55,44 @@ export class ABSService {
     throw lastError || new Error('FAILED_AFTER_RETRIES');
   }
 
+  /**
+   * Official Login Pattern: POST to /login
+   */
   static async login(serverUrl: string, username: string, password: string): Promise<any> {
     const baseUrl = this.normalizeUrl(serverUrl);
     const loginUrl = `${baseUrl}/login`;
     const response = await this.fetchWithRetry(loginUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({ username: username.trim(), password }),
+      body: JSON.stringify({ username: username.trim(), password: password || '' }),
     });
-    if (!response.ok) throw new Error(await response.text() || `Login failed: ${response.status}`);
-    return response.json();
+    
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data || `Login failed: ${response.status}`);
+    }
+    return data;
+  }
+
+  /**
+   * Official Authorization Pattern: GET /api/authorize
+   */
+  static async authorize(serverUrl: string, token: string): Promise<any> {
+    const baseUrl = this.normalizeUrl(serverUrl);
+    const authUrl = `${baseUrl}/api/authorize`;
+    const response = await this.fetchWithRetry(authUrl, {
+      method: 'GET',
+      headers: { 
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/json' 
+      },
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data || 'Authorization failed');
+    }
+    return data;
   }
 
   private async fetchApi(endpoint: string, options: RequestInit = {}) {
