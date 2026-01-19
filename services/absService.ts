@@ -1,5 +1,5 @@
 
-import { ABSUser, ABSLibraryItem, ABSProgress, ABSPlaybackSession } from '../types';
+import { ABSUser, ABSLibraryItem, ABSProgress, ABSPlaybackSession, ABSSeries } from '../types';
 import { io, Socket } from 'socket.io-client';
 
 export interface LibraryQueryParams {
@@ -162,6 +162,25 @@ export class ABSService {
     query.append('include', 'progress');
 
     const data = await this.fetchApi(`/libraries/${libId}/items?${query.toString()}`);
+    return {
+      results: data?.results || data || [],
+      total: data?.total || (data?.results?.length || 0)
+    };
+  }
+
+  async getLibrarySeriesPaged(params: LibraryQueryParams): Promise<{ results: ABSSeries[], total: number }> {
+    const libId = await this.ensureLibraryId();
+    if (!libId) return { results: [], total: 0 };
+
+    const query = new URLSearchParams();
+    if (params.limit) query.append('limit', params.limit.toString());
+    if (params.offset) query.append('offset', params.offset.toString());
+    if (params.sort) query.append('sort', params.sort);
+    if (params.desc !== undefined) query.append('desc', params.desc.toString());
+    if (params.filter) query.append('filter', params.filter);
+    query.append('include', 'books'); // Get books minified for stack cover
+
+    const data = await this.fetchApi(`/libraries/${libId}/series?${query.toString()}`);
     return {
       results: data?.results || data || [],
       total: data?.total || (data?.results?.length || 0)

@@ -1,10 +1,10 @@
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
+import { ref, onMounted, onUnmounted, watch, computed, reactive, nextTick } from 'vue';
 import { ABSLibraryItem, ABSProgress } from '../types';
 import { ABSService, LibraryQueryParams } from '../services/absService';
 import BookCard from './BookCard.vue';
-import { Search, Info, PackageOpen } from 'lucide-vue-next';
+import { PackageOpen, Activity, MousePointer2 } from 'lucide-vue-next';
 
 const props = defineProps<{
   absService: ABSService,
@@ -18,30 +18,87 @@ const emit = defineEmits<{
   (e: 'select-item', item: ABSLibraryItem): void
 }>();
 
-const items = ref<ABSLibraryItem[]>([]);
-const totalItems = ref(0);
-const loading = ref(false);
-const offset = ref(0);
-const limit = 24;
-const hasMore = ref(true);
-const sentinel = ref<HTMLElement | null>(null);
-let observer: IntersectionObserver | null = null;
+// Layout State
+const bookshelfRef = ref<HTMLElement | null>(null);
+const containerWidth = ref(0);
+const containerHeight = ref(0);
+const scrollTop = ref(0);
 
-const fetchItems = async (reset = false) => {
-  if (loading.value) return;
-  if (reset) {
-    offset.value = 0;
-    items.value = [];
-    hasMore.value = true;
-  }
+// Data State
+const entities = ref<(ABSLibraryItem | null)[]>([]);
+const totalEntities = ref(0);
+const loadingPages = new Set<number>();
+const selectedIds = ref<Set<string>>(new Set());
+const lastSelectedIndex = ref(-1);
+
+// Configuration Constants (Aether Theme Specs)
+const CARD_ASPECT_RATIO = 1.5; // 2:3
+const MIN_CARD_WIDTH = 140;
+const CARD_GUTTER = 24;
+const SHELF_PADDING_Y = 40;
+const ITEMS_PER_FETCH = 48;
+
+// Computed Layout Logic
+const layout = reactive({
+  cardWidth: 0,
+  cardHeight: 0,
+  entitiesPerRow: 0,
+  totalRows: 0,
+  shelfHeight: 0,
+  marginLeft: 0
+});
+
+const calculateLayout = () => {
+  if (!bookshelfRef.value) return;
+  const width = bookshelfRef.value.clientWidth;
+  const height = bookshelfRef.value.clientHeight;
+  containerWidth.value = width;
+  containerHeight.value = height;
+
+  // Calculate how many fit
+  const availableWidth = width - 48; // Padding
+  layout.entitiesPerRow = Math.max(2, Math.floor(availableWidth / (MIN_CARD_WIDTH + CARD_GUTTER)));
+  layout.cardWidth = Math.floor((availableWidth - (layout.entitiesPerRow - 1) * CARD_GUTTER) / layout.entitiesPerRow);
+  layout.cardHeight = layout.cardWidth * CARD_ASPECT_RATIO;
+  layout.shelfHeight = layout.cardHeight + SHELF_PADDING_Y;
+  layout.totalRows = Math.ceil(totalEntities.value / layout.entitiesPerRow);
+  layout.marginLeft = (width - (layout.entitiesPerRow * layout.cardWidth + (layout.entitiesPerRow - 1) * CARD_GUTTER)) / 2;
+};
+
+// Virtual Visibility Logic
+const visibleRange = computed(() => {
+  const startRow = Math.max(0, Math.floor(scrollTop.value / layout.shelfHeight) - 1);
+  const endRow = Math.ceil((scrollTop.value + containerHeight.value) / layout.shelfHeight) + 1;
   
-  if (!hasMore.value) return;
+  return {
+    start: startRow * layout.entitiesPerRow,
+    end: Math.min(totalEntities.value, (endRow + 1) * layout.entitiesPerRow)
+  };
+});
 
-  loading.value = true;
+const visibleEntities = computed(() => {
+  const { start, end } = visibleRange.value;
+  const result = [];
+  for (let i = start; i < end; i++) {
+    result.push({
+      index: i,
+      data: entities.value[i] || null,
+      x: layout.marginLeft + (i % layout.entitiesPerRow) * (layout.cardWidth + CARD_GUTTER),
+      y: Math.floor(i / layout.entitiesPerRow) * layout.shelfHeight
+    });
+  }
+  return result;
+});
+
+// Data Fetching
+const fetchPage = async (page: number) => {
+  if (loadingPages.has(page)) return;
+  loadingPages.add(page);
+
   try {
     const params: LibraryQueryParams = {
-      limit,
-      offset: offset.value,
+      limit: ITEMS_PER_FETCH,
+      offset: page * ITEMS_PER_FETCH,
       sort: props.sortMethod.toLowerCase(),
       desc: props.desc,
       search: props.search
@@ -49,88 +106,182 @@ const fetchItems = async (reset = false) => {
     
     const { results, total } = await props.absService.getLibraryItemsPaged(params);
     
-    items.value = [...items.value, ...results];
-    totalItems.value = total;
-    offset.value += limit;
-    hasMore.value = items.value.length < total;
+    if (totalEntities.value !== total) {
+      totalEntities.value = total;
+      entities.value = new Array(total).fill(null);
+      calculateLayout();
+    }
+
+    results.forEach((item, idx) => {
+      entities.value[page * ITEMS_PER_FETCH + idx] = item;
+    });
   } catch (e) {
-    console.error("Failed to fetch library page", e);
+    console.error("Failed to fetch shelf page", e);
   } finally {
-    loading.value = false;
+    loadingPages.delete(page);
   }
 };
 
-onMounted(() => {
-  fetchItems(true);
-
-  observer = new IntersectionObserver((entries) => {
-    if (entries[0].isIntersecting && hasMore.value && !loading.value) {
-      fetchItems();
-    }
-  }, { threshold: 0.1 });
-
-  if (sentinel.value) observer.observe(sentinel.value);
+const handleScroll = (e: Event) => {
+  const target = e.target as HTMLElement;
+  scrollTop.value = target.scrollTop;
   
+  // Check if we need to load pages in range
+  const { start, end } = visibleRange.value;
+  const startPage = Math.floor(start / ITEMS_PER_FETCH);
+  const endPage = Math.floor(end / ITEMS_PER_FETCH);
+
+  for (let p = startPage; p <= endPage; p++) {
+    if (p * ITEMS_PER_FETCH < totalEntities.value && !entities.value[p * ITEMS_PER_FETCH]) {
+      fetchPage(p);
+    }
+  }
+};
+
+const reset = async () => {
+  entities.value = [];
+  totalEntities.value = 0;
+  scrollTop.value = 0;
+  if (bookshelfRef.value) bookshelfRef.value.scrollTop = 0;
+  await fetchPage(0);
+  calculateLayout();
+};
+
+// Selection Logic
+const handleSelect = (item: ABSLibraryItem, index: number, event: MouseEvent) => {
+  if (event.shiftKey && lastSelectedIndex.value !== -1) {
+    const start = Math.min(index, lastSelectedIndex.value);
+    const end = Math.max(index, lastSelectedIndex.value);
+    for (let i = start; i <= end; i++) {
+      const ent = entities.value[i];
+      if (ent) selectedIds.value.add(ent.id);
+    }
+  } else if (event.ctrlKey || event.metaKey || selectedIds.value.size > 0) {
+    if (selectedIds.value.has(item.id)) {
+      selectedIds.value.delete(item.id);
+    } else {
+      selectedIds.value.add(item.id);
+    }
+  } else {
+    emit('select-item', item);
+  }
+  lastSelectedIndex.value = index;
+};
+
+// Lifecycle
+let resizeObserver: ResizeObserver | null = null;
+onMounted(() => {
+  reset();
+  resizeObserver = new ResizeObserver(calculateLayout);
+  if (bookshelfRef.value) resizeObserver.observe(bookshelfRef.value);
+
   props.absService.onProgressUpdate((updated: ABSProgress) => {
-    const index = items.value.findIndex(i => i.id === updated.itemId);
+    const index = entities.value.findIndex(i => i?.id === updated.itemId);
     if (index !== -1) {
-      items.value[index] = { ...items.value[index], userProgress: updated };
+      entities.value[index] = { ...entities.value[index]!, userProgress: updated };
     }
   });
 
-  props.absService.onLibraryUpdate(() => fetchItems(true));
+  props.absService.onLibraryUpdate(() => reset());
 });
 
 onUnmounted(() => {
-  if (observer) observer.disconnect();
+  resizeObserver?.disconnect();
 });
 
-watch(() => [props.sortMethod, props.desc, props.search], () => {
-  fetchItems(true);
-}, { deep: true });
+watch(() => [props.sortMethod, props.desc, props.search], () => reset(), { deep: true });
 
+const totalHeight = computed(() => layout.totalRows * layout.shelfHeight + (props.isStreaming ? 180 : 80));
 </script>
 
 <template>
-  <div class="space-y-12 pb-20" :class="{ 'pb-40': isStreaming }">
-    <!-- Empty State -->
-    <div v-if="!loading && items.length === 0" class="flex flex-col items-center justify-center py-32 text-center animate-fade-in">
-      <div class="w-24 h-24 rounded-full bg-neutral-900 flex items-center justify-center border border-white/5 mb-8 shadow-2xl">
-        <PackageOpen :size="40" class="text-neutral-700" />
+  <div 
+    ref="bookshelfRef"
+    class="flex-1 overflow-y-auto overflow-x-hidden no-scrollbar relative"
+    @scroll="handleScroll"
+  >
+    <!-- Total Height Spacer -->
+    <div :style="{ height: totalHeight + 'px' }" class="relative w-full">
+      
+      <!-- Empty State -->
+      <div v-if="totalEntities === 0 && !loadingPages.size" class="absolute inset-0 flex flex-col items-center justify-center text-center opacity-40">
+        <PackageOpen :size="64" class="text-neutral-800 mb-6" />
+        <h3 class="text-xl font-black uppercase tracking-tighter">Repository Empty</h3>
+        <p class="text-[9px] font-black uppercase tracking-widest mt-2">No artifacts detected in sector</p>
       </div>
-      <h3 class="text-2xl font-black uppercase tracking-tighter text-white mb-2">No Artifacts Found</h3>
-      <p class="text-[10px] font-black uppercase tracking-[0.4em] text-neutral-800">Your archive is currently vacant.</p>
+
+      <!-- Virtual Entities -->
+      <template v-for="entity in visibleEntities" :key="entity.index">
+        <div 
+          class="absolute transition-transform duration-500"
+          :style="{ 
+            transform: `translate3d(${entity.x}px, ${entity.y}px, 0)`,
+            width: layout.cardWidth + 'px',
+            height: layout.cardHeight + 'px'
+          }"
+        >
+          <!-- Aether Skeleton -->
+          <div v-if="!entity.data" class="w-full h-full bg-neutral-900/40 rounded-[28px] border border-white/5 animate-pulse flex items-center justify-center">
+            <Activity :size="20" class="text-neutral-800" />
+          </div>
+
+          <!-- Real Card -->
+          <BookCard 
+            v-else
+            :item="entity.data"
+            :coverUrl="absService.getCoverUrl(entity.data.id)"
+            :isSelected="selectedIds.has(entity.data.id)"
+            class="animate-fade-in"
+            @click="handleSelect(entity.data, entity.index, $event)"
+          />
+
+          <!-- Selection Badge -->
+          <div v-if="selectedIds.has(entity.data?.id || '')" class="absolute -top-2 -right-2 z-30 bg-purple-600 p-2 rounded-full border-2 border-black shadow-lg">
+            <MousePointer2 :size="12" class="text-white fill-current" />
+          </div>
+        </div>
+      </template>
+
+      <!-- Shelf Dividers (Aether Styled) -->
+      <template v-for="i in Math.ceil(containerHeight / layout.shelfHeight) + 2" :key="'shelf-' + i">
+        <div 
+          class="absolute left-0 right-0 h-px bg-gradient-to-r from-transparent via-purple-500/10 to-transparent pointer-events-none"
+          :style="{ 
+            top: (Math.floor(scrollTop / layout.shelfHeight) + i - 1) * layout.shelfHeight + layout.cardHeight + 12 + 'px' 
+          }"
+        />
+      </template>
     </div>
 
-    <!-- Grid -->
-    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-x-6 gap-y-10">
-      <BookCard 
-        v-for="item in items" 
-        :key="item.id" 
-        :item="item" 
-        :coverUrl="absService.getCoverUrl(item.id)"
-        @click="emit('select-item', item)"
-        class="animate-fade-in"
-      />
-    </div>
-
-    <!-- Sentinel for Infinite Scroll -->
-    <div ref="sentinel" class="h-20 flex items-center justify-center">
-      <div v-if="loading" class="w-8 h-8 border-2 border-purple-600/20 border-t-purple-600 rounded-full animate-spin" />
-      <div v-else-if="!hasMore && items.length > 0" class="flex flex-col items-center gap-2 opacity-20">
-        <div class="h-px w-12 bg-neutral-800" />
-        <span class="text-[8px] font-black uppercase tracking-[0.5em]">EOF</span>
+    <!-- Batch Actions (Floating) -->
+    <Transition name="slide-up">
+      <div v-if="selectedIds.size > 0" class="fixed bottom-24 left-1/2 -translate-x-1/2 z-[60] bg-neutral-900/80 backdrop-blur-2xl border border-purple-500/30 px-8 py-4 rounded-[32px] flex items-center gap-6 shadow-2xl animate-slide-up">
+        <div class="flex flex-col">
+          <span class="text-[10px] font-black uppercase tracking-widest text-purple-500">Selection Active</span>
+          <span class="text-xs font-black uppercase tracking-tighter text-white">{{ selectedIds.size }} Artifacts</span>
+        </div>
+        <div class="h-8 w-px bg-white/10" />
+        <button @click="selectedIds.clear()" class="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-500 hover:text-white transition-colors">Clear</button>
       </div>
-    </div>
+    </Transition>
   </div>
 </template>
 
 <style scoped>
 .animate-fade-in {
-  animation: fade-in 0.5s ease forwards;
+  animation: fade-in 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
 }
+
 @keyframes fade-in {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: scale(0.9) translateY(10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.slide-up-enter-active, .slide-up-leave-active {
+  transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.4s ease;
+}
+.slide-up-enter-from, .slide-up-leave-to {
+  transform: translate(-50%, 100%);
+  opacity: 0;
 }
 </style>

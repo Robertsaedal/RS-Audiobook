@@ -50,6 +50,17 @@ export interface ABSLibraryItem {
   userProgress?: ABSProgress;
 }
 
+export interface ABSSeries {
+  id: string;
+  name: string;
+  nameIgnorePrefix: string;
+  libraryId: string;
+  addedDate: number;
+  updatedDate: number;
+  books: ABSLibraryItem[];
+  numBooks: number;
+}
+
 export interface ABSProgress {
   itemId: string;
   currentTime: number;

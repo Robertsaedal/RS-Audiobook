@@ -1,13 +1,14 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed, onUnmounted, watch } from 'vue';
-import { AuthState, ABSLibraryItem, ABSProgress } from '../types';
+import { AuthState, ABSLibraryItem, ABSProgress, ABSSeries } from '../types';
 import { ABSService } from '../services/absService';
 import Navigation from './Navigation.vue';
 import Bookshelf from './Bookshelf.vue';
+import SeriesShelf from './SeriesShelf.vue';
 import BookCard from './BookCard.vue';
 import { NavTab } from './Navigation.vue';
-import { Search, ChevronRight, Clock, ArrowRight, Play, ArrowUpDown, Check, LayoutGrid } from 'lucide-vue-next';
+import { Search, ChevronRight, Play, ArrowUpDown, Check, LayoutGrid, Layers, Database } from 'lucide-vue-next';
 
 const props = defineProps<{
   auth: AuthState,
@@ -22,13 +23,13 @@ const emit = defineEmits<{
 const absService = new ABSService(props.auth.serverUrl, props.auth.user?.token || '');
 
 const activeTab = ref<NavTab>('HOME');
+const viewMode = ref<'BOOKS' | 'SERIES'>('BOOKS');
 const searchTerm = ref('');
 const sortMethod = ref('ADDEDDATE');
 const desc = ref(1);
 const showSortMenu = ref(false);
-const selectedSeries = ref<any>(null);
+const selectedSeries = ref<ABSSeries | null>(null);
 const seriesItems = ref<ABSLibraryItem[]>([]);
-const viewingAll = ref(false);
 
 const resumeHero = ref<ABSLibraryItem | null>(null);
 
@@ -49,9 +50,9 @@ onUnmounted(() => {
   absService.disconnect();
 });
 
-const handleSeriesSelect = async (stack: any) => {
-  selectedSeries.value = stack;
-  seriesItems.value = await absService.getSeriesItems(stack.id || stack.name);
+const handleSeriesSelect = async (series: ABSSeries) => {
+  selectedSeries.value = series;
+  seriesItems.value = await absService.getSeriesItems(series.id);
 };
 
 const sortOptions = [
@@ -64,7 +65,11 @@ const sortOptions = [
 const handleTabChange = (tab: NavTab) => {
   activeTab.value = tab;
   selectedSeries.value = null;
-  viewingAll.value = false;
+  if (tab === 'SERIES') {
+    viewMode.value = 'SERIES';
+  } else {
+    viewMode.value = 'BOOKS';
+  }
 };
 
 // Listen for updates to hero if playing
@@ -93,7 +98,8 @@ absService.onProgressUpdate((updated) => {
           </div>
         </div>
 
-        <div class="flex items-center gap-4 max-w-2xl relative">
+        <div class="flex flex-col sm:flex-row sm:items-center gap-4 max-w-4xl relative">
+          <!-- Search Bar -->
           <div class="relative group flex-1">
             <input
               type="text"
@@ -104,30 +110,53 @@ absService.onProgressUpdate((updated) => {
             <Search class="w-5 h-5 text-neutral-800 absolute left-5 top-1/2 -translate-y-1/2 group-focus-within:text-purple-500 transition-colors" />
           </div>
           
-          <div class="relative">
-            <button 
-              @click="showSortMenu = !showSortMenu"
-              class="p-4 rounded-[24px] border border-white/5 bg-neutral-900/50 backdrop-blur-sm transition-all active:scale-90"
-              :class="showSortMenu ? 'text-purple-500 border-purple-600/40' : 'text-neutral-500'"
-            >
-              <ArrowUpDown :size="20" />
-            </button>
-            
-            <template v-if="showSortMenu">
-              <div class="fixed inset-0 z-[60]" @click="showSortMenu = false" />
-              <div class="absolute right-0 top-full mt-2 w-56 bg-neutral-950 border border-white/10 rounded-[28px] p-2 shadow-2xl z-[70] animate-fade-in backdrop-blur-xl">
-                <button
-                  v-for="opt in sortOptions"
-                  :key="opt.value"
-                  @click="sortMethod = opt.value; showSortMenu = false;"
-                  class="w-full flex items-center justify-between px-6 py-4 rounded-[20px] transition-all"
-                  :class="sortMethod === opt.value ? 'bg-purple-600/10 text-white' : 'text-neutral-500 hover:text-neutral-300'"
-                >
-                  <span class="text-[11px] font-black uppercase tracking-widest">{{ opt.label }}</span>
-                  <Check v-if="sortMethod === opt.value" :size="14" class="text-purple-500" />
-                </button>
-              </div>
-            </template>
+          <div class="flex items-center gap-3">
+            <!-- View Mode Toggle -->
+            <div class="bg-neutral-950 border border-white/5 p-1 rounded-3xl flex items-center shadow-inner">
+              <button 
+                @click="viewMode = 'BOOKS'; activeTab = 'HOME'"
+                class="flex items-center gap-2 px-5 py-2.5 rounded-2xl transition-all font-black text-[9px] uppercase tracking-widest"
+                :class="viewMode === 'BOOKS' ? 'bg-purple-600 text-white shadow-[0_0_15px_rgba(157,80,187,0.4)]' : 'text-neutral-600 hover:text-neutral-300'"
+              >
+                <Database :size="12" />
+                <span class="hidden sm:inline">Repository</span>
+              </button>
+              <button 
+                @click="viewMode = 'SERIES'; activeTab = 'SERIES'"
+                class="flex items-center gap-2 px-5 py-2.5 rounded-2xl transition-all font-black text-[9px] uppercase tracking-widest"
+                :class="viewMode === 'SERIES' ? 'bg-purple-600 text-white shadow-[0_0_15px_rgba(157,80,187,0.4)]' : 'text-neutral-600 hover:text-neutral-300'"
+              >
+                <Layers :size="12" />
+                <span class="hidden sm:inline">Stacks</span>
+              </button>
+            </div>
+
+            <!-- Sort Menu -->
+            <div class="relative">
+              <button 
+                @click="showSortMenu = !showSortMenu"
+                class="p-4 rounded-[24px] border border-white/5 bg-neutral-900/50 backdrop-blur-sm transition-all active:scale-90"
+                :class="showSortMenu ? 'text-purple-500 border-purple-600/40' : 'text-neutral-500'"
+              >
+                <ArrowUpDown :size="20" />
+              </button>
+              
+              <template v-if="showSortMenu">
+                <div class="fixed inset-0 z-[60]" @click="showSortMenu = false" />
+                <div class="absolute right-0 top-full mt-2 w-56 bg-neutral-950 border border-white/10 rounded-[28px] p-2 shadow-2xl z-[70] animate-fade-in backdrop-blur-xl">
+                  <button
+                    v-for="opt in sortOptions"
+                    :key="opt.value"
+                    @click="sortMethod = opt.value; showSortMenu = false;"
+                    class="w-full flex items-center justify-between px-6 py-4 rounded-[20px] transition-all"
+                    :class="sortMethod === opt.value ? 'bg-purple-600/10 text-white' : 'text-neutral-500 hover:text-neutral-300'"
+                  >
+                    <span class="text-[11px] font-black uppercase tracking-widest">{{ opt.label }}</span>
+                    <Check v-if="sortMethod === opt.value" :size="14" class="text-purple-500" />
+                  </button>
+                </div>
+              </template>
+            </div>
           </div>
         </div>
       </div>
@@ -150,7 +179,7 @@ absService.onProgressUpdate((updated) => {
           />
         </div>
 
-        <!-- Series View -->
+        <!-- Series Detail View -->
         <div v-else-if="selectedSeries" class="space-y-10">
           <button @click="selectedSeries = null" class="flex items-center gap-2 text-purple-500 text-[10px] font-black uppercase tracking-widest bg-neutral-900/40 px-5 py-2.5 rounded-full border border-white/5 active:scale-95">
             <ChevronRight class="rotate-180" :size="14" />
@@ -160,7 +189,8 @@ absService.onProgressUpdate((updated) => {
             <h3 class="text-3xl font-black uppercase tracking-tighter text-white">{{ selectedSeries.name }}</h3>
             <p class="text-[10px] font-black uppercase tracking-[0.3em] text-neutral-700">COLLECTION SEGMENTS</p>
           </div>
-          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-x-6 gap-y-12">
+          <!-- Reusing standard BookCard grid for series books -->
+          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-x-6 gap-y-12 pb-32">
             <BookCard 
               v-for="item in seriesItems"
               :key="item.id" 
@@ -171,10 +201,10 @@ absService.onProgressUpdate((updated) => {
           </div>
         </div>
 
-        <!-- Dashboard View -->
-        <div v-else-if="activeTab === 'HOME'" class="space-y-12">
-          <!-- Hero Section -->
-          <section class="space-y-6">
+        <!-- Main Dashboard -->
+        <div v-else class="space-y-12">
+          <!-- Hero Section (Only in Books Mode) -->
+          <section v-if="viewMode === 'BOOKS' && activeTab === 'HOME'" class="space-y-6">
             <div class="flex items-center gap-2 text-neutral-800">
               <Play :size="12" />
               <h3 class="text-[10px] font-black uppercase tracking-[0.4em]">RESUME LINK</h3>
@@ -201,8 +231,8 @@ absService.onProgressUpdate((updated) => {
             </div>
           </section>
 
-          <!-- Infinite Library -->
-          <section class="space-y-8">
+          <!-- Repository (All Books) -->
+          <section v-if="viewMode === 'BOOKS'" class="space-y-8">
             <div class="flex items-center gap-2 text-neutral-800">
               <LayoutGrid :size="12" />
               <h3 class="text-[10px] font-black uppercase tracking-[0.4em]">ARCHIVE REPOSITORY</h3>
@@ -213,6 +243,21 @@ absService.onProgressUpdate((updated) => {
               :desc="desc" 
               :isStreaming="isStreaming"
               @select-item="emit('select-item', $event)"
+            />
+          </section>
+
+          <!-- Stacks (Series) -->
+          <section v-else class="space-y-8">
+            <div class="flex items-center gap-2 text-neutral-800">
+              <Layers :size="12" />
+              <h3 class="text-[10px] font-black uppercase tracking-[0.4em]">SERIES STACKS</h3>
+            </div>
+            <SeriesShelf 
+              :absService="absService" 
+              :sortMethod="sortMethod" 
+              :desc="desc" 
+              :isStreaming="isStreaming"
+              @select-series="handleSeriesSelect"
             />
           </section>
         </div>
