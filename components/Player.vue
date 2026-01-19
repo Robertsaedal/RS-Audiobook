@@ -5,7 +5,7 @@ import { AuthState, ABSLibraryItem, ABSChapter } from '../types';
 import { usePlayer } from '../composables/usePlayer';
 import { 
   ChevronDown, Play, Pause, Info, X, Activity, Plus, Minus, 
-  RotateCcw, RotateCw, ChevronRight, Gauge, Moon
+  RotateCcw, RotateCw, ChevronRight, Gauge, Moon, Mic, Clock, Database
 } from 'lucide-vue-next';
 
 const props = defineProps<{
@@ -20,6 +20,7 @@ const emit = defineEmits<{
 const { state, load, play, pause, seek, setPlaybackRate, destroy } = usePlayer();
 
 const showChapters = ref(false);
+const showInfo = ref(false);
 const sleepSeconds = ref(0);
 const sleepAtChapterEnd = ref(false);
 let sleepInterval: any = null;
@@ -40,7 +41,6 @@ const currentChapterIndex = computed(() => {
 
 const currentChapter = computed(() => currentChapterIndex.value !== -1 ? chapters.value[currentChapterIndex.value] : null);
 
-// Chapter-based progress logic
 const chapterProgressPercent = computed(() => {
   if (!currentChapter.value) return 0;
   const chapterDuration = currentChapter.value.end - currentChapter.value.start;
@@ -57,6 +57,14 @@ const secondsToTimestamp = (s: number) => {
   if (isNaN(s) || s < 0) return "00:00";
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = Math.floor(s % 60);
   return `${h > 0 ? h + ':' : ''}${m.toString().padStart(h > 0 ? 2 : 1, '0')}:${sec.toString().padStart(2, '0')}`;
+};
+
+const formatSize = (bytes: number) => {
+  if (!bytes) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 };
 
 onMounted(() => {
@@ -92,13 +100,14 @@ const toggleChapterSleep = () => {
   if (sleepAtChapterEnd.value) sleepSeconds.value = 0;
 };
 
-const metadata = computed(() => props.item.media.metadata);
+const metadata = computed(() => props.item?.media?.metadata || {});
+const media = computed(() => props.item?.media || {});
 </script>
 
 <template>
   <div class="h-[100dvh] w-full bg-black text-white flex flex-col relative overflow-hidden font-sans select-none safe-top safe-bottom">
     
-    <!-- Minimalist Ambient Glow -->
+    <!-- Ambient Background Glow -->
     <div class="absolute inset-0 z-0 pointer-events-none flex items-center justify-center">
       <div class="w-[500px] h-[500px] bg-purple-600/10 rounded-full blur-[160px] animate-pulse" />
     </div>
@@ -128,7 +137,9 @@ const metadata = computed(() => props.item.media.metadata);
           </div>
         </button>
 
-        <div class="w-10 h-10" /> <!-- Placeholder for balance -->
+        <button @click="showInfo = true" class="p-2 text-neutral-600 hover:text-white transition-colors">
+          <Info :size="22" stroke-width="1.5" />
+        </button>
       </header>
 
       <!-- Central Artifact Area -->
@@ -151,7 +162,7 @@ const metadata = computed(() => props.item.media.metadata);
             <p class="text-[9px] font-black uppercase tracking-[0.3em] text-neutral-600">{{ metadata.authorName }}</p>
           </div>
 
-          <!-- Refined Timer -->
+          <!-- Timer Display -->
           <div class="pt-2">
             <div class="text-3xl font-black font-mono-timer tabular-nums tracking-tighter text-white">
               {{ secondsToTimestamp(state.currentTime) }}
@@ -160,9 +171,8 @@ const metadata = computed(() => props.item.media.metadata);
         </div>
       </div>
 
-      <!-- Playback Interface -->
+      <!-- Playback Controls -->
       <footer class="px-10 pb-16 space-y-12 max-w-xl mx-auto w-full z-20">
-        <!-- Modern Chapter Progress Bar (Knobless) -->
         <div class="space-y-4">
           <div 
             class="h-1 w-full bg-neutral-900 rounded-full relative cursor-pointer overflow-hidden group" 
@@ -185,7 +195,6 @@ const metadata = computed(() => props.item.media.metadata);
           </div>
         </div>
 
-        <!-- Master Controls -->
         <div class="flex items-center justify-center gap-10">
           <button @click="seek(state.currentTime - 15)" class="text-neutral-700 hover:text-purple-500 transition-colors active:scale-90">
             <RotateCcw :size="28" stroke-width="1.5" />
@@ -202,9 +211,7 @@ const metadata = computed(() => props.item.media.metadata);
           </button>
         </div>
 
-        <!-- Utility Grid -->
         <div class="grid grid-cols-2 gap-4">
-          <!-- Speed Control -->
           <div class="bg-neutral-900/20 border border-white/5 rounded-[24px] p-5 flex flex-col items-center gap-4">
             <div class="flex items-center gap-2 text-[8px] font-black uppercase tracking-[0.3em] text-neutral-700">
               <Gauge :size="12" stroke-width="1.5" />
@@ -221,7 +228,6 @@ const metadata = computed(() => props.item.media.metadata);
             </div>
           </div>
 
-          <!-- Sleep Control -->
           <div class="bg-neutral-900/20 border border-white/5 rounded-[24px] p-5 flex flex-col items-center gap-4">
             <div class="flex items-center gap-2 text-[8px] font-black uppercase tracking-[0.3em] text-neutral-700">
               <Moon :size="12" stroke-width="1.5" />
@@ -246,6 +252,55 @@ const metadata = computed(() => props.item.media.metadata);
       </footer>
     </template>
 
+    <!-- Info Overlay (LibraryItemDetails logic) -->
+    <Transition name="slide-up">
+      <div v-if="showInfo" class="fixed inset-0 bg-black/95 backdrop-blur-3xl z-[160] flex flex-col">
+        <header class="p-10 flex justify-between items-center bg-transparent shrink-0">
+          <div class="space-y-1">
+            <h2 class="text-xl font-black uppercase tracking-tighter text-white">ARTIFACT DETAILS</h2>
+            <p class="text-[8px] font-black uppercase tracking-[0.5em] text-purple-700">Registry Inventory Record</p>
+          </div>
+          <button @click="showInfo = false" class="p-4 bg-neutral-900/50 rounded-full text-neutral-500 hover:text-white border border-white/5 transition-all active:scale-90">
+            <X :size="20"/>
+          </button>
+        </header>
+        
+        <div class="flex-1 overflow-y-auto p-10 space-y-12 max-w-2xl mx-auto w-full no-scrollbar pb-32">
+          <div class="space-y-4">
+            <h3 class="text-3xl font-black uppercase tracking-tighter text-white">{{ metadata.title }}</h3>
+            <p class="text-neutral-500 text-sm leading-relaxed">{{ metadata.description || 'No summary retrieved from archives.' }}</p>
+          </div>
+
+          <div class="grid grid-cols-1 gap-4">
+            <!-- Refined Detail Panels -->
+            <div class="flex items-center gap-6 p-6 bg-neutral-950/60 rounded-[32px] border border-white/5">
+              <Mic :size="24" class="text-purple-500" />
+              <div class="flex flex-col gap-1">
+                <span class="text-[8px] font-black uppercase text-neutral-700 tracking-[0.5em]">NARRATOR</span>
+                <span class="text-sm font-bold text-neutral-300">{{ metadata.narrator || 'System Default' }}</span>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-6 p-6 bg-neutral-950/60 rounded-[32px] border border-white/5">
+              <Clock :size="24" class="text-purple-500" />
+              <div class="flex flex-col gap-1">
+                <span class="text-[8px] font-black uppercase text-neutral-700 tracking-[0.5em]">DURATION</span>
+                <span class="text-sm font-bold text-neutral-300">{{ secondsToTimestamp(media.duration) }}</span>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-6 p-6 bg-neutral-950/60 rounded-[32px] border border-white/5">
+              <Database :size="24" class="text-purple-500" />
+              <div class="flex flex-col gap-1">
+                <span class="text-[8px] font-black uppercase text-neutral-700 tracking-[0.5em]">DATA SIZE</span>
+                <span class="text-sm font-bold text-neutral-300">{{ formatSize(props.item.size || 0) }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
     <!-- Archive Index Overlay -->
     <Transition name="slide-up">
       <div v-if="showChapters" class="fixed inset-0 bg-black/95 backdrop-blur-3xl z-[150] flex flex-col">
@@ -267,17 +322,11 @@ const metadata = computed(() => props.item.media.metadata);
             class="w-full flex items-center justify-between p-6 rounded-[28px] mb-3 transition-all border border-transparent group"
             :class="currentChapterIndex === i ? 'bg-purple-600/5 border-purple-500/20' : 'hover:bg-neutral-900/30'"
           >
-            <div class="flex flex-col items-start gap-1">
+            <div class="flex flex-col items-start gap-1 text-left">
               <span class="text-xs font-black uppercase tracking-tight" :class="currentChapterIndex === i ? 'text-white' : 'text-neutral-500 group-hover:text-neutral-300'">
                 {{ ch.title }}
               </span>
               <span class="text-[9px] font-mono text-neutral-700 tabular-nums">{{ secondsToTimestamp(ch.start) }}</span>
-            </div>
-            
-            <div v-if="currentChapterIndex === i" class="flex gap-1 items-end h-4">
-              <div class="w-0.5 bg-purple-500 animate-[bounce_1s_infinite_100ms]" style="height: 60%" />
-              <div class="w-0.5 bg-purple-500 animate-[bounce_1s_infinite_300ms]" style="height: 100%" />
-              <div class="w-0.5 bg-purple-500 animate-[bounce_1s_infinite_500ms]" style="height: 40%" />
             </div>
           </button>
         </div>
@@ -287,22 +336,8 @@ const metadata = computed(() => props.item.media.metadata);
 </template>
 
 <style scoped>
-.fade-enter-active, .fade-leave-active {
-  transition: opacity 0.4s ease;
-}
-.fade-enter-from, .fade-leave-to {
-  opacity: 0;
-}
-
-.slide-up-enter-active, .slide-up-leave-active {
-  transition: transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
-}
-.slide-up-enter-from, .slide-up-leave-to {
-  transform: translateY(100%);
-}
-
-@keyframes bounce {
-  0%, 100% { transform: scaleY(0.5); opacity: 0.5; }
-  50% { transform: scaleY(1.2); opacity: 1; }
-}
+.fade-enter-active, .fade-leave-active { transition: opacity 0.4s ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
+.slide-up-enter-active, .slide-up-leave-active { transition: transform 0.6s cubic-bezier(0.22, 1, 0.36, 1); }
+.slide-up-enter-from, .slide-up-leave-to { transform: translateY(100%); }
 </style>

@@ -1,6 +1,6 @@
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted, watch } from 'vue';
 import { AuthState, ABSLibraryItem, ABSSeries } from '../types';
 import { ABSService } from '../services/absService';
 import LibraryLayout, { LibraryTab } from './LibraryLayout.vue';
@@ -8,7 +8,7 @@ import Bookshelf from './Bookshelf.vue';
 import SeriesShelf from './SeriesShelf.vue';
 import SeriesView from './SeriesView.vue';
 import RequestPortal from './RequestPortal.vue';
-import { Search, ArrowUpDown, Check } from 'lucide-vue-next';
+import { ArrowUpDown, Check } from 'lucide-vue-next';
 
 const props = defineProps<{
   auth: AuthState,
@@ -24,7 +24,7 @@ const absService = new ABSService(props.auth.serverUrl, props.auth.user?.token |
 
 const activeTab = ref<LibraryTab>('HOME');
 const searchTerm = ref('');
-const sortMethod = ref('ADDEDDATE');
+const sortMethod = ref('addedAt'); // Enforce correct API sort key for 'Recently Added'
 const desc = ref(1);
 const showSortMenu = ref(false);
 const selectedSeries = ref<ABSSeries | null>(null);
@@ -55,15 +55,19 @@ const handleSeriesSelect = (series: ABSSeries) => {
 };
 
 const sortOptions = [
-  { value: 'ADDEDDATE', label: 'Recently Added' },
-  { value: 'LASTUPDATE', label: 'Recent Activity' },
-  { value: 'TITLE', label: 'By Title' },
-  { value: 'AUTHOR', label: 'By Author' },
+  { value: 'addedAt', label: 'Recently Added' },
+  { value: 'lastUpdate', label: 'Recent Activity' },
+  { value: 'media.metadata.title', label: 'By Title' },
+  { value: 'media.metadata.authorName', label: 'By Author' },
 ] as const;
 
 const handleTabChange = (tab: LibraryTab) => {
   activeTab.value = tab;
   selectedSeries.value = null;
+  if (tab === 'HOME') {
+    sortMethod.value = 'addedAt';
+    desc.value = 1;
+  }
 };
 
 const handleScan = async () => {
@@ -88,6 +92,7 @@ absService.onProgressUpdate((updated) => {
 <template>
   <LibraryLayout 
     :activeTab="activeTab" 
+    v-model:search="searchTerm"
     :isScanning="isScanning"
     :isStreaming="isStreaming"
     :username="auth.user?.username"
@@ -97,46 +102,36 @@ absService.onProgressUpdate((updated) => {
     @scan="handleScan"
     @clear-selection="selectedCount = 0"
   >
-    <!-- Header Controls (Sub-navigation / Filters) -->
-    <header v-if="activeTab !== 'REQUEST' && !selectedSeries" class="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
+    <!-- Local Header (Refined for Dashboard/Library meta) -->
+    <header v-if="activeTab !== 'REQUEST' && !selectedSeries" class="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6 animate-fade-in">
       <div class="space-y-1">
-        <h2 class="text-3xl font-bold tracking-tight text-white uppercase">
+        <h2 class="text-3xl font-black uppercase tracking-tighter text-white">
           {{ activeTab === 'HOME' ? 'Dashboard' : activeTab }}
         </h2>
-        <p class="text-[9px] font-bold uppercase tracking-[0.4em] text-neutral-600">
+        <p class="text-[9px] font-black uppercase tracking-[0.4em] text-neutral-600">
           Archives Sector {{ activeTab }}
         </p>
       </div>
 
       <div class="flex items-center gap-4">
-        <!-- Search -->
-        <div class="relative group min-w-[280px]">
-          <input
-            type="text"
-            placeholder="Search artifacts..."
-            v-model="searchTerm"
-            class="w-full bg-[#1a1a1a] border border-white/5 rounded-md py-2.5 pl-10 pr-4 text-xs text-white placeholder-neutral-700 focus:border-purple-600/30 outline-none transition-all"
-          />
-          <Search class="w-4 h-4 text-neutral-700 absolute left-3 top-1/2 -translate-y-1/2 group-focus-within:text-purple-500 transition-colors" />
-        </div>
-
-        <!-- Sort -->
+        <!-- Sort Menu -->
         <div class="relative">
           <button 
             @click="showSortMenu = !showSortMenu"
-            class="p-2.5 rounded-md border border-white/5 bg-[#1a1a1a] text-neutral-500 hover:text-white transition-all"
+            class="p-2.5 rounded-md border border-white/5 bg-[#1a1a1a] text-neutral-500 hover:text-white transition-all active:scale-95 flex items-center gap-2"
             :class="{ 'text-purple-400 border-purple-500/20': showSortMenu }"
           >
             <ArrowUpDown :size="16" />
+            <span class="text-[9px] font-black uppercase tracking-widest hidden sm:inline">Sort Order</span>
           </button>
           
           <Transition name="fade-pop">
-            <div v-if="showSortMenu" class="absolute right-0 top-full mt-2 w-48 bg-[#1a1a1a] border border-white/10 rounded-lg p-1 shadow-2xl z-[70]">
+            <div v-if="showSortMenu" class="absolute right-0 top-full mt-2 w-48 bg-[#1a1a1a] border border-white/10 rounded-lg p-1 shadow-2xl z-[70] backdrop-blur-xl">
               <button
                 v-for="opt in sortOptions"
                 :key="opt.value"
                 @click="sortMethod = opt.value; showSortMenu = false;"
-                class="w-full flex items-center justify-between px-4 py-2.5 rounded text-[10px] font-bold uppercase tracking-widest transition-all"
+                class="w-full flex items-center justify-between px-4 py-3 rounded text-[10px] font-bold uppercase tracking-widest transition-all"
                 :class="sortMethod === opt.value ? 'bg-purple-600/20 text-white' : 'text-neutral-500 hover:text-neutral-300'"
               >
                 {{ opt.label }}
@@ -148,9 +143,10 @@ absService.onProgressUpdate((updated) => {
       </div>
     </header>
 
-    <!-- Detailed Content View -->
+    <!-- Main View Switcher -->
     <div class="flex-1 min-h-0">
-      <div v-if="searchTerm && !selectedSeries" class="space-y-10">
+      <!-- Search results override normal view -->
+      <div v-if="searchTerm && !selectedSeries" class="h-full">
         <Bookshelf 
           :absService="absService" 
           :sortMethod="sortMethod" 
@@ -171,30 +167,30 @@ absService.onProgressUpdate((updated) => {
 
       <template v-else>
         <!-- HOME TAB -->
-        <div v-if="activeTab === 'HOME'" class="space-y-12">
+        <div v-if="activeTab === 'HOME'" class="space-y-12 h-full overflow-y-auto no-scrollbar">
           <!-- Continue Reading -->
           <section v-if="resumeHero" class="space-y-6">
              <h3 class="text-[10px] font-bold uppercase tracking-[0.5em] text-neutral-700">Continue Listening</h3>
             <div class="relative group w-full aspect-[21/9] bg-[#1a1a1a] rounded-2xl overflow-hidden border border-white/5 cursor-pointer shadow-2xl transition-all hover:border-purple-500/20" @click="emit('select-item', resumeHero!)">
               <img :src="absService.getCoverUrl(resumeHero.id)" class="w-full h-full object-cover opacity-40 group-hover:opacity-60 transition-opacity" />
               <div class="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent p-8 flex flex-col justify-end">
-                <h4 class="text-3xl md:text-5xl font-black uppercase tracking-tighter text-white mb-1">{{ resumeHero.media.metadata.title }}</h4>
+                <h4 class="text-3xl md:text-5xl font-black uppercase tracking-tighter text-white mb-1 leading-none">{{ resumeHero.media.metadata.title }}</h4>
                 <p class="text-[10px] font-black text-purple-400 uppercase tracking-[0.3em] mb-6">
                   {{ resumeHero.media.metadata.authorName }}
                 </p>
                 <div class="w-full h-1 bg-white/5 rounded-full overflow-hidden">
-                  <div class="h-full bg-purple-500" :style="{ width: `${(resumeHero.userProgress?.progress || 0) * 100}%` }" />
+                  <div class="h-full bg-purple-500 shadow-[0_0_10px_rgba(168,85,247,0.5)]" :style="{ width: `${(resumeHero.userProgress?.progress || 0) * 100}%` }" />
                 </div>
               </div>
             </div>
           </section>
 
-          <!-- Recent Items -->
-          <section class="space-y-6">
-            <h3 class="text-[10px] font-bold uppercase tracking-[0.5em] text-neutral-700">Recently Added</h3>
+          <!-- Dashboard Shelf (Recently Added) -->
+          <section class="h-full">
+            <h3 class="text-[10px] font-bold uppercase tracking-[0.5em] text-neutral-700 mb-6">Recently Added</h3>
             <Bookshelf 
               :absService="absService" 
-              :sortMethod="'addedDate'" 
+              :sortMethod="'addedAt'" 
               :desc="1"
               :isStreaming="isStreaming"
               @select-item="emit('select-item', $event)"
@@ -221,14 +217,8 @@ absService.onProgressUpdate((updated) => {
           />
         </div>
 
-        <div v-else-if="activeTab === 'REQUEST'" class="animate-fade-in">
+        <div v-else-if="activeTab === 'REQUEST'" class="h-full animate-fade-in">
           <RequestPortal />
-        </div>
-
-        <div v-else class="flex flex-col items-center justify-center py-40 opacity-20 text-center">
-          <Search :size="64" class="mb-6" />
-          <h3 class="text-xl font-bold uppercase tracking-widest">Section Empty</h3>
-          <p class="text-xs mt-2 font-medium">No artifacts matching this classification found.</p>
         </div>
       </template>
     </div>
@@ -239,4 +229,13 @@ absService.onProgressUpdate((updated) => {
 .fade-pop-enter-active, .fade-pop-leave-active { transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); }
 .fade-pop-enter-from { opacity: 0; transform: scale(0.95) translateY(10px); }
 .fade-pop-leave-to { opacity: 0; transform: scale(1.05); }
+
+.animate-fade-in {
+  animation: fade-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 </style>

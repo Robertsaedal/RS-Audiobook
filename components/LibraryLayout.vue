@@ -1,16 +1,17 @@
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { 
-  Home, BookOpen, Layers, Bookmark, Users, 
-  BarChart2, Download, Search, Cast, User,
-  X, RotateCw, PlusCircle, Settings, Mic, ListMusic
+  Home, BookOpen, Layers, User,
+  X, RotateCw, PlusSquare, Search
 } from 'lucide-vue-next';
+import confetti from 'https://esm.sh/canvas-confetti';
 
-export type LibraryTab = 'HOME' | 'LIBRARY' | 'SERIES' | 'COLLECTIONS' | 'AUTHORS' | 'PLAYLISTS' | 'NARRATORS' | 'REQUEST';
+export type LibraryTab = 'HOME' | 'LIBRARY' | 'SERIES' | 'REQUEST';
 
 const props = defineProps<{
   activeTab: LibraryTab;
+  search: string;
   isScanning?: boolean;
   isStreaming?: boolean;
   username?: string;
@@ -22,6 +23,7 @@ const emit = defineEmits<{
   (e: 'logout'): void;
   (e: 'scan'): void;
   (e: 'clear-selection'): void;
+  (e: 'update:search', val: string): void;
 }>();
 
 const version = "5.2.0";
@@ -30,52 +32,68 @@ const navItems = [
   { id: 'HOME' as LibraryTab, icon: Home, label: 'Home' },
   { id: 'LIBRARY' as LibraryTab, icon: BookOpen, label: 'Library' },
   { id: 'SERIES' as LibraryTab, icon: Layers, label: 'Series' },
-  { id: 'COLLECTIONS' as LibraryTab, icon: Bookmark, label: 'Collections' },
-  { id: 'PLAYLISTS' as LibraryTab, icon: ListMusic, label: 'Playlists' },
-  { id: 'AUTHORS' as LibraryTab, icon: Users, label: 'Authors' },
-  { id: 'NARRATORS' as LibraryTab, icon: Mic, label: 'Narrators' },
 ];
 
-const bottomNavItems = [
-  { id: 'REQUEST' as LibraryTab, icon: PlusCircle, label: 'Request' },
-  { id: 'STATS' as any, icon: BarChart2, label: 'Stats' },
-  { id: 'QUEUE' as any, icon: Download, label: 'Queue' },
-];
+const triggerSuccessSparks = (el: HTMLElement) => {
+  const rect = el.getBoundingClientRect();
+  confetti({
+    particleCount: 50,
+    spread: 60,
+    origin: { 
+      x: (rect.left + rect.width / 2) / window.innerWidth, 
+      y: (rect.top + rect.height / 2) / window.innerHeight 
+    },
+    colors: ['#A855F7', '#D8B4FE', '#FFFFFF'],
+    gravity: 1.1,
+    ticks: 150,
+    shapes: ['circle'],
+    scalar: 0.8
+  });
+};
+
+const handleRequestClick = (event: MouseEvent) => {
+  triggerSuccessSparks(event.currentTarget as HTMLElement);
+  emit('tab-change', 'REQUEST');
+};
 </script>
 
 <template>
   <div class="flex h-screen w-full bg-[#0d0d0d] text-white overflow-hidden relative">
     
-    <!-- Top Appbar (Reference: Appbar.txt) -->
+    <!-- Top Appbar (Reference: Appbar.txt refined) -->
     <header class="h-16 w-full fixed top-0 left-0 right-0 bg-[#1a1a1a] z-[60] px-4 md:px-6 flex items-center justify-between border-b border-white/5">
       <div class="flex items-center gap-4">
         <div class="flex items-center cursor-pointer group" @click="emit('tab-change', 'HOME')">
           <img src="/logo.png" alt="ABS" class="w-8 h-8 mr-3 group-hover:scale-110 transition-transform" />
           <h1 class="text-xl font-bold tracking-tight hidden lg:block hover:underline">audiobookshelf</h1>
         </div>
+      </div>
 
-        <!-- Library Selection Placeholder -->
-        <div class="ml-4 px-3 py-1.5 bg-neutral-800 rounded border border-white/10 text-xs font-bold uppercase tracking-widest cursor-pointer hover:bg-neutral-700 transition-colors">
-          Main Archives
+      <!-- Global Search & Request (Center-ish Alignment) -->
+      <div class="flex items-center gap-4 flex-1 max-w-2xl px-8 ml-4">
+        <!-- Request Button (Ghost Style / Purple Border) -->
+        <button 
+          @click="handleRequestClick"
+          class="flex items-center gap-2 px-4 py-2 bg-transparent border border-purple-500 rounded-md text-[10px] font-black uppercase tracking-widest text-purple-400 hover:bg-purple-500/10 transition-all shrink-0 active:scale-95"
+        >
+          <PlusSquare :size="14" />
+          <span>Request</span>
+        </button>
+
+        <!-- Search Bar -->
+        <div class="relative group flex-1 hidden sm:block">
+          <input
+            type="text"
+            placeholder="Search artifacts..."
+            :value="search"
+            @input="e => emit('update:search', (e.target as HTMLInputElement).value)"
+            class="w-full bg-[#0d0d0d] border border-white/5 rounded-md py-2.5 pl-10 pr-4 text-xs text-white placeholder-neutral-800 focus:border-purple-500/40 outline-none transition-all"
+          />
+          <Search class="w-4 h-4 text-neutral-800 absolute left-3 top-1/2 -translate-y-1/2 group-focus-within:text-purple-500 transition-colors" />
         </div>
       </div>
 
       <div class="flex items-center gap-3">
-        <!-- Chromecast / Casting Icon -->
-        <button class="p-2 text-neutral-400 hover:text-purple-400 transition-colors">
-          <Cast :size="20" />
-        </button>
-
-        <!-- Stats Icon -->
-        <button class="p-2 text-neutral-400 hover:text-white transition-colors hidden sm:block">
-          <BarChart2 :size="20" />
-        </button>
-
-        <!-- Settings -->
-        <button class="p-2 text-neutral-400 hover:text-white transition-colors">
-          <Settings :size="20" />
-        </button>
-
         <!-- User Profile -->
         <div 
           @click="emit('logout')"
@@ -86,14 +104,12 @@ const bottomNavItems = [
         </div>
       </div>
 
-      <!-- Batch Selection Toolbar (Appears over Appbar) -->
+      <!-- Batch Selection Toolbar -->
       <Transition name="fade">
         <div v-if="selectedCount && selectedCount > 0" class="absolute inset-0 bg-[#9D50BB] flex items-center px-8 z-[70]">
           <h1 class="text-lg md:text-2xl font-bold">{{ selectedCount }} Items Selected</h1>
           <div class="grow" />
           <div class="flex items-center gap-4">
-            <!-- Batch Actions Placeholder -->
-            <button class="p-2 hover:bg-black/10 rounded transition-colors"><Bookmark :size="20" /></button>
             <button @click="emit('clear-selection')" class="p-2 hover:bg-black/10 rounded transition-colors">
               <X :size="32" />
             </button>
@@ -102,7 +118,7 @@ const bottomNavItems = [
       </Transition>
     </header>
 
-    <!-- Side Rail (Reference: SideRail.txt) -->
+    <!-- Side Rail (Reference: SideRail.txt - Home, Library, Series only) -->
     <aside class="w-20 hidden md:flex h-full fixed left-0 top-16 bg-[#0f0f0f] border-r border-white/5 flex-col items-center z-50 box-shadow-side">
       <div id="siderail-buttons-container" class="w-full flex-1 overflow-y-auto no-scrollbar">
         <button
@@ -114,15 +130,12 @@ const bottomNavItems = [
         >
           <component :is="item.icon" :size="24" :class="activeTab === item.id ? 'text-purple-400' : ''" />
           <p class="pt-1.5 text-center text-[10px] font-medium leading-none tracking-wide">{{ item.label }}</p>
-          
-          <!-- Active Indicator (Yellow as in source) -->
           <div v-show="activeTab === item.id" class="h-full w-0.5 bg-yellow-400 absolute top-0 left-0" />
         </button>
       </div>
 
       <!-- Bottom Side Tools -->
       <div class="w-full border-t border-white/5 bg-[#0f0f0f] py-4 flex flex-col items-center gap-4">
-        <!-- Sync / Scan Pulse -->
         <button 
           @click="emit('scan')"
           class="flex flex-col items-center group relative"
@@ -133,7 +146,6 @@ const bottomNavItems = [
           <div v-if="isScanning" class="absolute -top-1 -right-1 w-2 h-2 bg-purple-500 rounded-full animate-ping" />
         </button>
 
-        <!-- Version Info -->
         <div class="text-center px-1">
           <p class="text-[8px] font-mono text-neutral-600 leading-none">v{{ version }}</p>
           <p class="text-[8px] font-mono text-neutral-700 leading-none mt-1 italic">Source</p>
@@ -141,7 +153,7 @@ const bottomNavItems = [
       </div>
     </aside>
 
-    <!-- Main Content Area (Dynamic Margin) -->
+    <!-- Main Content Area -->
     <div 
       id="app-content" 
       class="flex-1 h-full pt-16 relative"
@@ -152,6 +164,18 @@ const bottomNavItems = [
         :class="{ 'streaming': isStreaming }"
       >
         <div class="max-w-7xl mx-auto w-full px-4 md:px-8 py-8 min-h-full">
+          <!-- Mobile Search (Visible only on small screens) -->
+          <div class="sm:hidden relative group mb-8">
+            <input
+              type="text"
+              placeholder="Search artifacts..."
+              :value="search"
+              @input="e => emit('update:search', (e.target as HTMLInputElement).value)"
+              class="w-full bg-[#1a1a1a] border border-white/5 rounded-md py-3 pl-12 pr-4 text-xs text-white outline-none focus:border-purple-500/40 transition-all"
+            />
+            <Search class="w-4 h-4 text-neutral-800 absolute left-4 top-1/2 -translate-y-1/2 group-focus-within:text-purple-500 transition-colors" />
+          </div>
+
           <slot></slot>
         </div>
       </main>
@@ -160,7 +184,7 @@ const bottomNavItems = [
     <!-- Mobile Navigation Bar -->
     <nav class="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-[#1a1a1a] border-t border-white/5 flex justify-around items-center z-[60] safe-bottom">
       <button 
-        v-for="item in navItems.slice(0, 4)" 
+        v-for="item in navItems" 
         :key="item.id"
         @click="emit('tab-change', item.id)"
         class="flex flex-col items-center gap-1"
@@ -179,5 +203,9 @@ const bottomNavItems = [
 
 #siderail-buttons-container {
   max-height: calc(100vh - 64px - 80px);
+}
+
+.shadow-aether-glow {
+  filter: drop-shadow(0 0 5px rgba(168, 85, 247, 0.5));
 }
 </style>
