@@ -4,6 +4,7 @@ import { ref, onMounted, computed, onUnmounted } from 'vue';
 import { AuthState, ABSLibraryItem, ABSProgress } from '../types';
 import { ABSService } from '../services/absService';
 import Navigation from './Navigation.vue';
+import BookCard from './BookCard.vue';
 import { NavTab } from './Navigation.vue';
 import { Search, ChevronRight, Clock, ArrowRight, Play, ArrowUpDown, Check } from 'lucide-vue-next';
 
@@ -307,12 +308,6 @@ const handleTabChange = (tab: NavTab) => {
     </main>
   </div>
 </template>
-
-<script setup lang="ts">
-// Defining BookCard as a nested component locally or just use a template function
-// For clarity I'll define it as a simple function-based component pattern or separate SFC.
-// I'll keep it as a sub-template here for brevity.
-</script>
 
 <style scoped>
 /* Scoped styles if needed */
