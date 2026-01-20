@@ -1,4 +1,4 @@
-import { ref, reactive, onUnmounted } from 'vue';
+import { reactive, onUnmounted } from 'vue';
 import { AuthState, ABSLibraryItem, ABSAudioTrack, PlayMethod } from '../types';
 import { ABSService } from '../services/absService';
 import Hls from 'hls.js';
@@ -13,7 +13,7 @@ interface PlayerState {
   error: string | null;
   sessionId: string | null;
   isHls: boolean;
-  sleepChapters: number; // 0 = off, 1 = end of current, 2 = end of next...
+  sleepChapters: number;
 }
 
 const state = reactive<PlayerState>({
@@ -34,130 +34,199 @@ let hls: Hls | null = null;
 let syncInterval: any = null;
 let listeningTimeSinceSync = 0;
 let lastTickTime = Date.now();
-let tracks: ABSAudioTrack[] = [];
-let currentTrackIdx = 0;
+
+let audioTracks: ABSAudioTrack[] = [];
+let currentTrackIndex = 0;
+let trackStartTime = 0;
+let startTime = 0;
+let playWhenReady = false;
+
 let absService: ABSService | null = null;
 let activeItem: ABSLibraryItem | null = null;
-let activeAuth: AuthState | null = null; // Source of truth for credentials
+let activeAuth: AuthState | null = null;
 
 export function usePlayer() {
-  const initAudio = () => {
-    if (audioEl) return audioEl;
-    audioEl = new Audio();
-    audioEl.id = 'archive-player-core';
+  const initialize = () => {
+    // Ported from LocalAudioPlayer.initialize(): Global element management
+    const existing = document.getElementById('audio-player');
+    if (existing) {
+      existing.remove();
+    }
+
+    audioEl = document.createElement('audio');
+    audioEl.id = 'audio-player';
+    audioEl.style.display = 'none';
     audioEl.crossOrigin = 'anonymous';
-    
-    audioEl.addEventListener('play', () => state.isPlaying = true);
-    audioEl.addEventListener('pause', () => state.isPlaying = false);
-    audioEl.addEventListener('timeupdate', onTimeUpdate);
-    audioEl.addEventListener('progress', onProgress);
-    audioEl.addEventListener('ended', onEnded);
-    audioEl.addEventListener('error', (e) => {
-      // Ignore errors during intentional source resets
-      if (!audioEl?.src || state.isLoading) return;
-      
-      console.error("[usePlayer] Media element error reported:", audioEl?.error);
-      state.error = `Archive link severed or data corrupted. (Code: ${audioEl?.error?.code})`;
-    });
+    document.body.appendChild(audioEl);
+
+    audioEl.addEventListener('play', onEvtPlay);
+    audioEl.addEventListener('pause', onEvtPause);
+    audioEl.addEventListener('progress', onEvtProgress);
+    audioEl.addEventListener('ended', onEvtEnded);
+    audioEl.addEventListener('error', onEvtError);
+    audioEl.addEventListener('loadedmetadata', onEvtLoadedMetadata);
+    audioEl.addEventListener('timeupdate', onEvtTimeupdate);
 
     return audioEl;
   };
 
-  const onTimeUpdate = () => {
+  const onEvtPlay = () => {
+    state.isPlaying = true;
+  };
+
+  const onEvtPause = () => {
+    state.isPlaying = false;
+  };
+
+  const onEvtProgress = () => {
     if (!audioEl) return;
-    const trackOffset = state.isHls ? 0 : (tracks[currentTrackIdx]?.startOffset || 0);
-    state.currentTime = audioEl.currentTime + trackOffset;
+    state.bufferedTime = getLastBufferedTime();
+  };
+
+  const onEvtEnded = async () => {
+    // Ported from LocalAudioPlayer.evtEnded()
+    if (!state.isHls && currentTrackIndex < audioTracks.length - 1) {
+      console.log(`[LocalPlayer] Track ended - loading next track ${currentTrackIndex + 1}`);
+      currentTrackIndex++;
+      startTime = audioTracks[currentTrackIndex].startOffset;
+      loadCurrentTrack();
+    } else {
+      console.log(`[LocalPlayer] Ended`);
+      state.isPlaying = false;
+    }
+  };
+
+  const onEvtError = (e: any) => {
+    if (state.isLoading || !audioEl?.src) return;
+    console.error('[LocalPlayer] Player error', e);
+    state.error = "Archive stream interrupted. Attempting reconnection...";
+  };
+
+  const onEvtLoadedMetadata = () => {
+    // Ported from LocalAudioPlayer.evtLoadedMetadata()
+    if (audioEl && !state.isHls) {
+      audioEl.currentTime = trackStartTime;
+    }
+
+    state.isLoading = false;
+
+    if (playWhenReady) {
+      playWhenReady = false;
+      play();
+    }
+  };
+
+  const onEvtTimeupdate = () => {
+    if (!audioEl) return;
+    // Mirrored from getCurrentTime() logic
+    const currentTrackOffset = audioTracks[currentTrackIndex]?.startOffset || 0;
+    state.currentTime = currentTrackOffset + audioEl.currentTime;
     checkSleepTimer();
   };
 
   const checkSleepTimer = () => {
     if (state.sleepChapters <= 0 || !activeItem?.media?.chapters) return;
     const chapters = activeItem.media.chapters;
-    
     const currentIdx = chapters.findIndex((ch, i) => 
       state.currentTime >= ch.start && (i === chapters.length - 1 || state.currentTime < (chapters[i+1]?.start || ch.end))
     );
-
     if (currentIdx === -1) return;
-
     const targetIdx = currentIdx + (state.sleepChapters - 1);
     const targetChapter = chapters[Math.min(targetIdx, chapters.length - 1)];
-    
     if (state.currentTime >= targetChapter.end - 0.5) {
       pause();
       state.sleepChapters = 0;
     }
   };
 
-  const onProgress = () => {
-    if (!audioEl || audioEl.buffered.length === 0) return;
-    const trackOffset = state.isHls ? 0 : (tracks[currentTrackIdx]?.startOffset || 0);
-    state.bufferedTime = audioEl.buffered.end(audioEl.buffered.length - 1) + trackOffset;
-  };
-
-  const onEnded = async () => {
-    if (!state.isHls && currentTrackIdx < tracks.length - 1) {
-      currentTrackIdx++;
-      await loadTrack(currentTrackIdx, 0);
-      audioEl?.play().catch(e => console.warn("[usePlayer] Auto-advance play failed:", e));
-    } else {
-      state.isPlaying = false;
-    }
-  };
-
-  const resetAudioSource = () => {
-    if (!audioEl) return;
-    audioEl.pause();
-    // Complete reset to clear buffer and avoid MediaError: Empty src
-    audioEl.removeAttribute('src');
-    try {
-      audioEl.load();
-    } catch (e) {}
-  };
-
-  const loadTrack = async (idx: number, offset = 0) => {
-    if (!audioEl || !activeItem || !activeAuth) return;
-    
-    resetAudioSource();
-
-    // Use persisted auth object instead of reading potentially stale localStorage
-    const token = activeAuth.user?.token;
-    if (!token) {
-      state.error = "Archive access denied: Missing authentication token.";
-      return;
-    }
-    
+  const getFullUrl = (relativeUrl: string) => {
+    if (!activeAuth) return '';
     const baseUrl = activeAuth.serverUrl.replace(/\/api\/?$/, '').replace(/\/+$/, '');
-    const audioFiles = activeItem.media.audioFiles || [];
-    const audioFile = audioFiles[idx];
+    const path = relativeUrl.startsWith('/api') ? relativeUrl : `/api${relativeUrl}`;
+    return `${baseUrl}${path}${path.includes('?') ? '&' : '?'}token=${activeAuth.user?.token}`;
+  };
+
+  const loadCurrentTrack = () => {
+    // Ported from LocalAudioPlayer.loadCurrentTrack()
+    const currentTrack = audioTracks[currentTrackIndex];
+    if (!currentTrack || !audioEl) return;
+
+    state.isLoading = true;
+    trackStartTime = Math.max(0, startTime - (currentTrack.startOffset || 0));
     
-    // Robust file selection with fallback to root item ID
-    const fileId = audioFile?.id || activeItem.id;
+    const url = getFullUrl(currentTrack.contentUrl);
+    console.log(`[LocalPlayer] Loading track src ${url}`);
     
-    if (!fileId) {
-      state.error = "Archive mapping failure: Cannot resolve file identifier.";
+    // Assigning src as instructed to avoid race conditions
+    audioEl.src = url;
+    audioEl.load();
+  };
+
+  const setHlsStream = () => {
+    // Ported from LocalAudioPlayer.setHlsStream()
+    trackStartTime = 0;
+    currentTrackIndex = 0;
+
+    const currentTrack = audioTracks[0];
+    const url = getFullUrl(currentTrack.contentUrl);
+
+    if (!Hls.isSupported()) {
+      console.warn('HLS is not supported - fallback to using native audio element');
+      if (audioEl) {
+        audioEl.src = url;
+        audioEl.currentTime = startTime;
+      }
       return;
     }
 
-    const url = `${baseUrl}/api/items/${activeItem.id}/file/${fileId}?token=${token}`;
-    
-    console.debug(`[usePlayer] Synchronizing Track ${idx} Source:`, url);
+    // Official ABS Fragment Retry Policy implementation
+    const hlsOptions: any = {
+      startPosition: startTime || -1,
+      fragLoadPolicy: {
+        default: {
+          maxTimeToFirstByteMs: 10000,
+          maxLoadTimeMs: 120000,
+          timeoutRetry: {
+            maxNumRetry: 4,
+            retryDelayMs: 0,
+            maxRetryDelayMs: 0
+          },
+          errorRetry: {
+            maxNumRetry: 8,
+            retryDelayMs: 1000,
+            maxRetryDelayMs: 8000,
+            shouldRetry: (retryConfig: any, retryCount: number, isTimeout: boolean, httpStatus: any, retry: boolean) => {
+              if (httpStatus?.code === 404 && retryConfig?.maxNumRetry > retryCount) {
+                console.log(`[HLS] Server 404 for fragment retry ${retryCount} of ${retryConfig.maxNumRetry}`);
+                return true;
+              }
+              return retry;
+            }
+          }
+        }
+      }
+    };
 
-    if (!url || url.includes('undefined')) {
-      const errMsg = "Portal generated an invalid stream link. Aborting playback.";
-      state.error = errMsg;
-      throw new Error(errMsg);
-    }
-
-    // Assign source and wait for event loop tick to ensure DOM registration
-    audioEl.src = url;
-    await new Promise(resolve => setTimeout(resolve, 0));
-    
-    try {
-      audioEl.load();
-      audioEl.currentTime = offset;
-    } catch (e) {
-      console.error("[usePlayer] Critical error during audio load sequence:", e);
+    if (hls) hls.destroy();
+    hls = new Hls(hlsOptions);
+    if (audioEl) {
+      hls.attachMedia(audioEl);
+      hls.on(Hls.Events.MEDIA_ATTACHED, () => {
+        hls!.loadSource(url);
+      });
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        state.isLoading = false;
+        if (playWhenReady) {
+          playWhenReady = false;
+          play();
+        }
+      });
+      hls.on(Hls.Events.ERROR, (event, data) => {
+        if (data.fatal) {
+          state.error = "Archive stream link severed (HLS Error).";
+          hls?.destroy();
+        }
+      });
     }
   };
 
@@ -166,12 +235,10 @@ export function usePlayer() {
     lastTickTime = Date.now();
     syncInterval = setInterval(() => {
       if (!state.isPlaying || !state.sessionId) return;
-
       const now = Date.now();
       const delta = (now - lastTickTime) / 1000;
       lastTickTime = now;
       listeningTimeSinceSync += delta;
-
       if (listeningTimeSinceSync >= 10) {
         absService?.syncSession(state.sessionId, Math.floor(listeningTimeSinceSync), state.currentTime);
         listeningTimeSinceSync = 0;
@@ -183,15 +250,14 @@ export function usePlayer() {
     if (syncInterval) clearInterval(syncInterval);
   };
 
-  const load = async (item: ABSLibraryItem, auth: AuthState, startTimeOverride?: number) => {
+  const load = async (item: ABSLibraryItem, auth: AuthState, startAt?: number) => {
     state.isLoading = true;
     state.error = null;
     activeItem = item;
-    activeAuth = auth; // Store current auth as source of truth
+    activeAuth = auth;
     absService = new ABSService(auth.serverUrl, auth.user?.token || '');
     
-    const audio = initAudio();
-    resetAudioSource();
+    initialize();
 
     try {
       const deviceInfo = {
@@ -200,75 +266,30 @@ export function usePlayer() {
       };
       if (!localStorage.getItem('absDeviceId')) localStorage.setItem('absDeviceId', deviceInfo.deviceId);
 
-      const mimeTypes = ['audio/flac', 'audio/mpeg', 'audio/mp4', 'audio/ogg', 'audio/aac'].filter(t => audio.canPlayType(t));
-      
-      // Establish playback session
+      const mimeTypes = ['audio/flac', 'audio/mpeg', 'audio/mp4', 'audio/ogg', 'audio/aac'];
       const session = await absService.startPlaybackSession(item.id, deviceInfo, mimeTypes);
       
-      if (!session) throw new Error("Portal creation failed. Server unreachable or session rejected.");
+      if (!session) throw new Error("Portal creation failed. Server unreachable.");
 
       state.sessionId = session.id;
-      tracks = session.audioTracks;
+      audioTracks = session.audioTracks;
       state.duration = session.libraryItem.media.duration;
       state.isHls = session.playMethod === PlayMethod.TRANSCODE;
       
-      const startAt = startTimeOverride !== undefined ? startTimeOverride : session.currentTime;
-      state.currentTime = startAt;
+      startTime = startAt !== undefined ? startAt : session.currentTime;
+      playWhenReady = true;
 
       if (state.isHls) {
-        if (hls) hls.destroy();
-        if (Hls.isSupported()) {
-          hls = new Hls({
-            startPosition: startAt,
-            xhrSetup: (xhr) => {
-              xhr.setRequestHeader('Authorization', `Bearer ${auth.user?.token}`);
-            },
-          });
-          const rawBase = auth.serverUrl.replace(/\/api\/?$/, '').replace(/\/+$/, '');
-          const contentPath = tracks[0].contentUrl.startsWith('/api') ? tracks[0].contentUrl : `/api${tracks[0].contentUrl}`;
-          const hlsUrl = `${rawBase}${contentPath}${contentPath.includes('?') ? '&' : '?'}token=${auth.user?.token}`;
-          
-          hls.attachMedia(audio);
-          hls.on(Hls.Events.MEDIA_ATTACHED, () => {
-            hls!.loadSource(hlsUrl);
-          });
-          hls.on(Hls.Events.MANIFEST_PARSED, () => {
-            state.isLoading = false;
-            audio.play().catch(e => console.warn("[usePlayer] HLS autoplay prevented:", e));
-          });
-          hls.on(Hls.Events.ERROR, (event, data) => {
-            if (data.fatal) {
-              state.error = "Archive stream link severed (HLS Error).";
-              hls?.destroy();
-            }
-          });
-        } else {
-          // Robust construction for native HLS/fallback playback
-          const rawBase = auth.serverUrl.replace(/\/api\/?$/, '').replace(/\/+$/, '');
-          const contentPath = tracks[0].contentUrl.startsWith('/api') ? tracks[0].contentUrl : `/api${tracks[0].contentUrl}`;
-          const finalUrl = `${rawBase}${contentPath}${contentPath.includes('?') ? '&' : '?'}token=${auth.user?.token}`;
-          
-          console.debug("[usePlayer] Using native fallback URL:", finalUrl);
-          audio.src = finalUrl;
-          await new Promise(resolve => setTimeout(resolve, 0)); // Event loop tick
-          audio.currentTime = startAt;
-          state.isLoading = false;
-          audio.play().catch(e => console.warn("[usePlayer] Native fallback autoplay prevented:", e));
-        }
+        setHlsStream();
       } else {
-        const trackIdx = tracks.findIndex(t => startAt >= t.startOffset && startAt < t.startOffset + t.duration);
-        currentTrackIdx = trackIdx !== -1 ? trackIdx : 0;
-        
-        // Await the sequence to ensure src is assigned and loaded before playing
-        await loadTrack(currentTrackIdx, startAt - (tracks[currentTrackIdx]?.startOffset || 0));
-        
-        state.isLoading = false;
-        audio.play().catch(e => console.warn("[usePlayer] Sequential autoplay prevented:", e));
+        // Ported from setDirectPlay() logic
+        const trackIndex = audioTracks.findIndex((t) => startTime >= t.startOffset && startTime < t.startOffset + t.duration);
+        currentTrackIndex = trackIndex >= 0 ? trackIndex : 0;
+        loadCurrentTrack();
       }
 
       startHeartbeat();
       setupMediaSession(item, auth);
-
     } catch (err: any) {
       state.error = err.message || "Failed to initialize archive link.";
       state.isLoading = false;
@@ -292,23 +313,28 @@ export function usePlayer() {
 
   const play = () => audioEl?.play();
   const pause = () => audioEl?.pause();
-  
-  const seek = async (time: number) => {
+
+  const seek = (time: number) => {
+    // Ported from LocalAudioPlayer.seek()
     if (!audioEl) return;
     const target = Math.max(0, Math.min(time, state.duration));
-    
+    playWhenReady = state.isPlaying;
+
     if (state.isHls) {
-      audioEl.currentTime = target;
+      const offsetTime = target - (audioTracks[currentTrackIndex]?.startOffset || 0);
+      audioEl.currentTime = Math.max(0, offsetTime);
     } else {
-      const trackIdx = tracks.findIndex(t => target >= t.startOffset && target < t.startOffset + t.duration);
-      if (trackIdx !== -1 && trackIdx !== currentTrackIdx) {
-        currentTrackIdx = trackIdx;
-        await loadTrack(trackIdx, target - tracks[trackIdx].startOffset);
-        if (state.isPlaying) {
-          audioEl.play().catch(e => console.warn("[usePlayer] Seek resume failed:", e));
+      const currentTrack = audioTracks[currentTrackIndex];
+      if (target < currentTrack.startOffset || target > currentTrack.startOffset + currentTrack.duration) {
+        const trackIdx = audioTracks.findIndex((t) => target >= t.startOffset && target < t.startOffset + t.duration);
+        if (trackIdx >= 0) {
+          startTime = target;
+          currentTrackIndex = trackIdx;
+          loadCurrentTrack();
         }
       } else {
-        audioEl.currentTime = target - (tracks[currentTrackIdx]?.startOffset || 0);
+        const offsetTime = target - currentTrack.startOffset;
+        audioEl.currentTime = Math.max(0, offsetTime);
       }
     }
     state.currentTime = target;
@@ -317,6 +343,21 @@ export function usePlayer() {
   const setPlaybackRate = (rate: number) => {
     state.playbackRate = rate;
     if (audioEl) audioEl.playbackRate = rate;
+  };
+
+  const getLastBufferedTime = () => {
+    // Ported from LocalAudioPlayer.getLastBufferedTime()
+    if (!audioEl) return 0;
+    const seekable = audioEl.buffered;
+    const ranges = [];
+    for (let i = 0; i < seekable.length; i++) {
+      ranges.push({ start: seekable.start(i), end: seekable.end(i) });
+    }
+    if (!ranges.length) return 0;
+    const buff = ranges.find((b) => b.start < audioEl!.currentTime && b.end > audioEl!.currentTime);
+    if (buff) return buff.end + (audioTracks[currentTrackIndex]?.startOffset || 0);
+    const last = ranges[ranges.length - 1];
+    return last.end + (audioTracks[currentTrackIndex]?.startOffset || 0);
   };
 
   const destroy = () => {
@@ -328,7 +369,11 @@ export function usePlayer() {
       });
     }
     if (hls) hls.destroy();
-    resetAudioSource();
+    if (audioEl) {
+      audioEl.pause();
+      audioEl.src = '';
+      audioEl.remove();
+    }
     state.sessionId = null;
     state.isPlaying = false;
     activeItem = null;
