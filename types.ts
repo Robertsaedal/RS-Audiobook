@@ -48,6 +48,7 @@ export interface ABSLibraryItem {
     coverPath?: string;
   };
   userProgress?: ABSProgress;
+  size?: number;
 }
 
 export interface ABSSeries {

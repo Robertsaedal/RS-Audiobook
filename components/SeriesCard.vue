@@ -2,48 +2,60 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { ABSSeries } from '../types';
-import { Layers } from 'lucide-vue-next';
+import { ABSService } from '../services/absService';
 
 const props = defineProps<{
   series: ABSSeries,
   coverUrl: string
 }>();
 
-const authorName = computed(() => {
-  if (props.series.books && props.series.books.length > 0) {
-    return props.series.books[0].media.metadata.authorName;
-  }
-  return 'Multiple Creators';
+const emit = defineEmits<{
+  (e: 'click'): void
+}>();
+
+// Get top 3 covers for the stack effect
+const stackCovers = computed(() => {
+  const auth = JSON.parse(localStorage.getItem('rs_auth') || '{}');
+  const service = new ABSService(auth.serverUrl || '', auth.user?.token || '');
+  return (props.series.books || []).slice(0, 3).map(b => service.getCoverUrl(b.id));
 });
 </script>
 
 <template>
-  <button class="flex flex-col text-left group active:scale-95 transition-all outline-none w-full h-full">
-    <div class="series-cover-container mb-6">
-      <div class="absolute -inset-1 bg-purple-500/10 blur-xl opacity-0 group-hover:opacity-100 transition-opacity rounded-[32px]" />
+  <button @click="emit('click')" class="relative group w-full pt-4 h-56 flex flex-col justify-end">
+    <!-- Stack effect using layered covers -->
+    <div class="relative w-36 h-48 mx-auto">
       
-      <img 
-        :src="coverUrl" 
-        class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-[1.05]" 
-        loading="lazy" 
+      <!-- Back Card 2 -->
+      <div v-if="stackCovers.length > 2" 
+        class="absolute inset-0 bg-neutral-800 rounded-sm shadow-xl translate-x-6 -translate-y-4 scale-95 z-0 border border-white/5 opacity-40 group-hover:translate-x-8 group-hover:-translate-y-6 transition-transform duration-500"
+        :style="{ backgroundImage: `url(${stackCovers[2]})`, backgroundSize: 'cover' }"
+      />
+      
+      <!-- Back Card 1 -->
+      <div v-if="stackCovers.length > 1" 
+        class="absolute inset-0 bg-neutral-800 rounded-sm shadow-xl translate-x-3 -translate-y-2 scale-[0.975] z-10 border border-white/5 opacity-70 group-hover:translate-x-4 group-hover:-translate-y-3 transition-transform duration-500"
+        :style="{ backgroundImage: `url(${stackCovers[1]})`, backgroundSize: 'cover' }"
       />
 
-      <!-- Artifact Count Pill -->
-      <div class="absolute top-2 left-2 z-30 bg-black/60 backdrop-blur-md px-2 py-1 rounded-md border border-white/10 text-[10px] font-bold text-white shadow-xl flex items-center gap-1.5">
-        <Layers :size="10" class="text-purple-500" />
-        <span>{{ series.numBooks }}</span>
+      <!-- Main Front Card -->
+      <div class="absolute inset-0 z-20 bg-neutral-900 rounded-sm shadow-2xl border border-white/10 group-hover:scale-105 transition-transform duration-500 overflow-hidden">
+        <img :src="coverUrl" class="w-full h-full object-cover" />
+        <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex items-end p-3">
+          <span class="text-[10px] font-black uppercase text-white truncate w-full shadow-lg">{{ series.name }}</span>
+        </div>
       </div>
 
-      <div class="absolute inset-0 z-0 pointer-events-none border border-purple-500/0 group-hover:border-purple-500/20 rounded-[24px] transition-colors" />
-    </div>
-
-    <div class="mt-2 px-1 space-y-1.5">
-      <h3 class="text-[11px] font-black uppercase tracking-tight line-clamp-2 leading-tight text-neutral-200 group-hover:text-white transition-colors">
-        {{ series.name }}
-      </h3>
-      <p class="text-[9px] font-black text-neutral-600 uppercase tracking-[0.2em] line-clamp-1 group-hover:text-purple-500 transition-colors">
-        {{ authorName }}
-      </p>
+      <!-- Book Count Badge -->
+      <div class="absolute -top-2 -right-2 z-30 w-7 h-7 rounded-full bg-yellow-500 text-black flex items-center justify-center font-black text-xs border-2 border-[#1a120b] shadow-lg">
+        {{ series.numBooks }}
+      </div>
     </div>
   </button>
 </template>
+
+<style scoped>
+.series-stack-item {
+  box-shadow: -5px 0 15px rgba(0,0,0,0.5);
+}
+</style>

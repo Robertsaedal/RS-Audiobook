@@ -5,7 +5,7 @@ import { AuthState, ABSLibraryItem, ABSChapter } from '../types';
 import { usePlayer } from '../composables/usePlayer';
 import { 
   ChevronDown, Play, Pause, Info, X, SkipBack, SkipForward,
-  RotateCcw, RotateCw, ChevronRight, Gauge, Moon, Mic, Clock, Database
+  RotateCcw, RotateCw, ChevronRight, Gauge, Moon, Mic, Clock, Database, Plus, Minus
 } from 'lucide-vue-next';
 
 const props = defineProps<{
@@ -21,9 +21,6 @@ const { state, load, play, pause, seek, setPlaybackRate, destroy } = usePlayer()
 
 const showChapters = ref(false);
 const showInfo = ref(false);
-const sleepSeconds = ref(0);
-const sleepAtChapterEnd = ref(false);
-let sleepInterval: any = null;
 
 const coverUrl = computed(() => {
   const baseUrl = props.auth.serverUrl.replace(/\/api\/?$/, '');
@@ -37,7 +34,6 @@ const chapters = computed(() => {
 
 const currentChapterIndex = computed(() => {
   if (!chapters.value || chapters.value.length === 0) return -1;
-  // Use a tiny epsilon to ensure we stay within chapter boundaries
   const time = state.currentTime + 0.1;
   return chapters.value.findIndex((ch, i) => 
     time >= ch.start && (i === chapters.value.length - 1 || time < (chapters.value[i+1]?.start || ch.end))
@@ -76,36 +72,13 @@ const formatSize = (bytes: number) => {
 
 onMounted(() => {
   load(props.item, props.auth);
-  sleepInterval = setInterval(() => {
-    if (sleepSeconds.value > 0) {
-      sleepSeconds.value--;
-      if (sleepSeconds.value <= 0) pause();
-    }
-    if (sleepAtChapterEnd.value && currentChapter.value) {
-      if (timeRemainingInChapter.value < 0.8) {
-        pause();
-        sleepAtChapterEnd.value = false;
-      }
-    }
-  }, 1000);
 });
 
 onUnmounted(() => {
   destroy();
-  if (sleepInterval) clearInterval(sleepInterval);
 });
 
 const togglePlay = () => state.isPlaying ? pause() : play();
-
-const adjustSleep = (mins: number) => {
-  sleepSeconds.value = Math.max(0, sleepSeconds.value + (mins * 60));
-  if (sleepSeconds.value > 0) sleepAtChapterEnd.value = false;
-};
-
-const toggleChapterSleep = () => {
-  sleepAtChapterEnd.value = !sleepAtChapterEnd.value;
-  if (sleepAtChapterEnd.value) sleepSeconds.value = 0;
-};
 
 const metadata = computed(() => props.item?.media?.metadata || {});
 const media = computed(() => props.item?.media || {});
@@ -121,13 +94,16 @@ const skipToPrevChapter = () => {
     seek(0);
     return;
   }
-  // If we are more than 4 seconds in, just restart current chapter
   if (state.currentTime - (currentChapter.value?.start || 0) > 4) {
     seek(currentChapter.value!.start);
   } else {
     const prev = chapters.value[currentChapterIndex.value - 1];
     seek(prev.start);
   }
+};
+
+const adjustSleepChapters = (delta: number) => {
+  state.sleepChapters = Math.max(0, state.sleepChapters + delta);
 };
 
 const handleChapterClick = (time: number) => {
@@ -161,7 +137,7 @@ const handleChapterProgressClick = (e: MouseEvent) => {
     <Transition name="fade">
       <div v-if="state.isLoading" class="absolute inset-0 bg-black flex flex-col items-center justify-center gap-6 z-[100]">
         <div class="w-12 h-12 border-2 border-purple-600/10 border-t-purple-600 rounded-full animate-spin" />
-        <p class="text-[8px] font-black uppercase tracking-[0.6em] text-neutral-600">Syncing Archive...</p>
+        <p class="text-[8px] font-black uppercase tracking-[0.6em] text-neutral-600">Establishing Archive Stream...</p>
       </div>
     </Transition>
 
@@ -201,7 +177,7 @@ const handleChapterProgressClick = (e: MouseEvent) => {
         <div class="text-center space-y-4 w-full max-w-md px-4 z-10">
           <div class="space-y-1">
             <p v-if="metadata.seriesName" class="text-[8px] font-black uppercase tracking-[0.4em] text-neutral-500">
-              {{ metadata.seriesName }} <span class="mx-1 text-purple-900">—</span> BOOK {{ metadata.sequence || '1' }}
+              {{ metadata.seriesName }} <span class="mx-1 text-purple-900">—</span> BOOK {{ metadata.sequence || '01' }}
             </p>
             <h1 class="text-lg md:text-xl font-black uppercase tracking-tight text-white leading-tight line-clamp-2">{{ metadata.title }}</h1>
             <p class="text-[9px] font-black uppercase tracking-[0.3em] text-neutral-600">{{ metadata.authorName }}</p>
@@ -263,42 +239,41 @@ const handleChapterProgressClick = (e: MouseEvent) => {
         </div>
 
         <div class="grid grid-cols-2 gap-4">
+          <!-- Speed Control -->
           <div class="bg-neutral-900/20 border border-white/5 rounded-[24px] p-5 flex flex-col items-center gap-4">
             <div class="flex items-center gap-2 text-[8px] font-black uppercase tracking-[0.3em] text-neutral-700">
               <Gauge :size="12" stroke-width="1.5" />
               <span>Speed</span>
             </div>
             <div class="flex items-center justify-between w-full px-2">
-              <button @click="setPlaybackRate(Math.max(0.5, state.playbackRate - 0.1))" class="text-neutral-600 hover:text-white transition-colors active:scale-90">
-                <RotateCcw :size="14" />
+              <button @click="setPlaybackRate(Math.max(0.5, state.playbackRate - 0.1))" class="text-neutral-600 hover:text-white transition-colors active:scale-90 p-1">
+                <Minus :size="14" />
               </button>
               <span class="text-xs font-black font-mono text-purple-500">{{ state.playbackRate.toFixed(1) }}x</span>
-              <button @click="setPlaybackRate(Math.min(2.5, state.playbackRate + 0.1))" class="text-neutral-600 hover:text-white transition-colors active:scale-90">
-                <RotateCw :size="14" />
+              <button @click="setPlaybackRate(Math.min(2.5, state.playbackRate + 0.1))" class="text-neutral-600 hover:text-white transition-colors active:scale-90 p-1">
+                <Plus :size="14" />
               </button>
             </div>
           </div>
 
+          <!-- Chapter Based Sleep Timer -->
           <div class="bg-neutral-900/20 border border-white/5 rounded-[24px] p-5 flex flex-col items-center gap-4">
             <div class="flex items-center gap-2 text-[8px] font-black uppercase tracking-[0.3em] text-neutral-700">
               <Moon :size="12" stroke-width="1.5" />
               <span>Sleep</span>
             </div>
             <div class="flex items-center justify-between w-full px-2">
-              <button @click="adjustSleep(-15)" class="text-neutral-600 hover:text-white transition-colors active:scale-90">
-                <RotateCcw :size="14" />
+              <button @click="adjustSleepChapters(-1)" class="text-neutral-600 hover:text-white transition-colors active:scale-90 p-1">
+                <Minus :size="14" />
               </button>
-              <button @click="toggleChapterSleep" class="flex flex-col items-center">
-                <div v-if="sleepAtChapterEnd" class="flex flex-col items-center">
-                  <span class="text-[7px] font-black text-purple-500 uppercase">IN {{ secondsToTimestamp(timeRemainingInChapter) }}</span>
-                  <span class="text-[6px] font-black text-neutral-600 uppercase">END CH.</span>
-                </div>
-                <span v-else class="text-xs font-black font-mono" :class="sleepSeconds > 0 ? 'text-purple-500' : 'text-neutral-600'">
-                  {{ sleepSeconds > 0 ? Math.ceil(sleepSeconds / 60) + 'm' : 'OFF' }}
+              <div class="flex flex-col items-center">
+                <span v-if="state.sleepChapters > 0" class="text-[9px] font-black text-purple-500 uppercase tracking-tighter">
+                  {{ state.sleepChapters }} Ch left
                 </span>
-              </button>
-              <button @click="adjustSleep(15)" class="text-neutral-600 hover:text-white transition-colors active:scale-90">
-                <RotateCw :size="14" />
+                <span v-else class="text-xs font-black font-mono text-neutral-600">OFF</span>
+              </div>
+              <button @click="adjustSleepChapters(1)" class="text-neutral-600 hover:text-white transition-colors active:scale-90 p-1">
+                <Plus :size="14" />
               </button>
             </div>
           </div>

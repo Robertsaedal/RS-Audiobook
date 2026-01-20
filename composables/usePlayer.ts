@@ -14,7 +14,7 @@ interface PlayerState {
   error: string | null;
   sessionId: string | null;
   isHls: boolean;
-  currentChapterIndex: number;
+  sleepChapters: number; // 0 = off, 1 = end of current, 2 = end of next...
 }
 
 const state = reactive<PlayerState>({
@@ -27,18 +27,18 @@ const state = reactive<PlayerState>({
   error: null,
   sessionId: null,
   isHls: false,
-  currentChapterIndex: -1
+  sleepChapters: 0
 });
 
 let audioEl: HTMLAudioElement | null = null;
 let hls: Hls | null = null;
 let syncInterval: any = null;
-let lastSyncTime = 0;
 let listeningTimeSinceSync = 0;
 let lastTickTime = Date.now();
 let tracks: ABSAudioTrack[] = [];
 let currentTrackIdx = 0;
 let absService: ABSService | null = null;
+let activeItem: ABSLibraryItem | null = null;
 
 export function usePlayer() {
   const initAudio = () => {
@@ -64,6 +64,28 @@ export function usePlayer() {
     if (!audioEl) return;
     const trackOffset = state.isHls ? 0 : (tracks[currentTrackIdx]?.startOffset || 0);
     state.currentTime = audioEl.currentTime + trackOffset;
+    checkSleepTimer();
+  };
+
+  const checkSleepTimer = () => {
+    if (state.sleepChapters <= 0 || !activeItem?.media?.chapters) return;
+    const chapters = activeItem.media.chapters;
+    
+    // Find current chapter
+    const currentIdx = chapters.findIndex((ch, i) => 
+      state.currentTime >= ch.start && (i === chapters.length - 1 || state.currentTime < (chapters[i+1]?.start || ch.end))
+    );
+
+    if (currentIdx === -1) return;
+
+    // We want to stop at the end of (currentIdx + state.sleepChapters - 1)
+    const targetIdx = currentIdx + (state.sleepChapters - 1);
+    const targetChapter = chapters[targetIdx >= chapters.length ? chapters.length - 1 : targetIdx];
+    
+    if (state.currentTime >= targetChapter.end - 0.5) {
+      pause();
+      state.sleepChapters = 0;
+    }
   };
 
   const onProgress = () => {
@@ -86,7 +108,8 @@ export function usePlayer() {
     if (!audioEl || !tracks[idx]) return;
     const track = tracks[idx];
     const baseUrl = absService?.getCoverUrl('').split('/api/')[0];
-    const url = `${baseUrl}${track.contentUrl}${track.contentUrl.includes('?') ? '&' : '?'}token=${localStorage.getItem('rs_auth') ? JSON.parse(localStorage.getItem('rs_auth')!).user.token : ''}`;
+    const token = localStorage.getItem('rs_auth') ? JSON.parse(localStorage.getItem('rs_auth')!).user.token : '';
+    const url = `${baseUrl}${track.contentUrl}${track.contentUrl.includes('?') ? '&' : '?'}token=${token}`;
     
     audioEl.src = url;
     audioEl.load();
@@ -118,13 +141,14 @@ export function usePlayer() {
   const load = async (item: ABSLibraryItem, auth: AuthState, startTimeOverride?: number) => {
     state.isLoading = true;
     state.error = null;
+    activeItem = item;
     absService = new ABSService(auth.serverUrl, auth.user?.token || '');
     
     const audio = initAudio();
 
     try {
       const deviceInfo = {
-        clientName: 'Archive Web',
+        clientName: 'Archive Web Premium',
         deviceId: localStorage.getItem('absDeviceId') || Math.random().toString(36).substring(7)
       };
       if (!localStorage.getItem('absDeviceId')) localStorage.setItem('absDeviceId', deviceInfo.deviceId);
@@ -150,34 +174,25 @@ export function usePlayer() {
             xhrSetup: (xhr) => {
               xhr.setRequestHeader('Authorization', `Bearer ${auth.user?.token}`);
             },
-            fragLoadPolicy: {
-              // Fixed: Cast the policy object to any to resolve 'maxRetry' type error in LoaderConfig
-              default: {
-                // Fixed: Changed maxNumRetry to maxRetry as per Hls.js v1.x LoadPolicy specification
-                maxRetry: 8,
-                // Fixed: Cast timeoutRetry and errorRetry to any to address type mismatches in environments where types incorrectly expect a RetryConfig object.
-                timeoutRetry: 2 as any,
-                errorRetry: 2 as any,
-                retryDelayMs: 1000,
-                maxRetryDelayMs: 8000,
-                shouldRetry: (config: any, count, isTimeout, status) => {
-                  // Fixed: Changed config.maxNumRetry to config.maxRetry
-                  if (status?.code === 404 && config.maxRetry > count) return true;
-                  return false;
-                }
-              } as any
-            }
           });
           const baseUrl = auth.serverUrl.replace(/\/api\/?$/, '');
           const hlsUrl = `${baseUrl}${tracks[0].contentUrl}&token=${auth.user?.token}`;
           hls.attachMedia(audio);
-          hls.on(Hls.Events.MEDIA_ATTACHED, () => hls!.loadSource(hlsUrl));
+          hls.on(Hls.Events.MEDIA_ATTACHED, () => {
+            hls!.loadSource(hlsUrl);
+          });
           hls.on(Hls.Events.MANIFEST_PARSED, () => {
             state.isLoading = false;
             audio.play().catch(() => {});
           });
+          hls.on(Hls.Events.ERROR, (event, data) => {
+            if (data.fatal) {
+              console.error('HLS Fatal Error', data);
+              state.error = "Archive stream fatal error.";
+              hls?.destroy();
+            }
+          });
         } else {
-          // Native HLS (iOS)
           const baseUrl = auth.serverUrl.replace(/\/api\/?$/, '');
           audio.src = `${baseUrl}${tracks[0].contentUrl}&token=${auth.user?.token}`;
           audio.currentTime = startAt;
@@ -185,7 +200,6 @@ export function usePlayer() {
           audio.play().catch(() => {});
         }
       } else {
-        // Direct Play
         const trackIdx = tracks.findIndex(t => startAt >= t.startOffset && startAt < t.startOffset + t.duration);
         currentTrackIdx = trackIdx !== -1 ? trackIdx : 0;
         loadTrack(currentTrackIdx, startAt - (tracks[currentTrackIdx]?.startOffset || 0));
@@ -212,7 +226,7 @@ export function usePlayer() {
       });
       navigator.mediaSession.setActionHandler('play', play);
       navigator.mediaSession.setActionHandler('pause', pause);
-      navigator.mediaSession.setActionHandler('seekbackward', () => seek(state.currentTime - 15));
+      navigator.mediaSession.setActionHandler('seekbackward', () => seek(state.currentTime - 10));
       navigator.mediaSession.setActionHandler('seekforward', () => seek(state.currentTime + 30));
     }
   };
@@ -259,6 +273,7 @@ export function usePlayer() {
     }
     state.sessionId = null;
     state.isPlaying = false;
+    activeItem = null;
   };
 
   return {
