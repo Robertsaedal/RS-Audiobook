@@ -13,7 +13,8 @@ interface PlayerState {
   error: string | null;
   sessionId: string | null;
   isHls: boolean;
-  sleepTimer: number; // Remaining seconds for sleep
+  sleepChapters: number; // Remaining chapters to play before stop
+  activeItem: ABSLibraryItem | null;
 }
 
 const state = reactive<PlayerState>({
@@ -26,7 +27,8 @@ const state = reactive<PlayerState>({
   error: null,
   sessionId: null,
   isHls: false,
-  sleepTimer: 0
+  sleepChapters: 0,
+  activeItem: null
 });
 
 let audioEl: HTMLAudioElement | null = null;
@@ -34,6 +36,7 @@ let hls: Hls | null = null;
 let syncInterval: any = null;
 let listeningTimeSinceSync = 0;
 let lastTickTime = Date.now();
+let lastChapterIndex = -1;
 
 let audioTracks: ABSAudioTrack[] = [];
 let currentTrackIndex = 0;
@@ -42,7 +45,6 @@ let startTime = 0;
 let playWhenReady = false;
 
 let absService: ABSService | null = null;
-let activeItem: ABSLibraryItem | null = null;
 let activeAuth: AuthState | null = null;
 
 export function usePlayer() {
@@ -109,9 +111,31 @@ export function usePlayer() {
   };
 
   const onEvtTimeupdate = () => {
-    if (!audioEl) return;
+    if (!audioEl || !state.activeItem) return;
     const currentTrackOffset = audioTracks[currentTrackIndex]?.startOffset || 0;
-    state.currentTime = currentTrackOffset + audioEl.currentTime;
+    const newTime = currentTrackOffset + audioEl.currentTime;
+
+    // Detect chapter completion
+    const chapters = state.activeItem.media.chapters || [];
+    if (chapters.length > 0) {
+      const time = newTime + 0.1;
+      const newChapterIndex = chapters.findIndex((ch, i) => 
+        time >= ch.start && (i === chapters.length - 1 || time < (chapters[i+1]?.start || ch.end))
+      );
+
+      // Transition check: if moved to the next chapter index
+      if (lastChapterIndex !== -1 && newChapterIndex > lastChapterIndex) {
+        if (state.sleepChapters > 0) {
+          state.sleepChapters--;
+          if (state.sleepChapters === 0) {
+            pause();
+          }
+        }
+      }
+      lastChapterIndex = newChapterIndex;
+    }
+
+    state.currentTime = newTime;
   };
 
   const getFullUrl = (relativeUrl: string) => {
@@ -197,18 +221,9 @@ export function usePlayer() {
       const delta = (now - lastTickTime) / 1000;
       lastTickTime = now;
 
-      if (state.isPlaying) {
-        // Handle Sleep Timer Countdown
-        if (state.sleepTimer > 0) {
-          state.sleepTimer = Math.max(0, state.sleepTimer - delta);
-          if (state.sleepTimer === 0) {
-            pause();
-          }
-        }
-
-        // Handle Session Sync
+      if (state.isPlaying && state.sessionId) {
         listeningTimeSinceSync += delta;
-        if (listeningTimeSinceSync >= 10 && state.sessionId) {
+        if (listeningTimeSinceSync >= 10) {
           absService?.syncSession(state.sessionId, Math.floor(listeningTimeSinceSync), state.currentTime);
           listeningTimeSinceSync = 0;
         }
@@ -223,7 +238,9 @@ export function usePlayer() {
   const load = async (item: ABSLibraryItem, auth: AuthState, startAt?: number) => {
     state.isLoading = true;
     state.error = null;
-    activeItem = item;
+    state.activeItem = item;
+    state.sleepChapters = 0; // Reset sleep timer on new book load
+    lastChapterIndex = -1;
     activeAuth = auth;
     absService = new ABSService(auth.serverUrl, auth.user?.token || '');
     
@@ -242,6 +259,7 @@ export function usePlayer() {
       if (!session) throw new Error("Portal creation failed. Server unreachable.");
 
       state.sessionId = session.id;
+      state.activeItem = session.libraryItem;
       audioTracks = session.audioTracks;
       state.duration = session.libraryItem.media.duration;
       state.isHls = session.playMethod === PlayMethod.TRANSCODE;
@@ -258,7 +276,7 @@ export function usePlayer() {
       }
 
       startHeartbeat();
-      setupMediaSession(item, auth);
+      setupMediaSession(state.activeItem, auth);
     } catch (err: any) {
       state.error = err.message || "Failed to initialize archive link.";
       state.isLoading = false;
@@ -313,8 +331,8 @@ export function usePlayer() {
     if (audioEl) audioEl.playbackRate = rate;
   };
 
-  const setSleepTimer = (minutes: number) => {
-    state.sleepTimer = minutes * 60;
+  const setSleepChapters = (count: number) => {
+    state.sleepChapters = Math.max(0, count);
   };
 
   const getLastBufferedTime = () => {
@@ -347,9 +365,9 @@ export function usePlayer() {
     }
     state.sessionId = null;
     state.isPlaying = false;
-    activeItem = null;
+    state.activeItem = null;
+    state.sleepChapters = 0;
     activeAuth = null;
-    state.sleepTimer = 0;
   };
 
   return {
@@ -359,7 +377,7 @@ export function usePlayer() {
     pause,
     seek,
     setPlaybackRate,
-    setSleepTimer,
+    setSleepChapters,
     destroy
   };
 }

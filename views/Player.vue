@@ -1,4 +1,3 @@
-
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { AuthState, ABSLibraryItem } from '../types';
@@ -20,19 +19,21 @@ const emit = defineEmits<{
   (e: 'item-updated', updatedItem: ABSLibraryItem): void
 }>();
 
-const { state, load, play, pause, seek, setPlaybackRate, setSleepTimer, destroy } = usePlayer();
+const { state, load, play, pause, seek, setPlaybackRate, setSleepChapters, destroy } = usePlayer();
 
 const showChapters = ref(false);
 const showInfo = ref(false);
 
+const activeItem = computed(() => state.activeItem || props.item);
+
 const coverUrl = computed(() => {
   const baseUrl = props.auth.serverUrl.replace(/\/api\/?$/, '').replace(/\/+$/, '');
-  return `${baseUrl}/api/items/${props.item.id}/cover?token=${props.auth.user?.token}`;
+  return `${baseUrl}/api/items/${activeItem.value.id}/cover?token=${props.auth.user?.token}`;
 });
 
 const chapters = computed(() => {
-  if (!props.item?.media?.chapters) return [];
-  return props.item.media.chapters;
+  if (!activeItem.value?.media?.chapters) return [];
+  return activeItem.value.media.chapters;
 });
 
 const currentChapterIndex = computed(() => {
@@ -45,18 +46,17 @@ const currentChapterIndex = computed(() => {
 
 const currentChapter = computed(() => currentChapterIndex.value !== -1 ? chapters.value[currentChapterIndex.value] : null);
 
-// Full Book Progress Calculation
 const totalProgressPercent = computed(() => {
   if (state.duration <= 0) return 0;
   return Math.min(100, (state.currentTime / state.duration) * 100);
 });
 
-// Sleep Timer Formatting MM:SS
-const sleepTimerDisplay = computed(() => {
-  if (state.sleepTimer <= 0) return "OFF";
-  const m = Math.floor(state.sleepTimer / 60);
-  const s = Math.floor(state.sleepTimer % 60);
-  return `${m}:${s.toString().padStart(2, '0')}`;
+const chapterProgressPercent = computed(() => {
+  if (!currentChapter.value) return 0;
+  const chapterDur = currentChapter.value.end - currentChapter.value.start;
+  if (chapterDur <= 0) return 0;
+  const elapsed = state.currentTime - currentChapter.value.start;
+  return Math.max(0, Math.min(100, (elapsed / chapterDur) * 100));
 });
 
 const secondsToTimestamp = (s: number) => {
@@ -105,9 +105,8 @@ const handleGlobalProgressClick = (e: MouseEvent) => {
   seek(ratio * state.duration);
 };
 
-const adjustSleepTimer = (minutes: number) => {
-  const currentMinutes = state.sleepTimer / 60;
-  setSleepTimer(Math.max(0, currentMinutes + minutes));
+const adjustSleepTimer = (count: number) => {
+  setSleepChapters(state.sleepChapters + count);
 };
 
 const handleSeriesClick = () => {
@@ -117,14 +116,15 @@ const handleSeriesClick = () => {
   }
 };
 
-const metadata = computed(() => props.item?.media?.metadata || {});
+const metadata = computed(() => activeItem.value?.media?.metadata || {});
 
-// Requested series format
+// Refined Series & Book Tag Formatting
 const formattedSeriesInfo = computed(() => {
   if (!metadata.value.seriesName) return null;
   const seq = metadata.value.sequence || '1';
-  // We use sequence as a best guess for total if not explicitly provided in the library item metadata
-  return `${metadata.value.seriesName} nr${seq} - Book ${seq}`;
+  // Try to find totalInSeries if provided in some library metadata format, or use seq as placeholder
+  const total = (activeItem.value as any).totalInSeries || seq;
+  return `${metadata.value.seriesName} nr${seq} - Book ${seq} of ${total}`;
 });
 
 const infoRows = computed(() => {
@@ -192,29 +192,49 @@ const infoRows = computed(() => {
       </div>
 
       <footer class="px-10 pb-16 space-y-12 max-w-xl mx-auto w-full z-20">
-        <!-- Full Book Progress Bar -->
+        <!-- Dual-Layer Progress Bar -->
         <div class="space-y-4">
           <div 
-            class="h-1.5 w-full bg-neutral-900 rounded-full relative cursor-pointer overflow-hidden group" 
+            class="h-2.5 w-full bg-neutral-900/60 rounded-full relative cursor-pointer overflow-hidden group shadow-[inset_0_2px_4px_rgba(0,0,0,0.5)] border border-white/5" 
             @click="handleGlobalProgressClick"
           >
+            <!-- Thin Background Fill (Total Book Progress) -->
+            <div 
+              class="absolute inset-y-0 left-0 bg-purple-900/40 transition-all duration-300 z-0" 
+              :style="{ width: totalProgressPercent + '%' }"
+            />
+
             <!-- Chapter Markers -->
             <div 
               v-for="ch in chapters" 
               :key="ch.start"
-              class="absolute top-0 bottom-0 w-px bg-white/20 z-10"
+              class="absolute top-0 bottom-0 w-[1.5px] bg-white/10 z-20"
               :style="{ left: (ch.start / state.duration) * 100 + '%' }"
             />
             
+            <!-- Thick Chapter Progress Fill (Main Purple) -->
             <div 
-              class="absolute inset-y-0 left-0 bg-yellow-500 shadow-[0_0_12px_rgba(234,179,8,0.5)] transition-all duration-150 z-0" 
+              class="absolute top-[20%] bottom-[20%] left-0 bg-purple-500 shadow-[0_0_20px_rgba(168,85,247,0.9)] transition-all duration-150 z-10 rounded-r-full" 
               :style="{ width: totalProgressPercent + '%' }"
             />
           </div>
-          <div class="flex justify-between items-center text-[8px] font-bold font-mono text-neutral-600 tracking-widest tabular-nums uppercase">
-            <span>{{ secondsToTimestamp(state.currentTime) }}</span>
-            <span class="text-purple-500/40 font-black">Archive Timeline</span>
-            <span>-{{ secondsToTimestamp(state.duration - state.currentTime) }}</span>
+          
+          <div class="flex justify-between items-center text-[8px] font-bold font-mono tracking-widest tabular-nums uppercase">
+            <div class="flex flex-col gap-0.5">
+              <span class="text-neutral-600">Total: {{ secondsToTimestamp(state.currentTime) }}</span>
+              <span class="text-purple-400">Seg: {{ secondsToTimestamp(state.currentTime - (currentChapter?.start || 0)) }}</span>
+            </div>
+            
+            <div class="text-center">
+              <span class="text-purple-500 font-black tracking-[0.2em] shadow-aether-glow">
+                {{ currentChapter ? `Segment ${currentChapterIndex + 1}` : 'Archive' }}
+              </span>
+            </div>
+
+            <div class="flex flex-col gap-0.5 text-right">
+              <span class="text-neutral-600">-{{ secondsToTimestamp(state.duration - state.currentTime) }}</span>
+              <span class="text-purple-400">-{{ secondsToTimestamp(Math.max(0, (currentChapter?.end || 0) - state.currentTime)) }}</span>
+            </div>
           </div>
         </div>
 
@@ -238,33 +258,31 @@ const infoRows = computed(() => {
               <button @click="setPlaybackRate(Math.min(2.5, state.playbackRate + 0.1))" class="p-1 text-neutral-600 hover:text-white"><Plus :size="14" /></button>
             </div>
           </div>
-          <!-- Real-Time Sleep Timer (Minutes) -->
+          <!-- Real-Time Sleep Timer (Chapters) -->
           <div class="bg-neutral-900/20 border border-white/5 rounded-[24px] p-5 flex flex-col items-center gap-4">
             <div class="flex items-center gap-2 text-[8px] font-black uppercase tracking-[0.3em] text-neutral-700"><Moon :size="12" /><span>Sleep</span></div>
             <div class="flex items-center justify-between w-full px-2">
-              <button @click="adjustSleepTimer(-5)" class="p-1 text-neutral-600 hover:text-white"><Minus :size="14" /></button>
+              <button @click="adjustSleepTimer(-1)" class="p-1 text-neutral-600 hover:text-white"><Minus :size="14" /></button>
               <div class="flex flex-col items-center">
-                 <span v-if="state.sleepTimer > 0" class="text-[9px] font-black text-purple-500 tracking-tighter">{{ sleepTimerDisplay }} left</span>
+                 <span v-if="state.sleepChapters > 0" class="text-[9px] font-black text-purple-500 tracking-tighter">{{ state.sleepChapters }} Ch. left</span>
                  <span v-else class="text-xs font-black font-mono text-neutral-600 uppercase">OFF</span>
               </div>
-              <button @click="adjustSleepTimer(5)" class="p-1 text-neutral-600 hover:text-white"><Plus :size="14" /></button>
+              <button @click="adjustSleepTimer(1)" class="p-1 text-neutral-600 hover:text-white"><Plus :size="14" /></button>
             </div>
           </div>
         </div>
       </footer>
     </template>
 
-    <!-- Unified Chapter Selector Component -->
     <ChapterEditor 
       v-if="showChapters" 
-      :item="item" 
+      :item="activeItem" 
       :currentTime="state.currentTime"
       :isPlaying="state.isPlaying"
       @close="showChapters = false"
       @seek="handleChapterSeek"
     />
 
-    <!-- Info Overlay -->
     <Transition name="slide-up">
       <div v-if="showInfo" class="fixed inset-0 bg-black/95 backdrop-blur-3xl z-[160] flex flex-col">
         <header class="p-10 flex justify-between items-center bg-transparent shrink-0">
@@ -298,4 +316,8 @@ const infoRows = computed(() => {
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 .slide-up-enter-active, .slide-up-leave-active { transition: transform 0.6s cubic-bezier(0.22, 1, 0.36, 1); }
 .slide-up-enter-from, .slide-up-leave-to { transform: translateY(100%); }
+
+.shadow-aether-glow {
+  text-shadow: 0 0 10px rgba(168, 85, 247, 0.6);
+}
 </style>

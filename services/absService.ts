@@ -33,6 +33,15 @@ export class ABSService {
     return clean;
   }
 
+  /**
+   * Helper to ensure URL segments are joined without double slashes
+   */
+  static cleanUrl(base: string, path: string): string {
+    const sanitizedBase = base.replace(/\/+$/, '');
+    const sanitizedPath = path.startsWith('/') ? path : `/${path}`;
+    return `${sanitizedBase}${sanitizedPath}`;
+  }
+
   private initSocket() {
     this.socket = io(this.serverUrl, {
       auth: { token: this.token },
@@ -53,14 +62,10 @@ export class ABSService {
         const response = await fetch(url, { ...options, signal: controller.signal });
         clearTimeout(id);
         
-        if (!response.ok) {
-          const contentType = response.headers.get('content-type');
-          if (contentType && contentType.includes('text/html')) {
-            const text = await response.text();
-            if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
-              throw new Error('Server returned HTML instead of JSON. Check your API URL configuration.');
-            }
-          }
+        // Validation: Catch HTML redirects early (usually triggered by auth failure or bad URL)
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.includes("text/html")) {
+          throw new TypeError("Oops, we got HTML! Check if the API URL or Token is correct.");
         }
 
         if (response.ok || (response.status >= 400 && response.status < 500)) return response;
@@ -76,7 +81,7 @@ export class ABSService {
 
   static async login(serverUrl: string, username: string, password: string): Promise<any> {
     const baseUrl = this.normalizeUrl(serverUrl);
-    const loginUrl = `${baseUrl}/login`;
+    const loginUrl = this.cleanUrl(baseUrl, '/login');
     const response = await this.fetchWithRetry(loginUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
@@ -92,7 +97,7 @@ export class ABSService {
 
   static async authorize(serverUrl: string, token: string): Promise<any> {
     const baseUrl = this.normalizeUrl(serverUrl);
-    const authUrl = `${baseUrl}/api/authorize`;
+    const authUrl = this.cleanUrl(baseUrl, '/api/authorize');
     const response = await this.fetchWithRetry(authUrl, {
       method: 'POST',
       headers: { 
@@ -112,7 +117,8 @@ export class ABSService {
 
   private async fetchApi(endpoint: string, options: RequestInit = {}) {
     const path = endpoint.startsWith('/api/') ? endpoint : `/api${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
-    const url = `${this.serverUrl}${path}`;
+    const url = ABSService.cleanUrl(this.serverUrl, path);
+    
     try {
       const response = await ABSService.fetchWithRetry(url, {
         ...options,
@@ -205,7 +211,8 @@ export class ABSService {
   async getShelves(): Promise<any[]> {
     const libId = await this.ensureLibraryId();
     if (!libId) return [];
-    return this.fetchApi(`/libraries/${libId}/shelves`);
+    const data = await this.fetchApi(`/libraries/${libId}/shelves`);
+    return Array.isArray(data) ? data : (data?.shelves || []);
   }
 
   async scanLibrary(): Promise<boolean> {
@@ -268,7 +275,7 @@ export class ABSService {
 
   getCoverUrl(itemId: string): string {
     if (!itemId) return '';
-    return `${this.serverUrl}/api/items/${itemId}/cover?token=${this.token}`;
+    return ABSService.cleanUrl(this.serverUrl, `/api/items/${itemId}/cover?token=${this.token}`);
   }
 
   onProgressUpdate(callback: (progress: ABSProgress) => void) {

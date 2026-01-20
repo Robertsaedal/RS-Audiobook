@@ -1,6 +1,5 @@
-
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, onMounted, nextTick } from 'vue';
 import { ABSLibraryItem, ABSChapter } from '../types';
 import { 
   X, Play, Pause, Clock, ListMusic, ChevronRight 
@@ -18,10 +17,10 @@ const emit = defineEmits<{
 }>();
 
 const chapters = computed(() => {
-  return props.item.media.chapters || [];
+  return props.item?.media?.chapters || [];
 });
 
-const mediaDuration = computed(() => props.item.media.duration || 0);
+const mediaDuration = computed(() => props.item?.media?.duration || 0);
 
 const currentChapterIndex = computed(() => {
   if (chapters.value.length === 0) return -1;
@@ -30,6 +29,8 @@ const currentChapterIndex = computed(() => {
     time >= ch.start && (i === chapters.value.length - 1 || time < (chapters[i+1]?.start || ch.end))
   );
 });
+
+const activeRowRef = ref<HTMLElement | null>(null);
 
 const secondsToTimestamp = (s: number) => {
   if (isNaN(s) || s < 0) return "00:00";
@@ -40,6 +41,13 @@ const secondsToTimestamp = (s: number) => {
 const handleRowClick = (chapter: ABSChapter) => {
   emit('seek', chapter.start);
 };
+
+onMounted(async () => {
+  await nextTick();
+  if (activeRowRef.value) {
+    activeRowRef.value.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+});
 </script>
 
 <template>
@@ -52,7 +60,7 @@ const handleRowClick = (chapter: ABSChapter) => {
         </button>
         <div class="space-y-0.5">
           <h2 class="text-xl font-black uppercase tracking-tighter text-white">Archive Index</h2>
-          <p class="text-[8px] font-black uppercase tracking-[0.4em] text-purple-600">{{ item.media.metadata.title }}</p>
+          <p class="text-[8px] font-black uppercase tracking-[0.4em] text-purple-600">{{ item?.media?.metadata?.title || 'Loading Metadata...' }}</p>
         </div>
       </div>
 
@@ -83,10 +91,11 @@ const handleRowClick = (chapter: ABSChapter) => {
             v-for="(ch, i) in chapters" 
             :key="i"
             @click="handleRowClick(ch)"
+            :ref="(el) => { if (currentChapterIndex === i) activeRowRef = el as HTMLElement }"
             class="w-full grid grid-cols-[50px_1fr_100px] gap-4 p-5 px-6 rounded-2xl transition-all duration-300 items-center text-left group"
             :class="[
               currentChapterIndex === i 
-                ? 'bg-purple-600/10 border border-purple-500/20 text-white' 
+                ? 'bg-purple-600/10 border border-purple-500/20 text-white shadow-[inset_0_0_20px_rgba(168,85,247,0.05)]' 
                 : 'bg-transparent border border-transparent hover:bg-white/5 text-neutral-400'
             ]"
           >
@@ -153,7 +162,6 @@ const handleRowClick = (chapter: ABSChapter) => {
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* Custom Scrollbar */
 .custom-scrollbar::-webkit-scrollbar {
   width: 4px;
 }
