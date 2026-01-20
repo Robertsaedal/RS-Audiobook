@@ -118,8 +118,15 @@ export class ABSService {
 
   async getLibraryItemsPaged(params: LibraryQueryParams): Promise<{ results: ABSLibraryItem[], total: number }> {
     const query = new URLSearchParams();
-    if (params.limit) query.append('limit', params.limit.toString());
-    if (params.offset !== undefined) query.append('offset', params.offset.toString());
+    const limit = params.limit || 60;
+    const offset = params.offset || 0;
+    
+    query.append('limit', limit.toString());
+    query.append('offset', offset.toString());
+    
+    // Add 'page' for compatibility with some ABS controller variants
+    const page = Math.floor(offset / limit);
+    query.append('page', page.toString());
     
     // Strict Sorting Mapping
     let sort = params.sort || 'addedAt';
@@ -137,25 +144,28 @@ export class ABSService {
     
     // Mandatory for reliable sorting and UI display
     query.append('include', 'progress,metadata');
+    
+    // CACHE BUSTING: Critical to bypass server-side apiCacheManager 
+    // that might be ignoring offset/limit in the cache key.
+    query.append('_cb', Date.now().toString());
 
     const data = await this.fetchApi(`/libraries/${HARDCODED_LIBRARY_ID}/items?${query.toString()}`);
+    
+    // Log structure for debugging paging wall issues
+    console.debug('📡 [ABSService] Library Response Keys:', Object.keys(data || {}));
+
     const results = data?.results || data?.items || (Array.isArray(data) ? data : []);
-    const total = data?.total ?? data?.totalItems ?? results.length;
+    const total = data?.total ?? data?.totalItems ?? data?.count ?? results.length;
+    
     return { results, total };
   }
 
-  /**
-   * Official way to populate dashboard/home screen with continue listening.
-   */
   async getPersonalizedShelves(): Promise<any> {
-    return this.fetchApi(`/libraries/${HARDCODED_LIBRARY_ID}/personalized`);
+    return this.fetchApi(`/libraries/${HARDCODED_LIBRARY_ID}/personalized?_cb=${Date.now()}`);
   }
 
-  /**
-   * Directly get all items in progress for the current user.
-   */
   async getItemsInProgress(): Promise<ABSLibraryItem[]> {
-    const data = await this.fetchApi('/me/items-in-progress');
+    const data = await this.fetchApi(`/me/items-in-progress?_cb=${Date.now()}`);
     return Array.isArray(data) ? data : (data?.results || []);
   }
 
@@ -167,6 +177,8 @@ export class ABSService {
     if (sort) query.append('sort', sort);
     if (params.desc !== undefined) query.append('desc', params.desc.toString());
     query.append('include', 'books'); 
+    query.append('_cb', Date.now().toString());
+
     const data = await this.fetchApi(`/libraries/${HARDCODED_LIBRARY_ID}/series?${query.toString()}`);
     const results = data?.results || data?.series || data?.items || (Array.isArray(data) ? data : []);
     const total = data?.total ?? data?.totalSeries ?? results.length;
@@ -175,7 +187,7 @@ export class ABSService {
 
   async getListeningSessions(): Promise<ABSLibraryItem[]> {
     if (!this.userId) return [];
-    const data = await this.fetchApi(`/users/${this.userId}/listening-sessions`);
+    const data = await this.fetchApi(`/users/${this.userId}/listening-sessions?_cb=${Date.now()}`);
     const sessions = data?.sessions || data || [];
     const items: ABSLibraryItem[] = [];
     const seen = new Set();
@@ -194,12 +206,12 @@ export class ABSService {
   }
 
   async getSeriesItems(seriesId: string): Promise<ABSLibraryItem[]> {
-    const data = await this.fetchApi(`/libraries/${HARDCODED_LIBRARY_ID}/series/${seriesId}?include=progress`);
+    const data = await this.fetchApi(`/libraries/${HARDCODED_LIBRARY_ID}/series/${seriesId}?include=progress&_cb=${Date.now()}`);
     return data?.books || data?.results || data?.items || [];
   }
 
   async getProgress(itemId: string): Promise<ABSProgress | null> {
-    return this.fetchApi(`/me/progress/${itemId}`);
+    return this.fetchApi(`/me/progress/${itemId}?_cb=${Date.now()}`);
   }
 
   async saveProgress(itemId: string, currentTime: number, duration: number): Promise<void> {

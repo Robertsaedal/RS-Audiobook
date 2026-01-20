@@ -3,7 +3,7 @@ import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { ABSLibraryItem, ABSProgress } from '../types';
 import { ABSService, LibraryQueryParams } from '../services/absService';
 import BookCard from './BookCard.vue';
-import { PackageOpen, Loader2, Plus, AlertTriangle, FastForward } from 'lucide-vue-next';
+import { PackageOpen, Loader2, Plus, AlertTriangle, FastForward, RotateCw } from 'lucide-vue-next';
 
 const props = defineProps<{
   absService: ABSService,
@@ -69,7 +69,7 @@ const fetchMoreItems = async (isInitial = false) => {
       search: props.search
     };
     
-    console.log(`📡 [Bookshelf] Query: Offset ${params.offset}, Sort ${params.sort}`);
+    console.log(`📡 [Bookshelf] Querying Page: Offset ${params.offset}, Sort ${params.sort}`);
 
     const response = await props.absService.getLibraryItemsPaged(params);
     const results = response?.results || [];
@@ -78,44 +78,48 @@ const fetchMoreItems = async (isInitial = false) => {
     totalItems.value = total;
 
     if (results.length === 0) {
-      console.log("⏹️ [Bookshelf] Terminus reached (Empty response).");
+      console.log("⏹️ [Bookshelf] No items returned. Stream complete.");
       hasMore.value = false;
       return;
     }
 
-    // Official Behavior: Always increment offset by requested limit to avoid loops
+    // Increment offset by requested limit to avoid loops even if server misbehaves
     internalOffset.value = fetchOffset + ITEMS_PER_FETCH;
 
     if (isInitial) {
       libraryItems.value = results;
     } else {
-      // Deduplicate by ID as timestamps can be identical (migration artifacts)
+      // Deduplicate strictly by ID
       const existingIds = new Set(libraryItems.value.map(i => i.id));
       const uniqueResults = results.filter(i => !existingIds.has(i.id));
       
       if (uniqueResults.length > 0) {
         libraryItems.value.push(...uniqueResults);
+        console.log(`✅ [Bookshelf] Integrated ${uniqueResults.length} new records.`);
       } else {
-        console.warn("⚠️ [Bookshelf] Shifted content detected (All duplicates).");
+        console.warn("⚠️ [Bookshelf] Pagination loop detected. Server returned only existing records for this offset.");
         duplicateWallDetected.value = true;
+        // Do not stop stream yet, allow for manual "Jump" if user is stuck
       }
     }
     
-    if (internalOffset.value >= totalItems.value) {
+    // Check if we've theoretically hit the end
+    if (libraryItems.value.length >= totalItems.value || internalOffset.value >= totalItems.value) {
+      console.log(`🏁 [Bookshelf] Reached expected terminus: ${libraryItems.value.length} of ${totalItems.value}`);
       hasMore.value = false;
     }
 
-    // Auto-fill viewport logic
+    // Auto-fill viewport if we haven't hit a wall
     await nextTick();
     const sentinel = sentinelRef.value;
     if (sentinel && hasMore.value && !isLoading.value && !duplicateWallDetected.value) {
       const rect = sentinel.getBoundingClientRect();
-      if (rect.top < window.innerHeight + 800) {
-        setTimeout(() => fetchMoreItems(false), 50);
+      if (rect.top < window.innerHeight + 1000) {
+        setTimeout(() => fetchMoreItems(false), 100);
       }
     }
   } catch (e) {
-    console.error("❌ [Bookshelf] Fetch error:", e);
+    console.error("❌ [Bookshelf] Nexus transmission failure:", e);
     hasMore.value = false; 
   } finally {
     isLoading.value = false;
@@ -133,7 +137,7 @@ const setupObserver = () => {
     }
   }, { 
     threshold: 0,
-    rootMargin: '800px',
+    rootMargin: '1000px', // Larger margin to start loads earlier
     root: null 
   });
   
@@ -187,7 +191,7 @@ watch(() => [props.sortMethod, props.desc, props.search], () => reset(), { deep:
       <div v-if="libraryItems.length === 0 && !isLoading" class="flex flex-col items-center justify-center py-40 text-center opacity-40">
         <PackageOpen :size="64" class="text-neutral-800 mb-6" />
         <h3 class="text-xl font-black uppercase tracking-tighter">Archive Empty</h3>
-        <p class="text-[9px] font-black uppercase tracking-widest mt-2">No records in current frequency</p>
+        <p class="text-[9px] font-black uppercase tracking-widest mt-2">No items detected in current frequency</p>
       </div>
 
       <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-x-6 gap-y-12">
@@ -207,18 +211,30 @@ watch(() => [props.sortMethod, props.desc, props.search], () => reset(), { deep:
           <p class="text-[8px] font-black uppercase tracking-[0.4em] text-neutral-700">Accessing Index...</p>
         </div>
         
-        <div v-else-if="duplicateWallDetected && hasMore" class="flex flex-col items-center gap-4">
+        <div v-else-if="duplicateWallDetected && hasMore" class="flex flex-col items-center gap-4 animate-fade-in">
            <div class="flex items-center gap-3 px-4 py-2 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-500">
              <AlertTriangle :size="14" />
-             <span class="text-[9px] font-black uppercase tracking-widest">Index Wall Reached</span>
+             <span class="text-[9px] font-black uppercase tracking-widest">Cache Wall Detected</span>
            </div>
-           <button 
-            @click="fetchMoreItems()"
-            class="flex items-center gap-3 px-6 py-3 bg-neutral-900/60 border border-white/5 rounded-full text-[9px] font-black uppercase tracking-[0.4em] text-neutral-400 hover:text-purple-400 hover:border-purple-500/20 transition-all active:scale-95"
-           >
-            <FastForward :size="14" />
-            <span>Force Jump Next Segment</span>
-          </button>
+           <div class="flex items-center gap-4">
+              <button 
+                @click="reset()"
+                class="flex items-center gap-3 px-6 py-3 bg-neutral-900/60 border border-white/5 rounded-full text-[9px] font-black uppercase tracking-[0.4em] text-neutral-400 hover:text-purple-400 hover:border-purple-500/20 transition-all active:scale-95"
+              >
+                <RotateCw :size="14" />
+                <span>Force Re-Sync</span>
+              </button>
+              <button 
+                @click="fetchMoreItems()"
+                class="flex items-center gap-3 px-6 py-3 bg-neutral-900/60 border border-white/5 rounded-full text-[9px] font-black uppercase tracking-[0.4em] text-neutral-400 hover:text-purple-400 hover:border-purple-500/20 transition-all active:scale-95"
+              >
+                <FastForward :size="14" />
+                <span>Jump Segment</span>
+              </button>
+           </div>
+           <p class="text-[8px] font-black text-neutral-700 uppercase tracking-widest text-center max-w-xs">
+             The server is returning duplicate items. This often indicates a stale API cache. Force Re-Sync uses a cache-buster.
+           </p>
         </div>
 
         <button 
@@ -237,3 +253,13 @@ watch(() => [props.sortMethod, props.desc, props.search], () => reset(), { deep:
     </div>
   </div>
 </template>
+
+<style scoped>
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out;
+}
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+</style>
