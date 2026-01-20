@@ -9,7 +9,6 @@ import SeriesView from './SeriesView.vue';
 import RequestPortal from '../components/RequestPortal.vue';
 import BookCard from '../components/BookCard.vue';
 import SeriesCard from '../components/SeriesCard.vue';
-import ContinueListening from '../components/ContinueListening.vue';
 
 const props = defineProps<{
   auth: AuthState,
@@ -53,24 +52,8 @@ const setupListeners = () => {
   if (!absService.value) return;
 
   absService.value.onProgressUpdate((updated: ABSProgress) => {
-    const readingIdx = currentlyReading.value.findIndex(i => i.id === updated.itemId);
-    if (readingIdx !== -1) {
-      currentlyReading.value[readingIdx] = { 
-        ...currentlyReading.value[readingIdx], 
-        userProgress: updated 
-      };
-      if (updated.isFinished) currentlyReading.value.splice(readingIdx, 1);
-    } else if (!updated.isFinished && updated.progress > 0) {
-      fetchDashboardData();
-    }
-
-    const addedIdx = recentlyAdded.value.findIndex(i => i.id === updated.itemId);
-    if (addedIdx !== -1) {
-      recentlyAdded.value[addedIdx] = { 
-        ...recentlyAdded.value[addedIdx], 
-        userProgress: updated 
-      };
-    }
+    // Refresh dashboard if a book makes progress or finishes
+    fetchDashboardData();
   });
 
   absService.value.onLibraryUpdate(() => fetchDashboardData());
@@ -79,25 +62,26 @@ const setupListeners = () => {
 const fetchDashboardData = async () => {
   if (!absService.value) return;
   try {
-    // 1. Fetch official listening sessions
+    // 1. Fetch official listening sessions (most accurate recent)
     const sessions = await absService.value.getListeningSessions();
     
-    // 2. Fetch recent in-progress items as fallback/supplement
+    // 2. Fetch in-progress items via library filter (robust fallback)
     const { results: inProgress } = await absService.value.getLibraryItemsPaged({ 
       limit: 20, sort: 'lastUpdate', desc: 1, filter: 'progress' 
     });
 
-    // Merge and deduplicate
-    const combined = [...sessions];
+    // Merge and deduplicate sessions + inProgress items
+    const combinedMap = new Map<string, ABSLibraryItem>();
+    sessions.forEach(item => combinedMap.set(item.id, item));
     inProgress.forEach(item => {
-      if (!combined.some(c => c.id === item.id)) {
-        combined.push(item);
+      if (!combinedMap.has(item.id)) {
+        combinedMap.set(item.id, item);
       }
     });
 
-    currentlyReading.value = combined.filter(i => 
-      i.userProgress && !i.userProgress.isFinished && i.userProgress.progress > 0
-    ).slice(0, 15);
+    currentlyReading.value = Array.from(combinedMap.values())
+      .filter(i => i.userProgress && !i.userProgress.isFinished && i.userProgress.progress > 0)
+      .slice(0, 15);
 
     const { results: added } = await absService.value.getLibraryItemsPaged({ 
       limit: 20, sort: 'addedAt', desc: 1 
@@ -182,7 +166,7 @@ const filteredAdded = computed(() => {
     @logout="emit('logout')"
     @scan="handleScan"
   >
-    <div class="flex-1 min-h-0">
+    <div class="flex-1 min-h-0 flex flex-col h-full">
       <SeriesView 
         v-if="selectedSeries && absService"
         :series="selectedSeries" :absService="absService"
@@ -191,9 +175,10 @@ const filteredAdded = computed(() => {
       />
 
       <template v-else>
+        <!-- Home Tab -->
         <div v-if="activeTab === 'HOME'" class="h-full bg-[#0d0d0d] overflow-y-auto custom-scrollbar -mx-4 md:-mx-8 px-4 md:px-8 pt-4 pb-40">
           
-          <!-- Explicit Shelf for Continue Listening -->
+          <!-- Continue Listening Shelf -->
           <section v-if="filteredReading.length > 0 && absService" class="shelf-row">
             <div class="shelf-tag">
               <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Continue Listening</span>
@@ -210,6 +195,7 @@ const filteredAdded = computed(() => {
             </div>
           </section>
 
+          <!-- Recently Added Shelf -->
           <section v-if="filteredAdded.length > 0 && absService" class="shelf-row">
             <div class="shelf-tag">
               <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Recently Added</span>
@@ -226,6 +212,7 @@ const filteredAdded = computed(() => {
             </div>
           </section>
 
+          <!-- Series Shelf -->
           <section v-if="recentSeries.length > 0 && !searchTerm && absService" class="shelf-row">
             <div class="shelf-tag">
               <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Archives by Stacks</span>
@@ -247,13 +234,18 @@ const filteredAdded = computed(() => {
           </div>
         </div>
 
-        <div v-else-if="activeTab === 'LIBRARY' && absService" class="h-full">
+        <!-- Library Tab -->
+        <div v-else-if="activeTab === 'LIBRARY' && absService" class="h-full flex flex-col">
           <Bookshelf :absService="absService" :sortMethod="sortMethod" :desc="desc" :search="searchTerm" @select-item="emit('select-item', $event)" />
         </div>
-        <div v-else-if="activeTab === 'SERIES' && absService" class="h-full">
+
+        <!-- Series Tab -->
+        <div v-else-if="activeTab === 'SERIES' && absService" class="h-full flex flex-col">
           <SeriesShelf :absService="absService" :sortMethod="sortMethod" :desc="desc" @select-series="selectedSeries = $event" />
         </div>
-        <div v-else-if="activeTab === 'REQUEST'" class="h-full">
+
+        <!-- Request Tab -->
+        <div v-else-if="activeTab === 'REQUEST'" class="h-full flex flex-col">
           <RequestPortal />
         </div>
       </template>

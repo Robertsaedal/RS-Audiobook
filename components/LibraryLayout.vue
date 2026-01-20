@@ -25,7 +25,7 @@ const emit = defineEmits<{
   (e: 'update:search', val: string): void;
 }>();
 
-const version = "5.4.0";
+const version = "5.4.1";
 
 const navItems = [
   { id: 'HOME' as LibraryTab, icon: Home, label: 'Home' },
@@ -145,12 +145,12 @@ const handleRequestClick = (event: MouseEvent) => {
       class="flex-1 h-full pt-16 relative"
       :class="{ 'has-siderail': true }"
     >
-      <!-- Removed overflow-y-auto here: children manage their own scrolling -->
       <main 
-        class="h-full page-content"
+        class="h-full page-content overflow-hidden"
         :class="{ 'streaming': isStreaming }"
       >
-        <div class="max-w-7xl mx-auto w-full px-4 md:px-8 py-8 h-full">
+        <!-- CRITICAL: Added flex flex-col and h-full to the slot wrapper -->
+        <div class="max-w-7xl mx-auto w-full px-4 md:px-8 py-8 h-full flex flex-col">
           <slot></slot>
         </div>
       </main>

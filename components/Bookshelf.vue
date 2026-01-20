@@ -53,9 +53,11 @@ const fetchMoreItems = async (isInitial = false) => {
       
       if (uniqueResults.length > 0) {
         libraryItems.value.push(...uniqueResults);
+        offset.value += uniqueResults.length;
+      } else if (results.length > 0) {
+        // Increment offset even if no unique results to bypass potential duplicates
+        offset.value += results.length;
       }
-      // Always increment offset by fetch limit to move to next page
-      offset.value += ITEMS_PER_FETCH;
     }
     totalItems.value = total;
   } catch (e) {
@@ -69,7 +71,6 @@ const reset = async () => {
   offset.value = 0;
   libraryItems.value = [];
   totalItems.value = 0;
-  // Scroll to top on reset
   if (scrollContainerRef.value) scrollContainerRef.value.scrollTop = 0;
   await fetchMoreItems(true);
 };
@@ -80,14 +81,15 @@ const setupObserver = () => {
   
   observer = new IntersectionObserver((entries) => {
     if (entries[0].isIntersecting && !isLoading.value) {
+      // Check if we actually have more to load
       if (totalItems.value === 0 || libraryItems.value.length < totalItems.value) {
         fetchMoreItems();
       }
     }
   }, { 
     threshold: 0.1, 
-    rootMargin: '400px',
-    root: scrollContainerRef.value 
+    rootMargin: '600px', // Pre-fetch 600px before reaching bottom
+    root: null // Default to viewport but within constrained h-full hierarchy
   });
   
   if (sentinelRef.value) observer.observe(sentinelRef.value);
@@ -115,7 +117,8 @@ watch(() => [props.sortMethod, props.desc, props.search], () => reset());
 </script>
 
 <template>
-  <div class="h-full flex flex-col overflow-hidden">
+  <!-- h-full and flex-1 are key here -->
+  <div class="flex-1 h-full flex flex-col overflow-hidden">
     <div ref="scrollContainerRef" class="flex-1 overflow-y-auto custom-scrollbar px-2 pb-40 relative">
       <div v-if="libraryItems.length === 0 && !isLoading" class="flex flex-col items-center justify-center py-40 text-center opacity-40">
         <PackageOpen :size="64" class="text-neutral-800 mb-6" />
@@ -133,7 +136,8 @@ watch(() => [props.sortMethod, props.desc, props.search], () => reset());
         />
       </div>
 
-      <div id="scroll-sentinel" ref="sentinelRef" class="h-32 w-full flex items-center justify-center mt-12 mb-20">
+      <!-- Sentinel for infinite scroll -->
+      <div ref="sentinelRef" class="h-32 w-full flex items-center justify-center mt-12 mb-20">
         <div v-if="isLoading" class="flex flex-col items-center gap-4">
           <Loader2 class="animate-spin text-purple-500" :size="32" />
           <p class="text-[8px] font-black uppercase tracking-[0.4em] text-neutral-700">Deciphering Archive Index...</p>
