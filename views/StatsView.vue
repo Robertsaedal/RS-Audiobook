@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
 import { ABSService } from '../services/absService';
-import { ChevronDown, Trophy, Clock, Calendar, BarChart2 } from 'lucide-vue-next';
+import { ChevronDown, Trophy, Clock, Calendar, BarChart2, AlertCircle } from 'lucide-vue-next';
 
 const props = defineProps<{
   absService: ABSService
@@ -10,6 +10,7 @@ const props = defineProps<{
 const currentYear = ref(new Date().getFullYear());
 const selectedYear = ref(new Date().getFullYear());
 const isLoading = ref(false);
+const error = ref<string | null>(null);
 const stats = ref<{
   totalTime: number;
   items: { id: string; title: string; author?: string }[];
@@ -28,7 +29,7 @@ const availableYears = computed(() => {
 
 const formattedTime = computed(() => {
   if (!stats.value) return { d: 0, h: 0, m: 0 };
-  const totalSeconds = stats.value.totalTime;
+  const totalSeconds = stats.value.totalTime || 0;
   const days = Math.floor(totalSeconds / 86400);
   const remainingSeconds = totalSeconds % 86400;
   const hours = Math.floor(remainingSeconds / 3600);
@@ -56,10 +57,20 @@ const maxMonthlyValue = computed(() => {
 const fetchStats = async () => {
   if (!props.absService) return;
   isLoading.value = true;
+  error.value = null;
+  stats.value = null;
+  
   try {
-    stats.value = await props.absService.getUserStatsForYear(selectedYear.value);
-  } catch (e) {
+    const data = await props.absService.getUserStatsForYear(selectedYear.value);
+    // Ensure we have a valid structure even if data is missing
+    stats.value = {
+      totalTime: data?.totalTime || 0,
+      items: data?.items || [],
+      days: data?.days || {}
+    };
+  } catch (e: any) {
     console.error("Failed to fetch stats", e);
+    error.value = e.message || "Could not retrieve analytical data.";
   } finally {
     isLoading.value = false;
   }
@@ -101,6 +112,12 @@ const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep
       <div v-if="isLoading" class="flex flex-col items-center justify-center py-40 gap-6">
         <div class="w-12 h-12 border-2 border-purple-600/10 border-t-purple-600 rounded-full animate-spin" />
         <p class="text-[8px] font-black uppercase tracking-[0.6em] text-neutral-600">Calculating Metadata...</p>
+      </div>
+
+      <div v-else-if="error" class="flex flex-col items-center justify-center py-20 gap-4 opacity-70">
+        <AlertCircle :size="48" class="text-red-500" />
+        <p class="text-sm font-bold text-red-400">{{ error }}</p>
+        <button @click="fetchStats" class="text-[10px] font-black uppercase tracking-widest text-neutral-400 hover:text-white underline">Retry Connection</button>
       </div>
 
       <div v-else-if="stats" class="space-y-12">

@@ -1,6 +1,7 @@
 import { db } from './db';
 import { ABSService } from './absService';
 import { ABSLibraryItem } from '../types';
+import { toRaw } from 'vue';
 
 export class OfflineManager {
   static async saveBook(
@@ -25,12 +26,16 @@ export class OfflineManager {
        }
     }
 
-    // 4. Save to DB
+    // 4. Save to DB - CRITICAL FIX: Strip Vue reactivity
+    // We use JSON parse/stringify as a foolproof way to ensure a plain object is stored
+    // causing DataCloneError when Proxies are passed to IndexedDB
+    const rawItem = JSON.parse(JSON.stringify(toRaw(item)));
+
     await db.downloads.put({
-      itemId: item.id,
+      itemId: rawItem.id,
       blob: audioBlob,
       coverBlob,
-      metadata: item,
+      metadata: rawItem,
       downloadedAt: Date.now()
     });
   }

@@ -22,27 +22,39 @@ const isDownloaded = ref(false);
 const localCover = ref<string | null>(null);
 
 const progress = computed(() => {
-  if (!props.item?.userProgress) return 0;
-  // If progress is directly provided by server, use it (0-1), otherwise calculate
-  if (props.item.userProgress.progress !== undefined) {
-    return props.item.userProgress.progress * 100;
+  // Support both standard userProgress and userMediaProgress (common in shelves)
+  const p = props.item.userProgress || (props.item as any).userMediaProgress;
+  
+  if (!p) return 0;
+  
+  if (p.progress !== undefined) {
+    return p.progress * 100;
   }
   
-  const current = props.item.userProgress.currentTime || 0;
-  const total = props.item.media.duration || props.item.userProgress.duration || 1;
+  const current = p.currentTime || 0;
+  const total = props.item.media.duration || p.duration || 1;
   return Math.min(100, (current / total) * 100);
 });
 
-const isFinished = computed(() => props.item?.userProgress?.isFinished || false);
+const isFinished = computed(() => {
+  const p = props.item.userProgress || (props.item as any).userMediaProgress;
+  return p?.isFinished || false;
+});
 
 const displaySequence = computed(() => {
   // Prioritize seriesSequence from API, then sequence, then UI fallback
-  const raw = props.item?.media?.metadata?.seriesSequence || props.item?.media?.metadata?.sequence || props.fallbackSequence;
+  // Ensure we check for 0 or string '0'
+  const meta = props.item?.media?.metadata;
+  let raw = meta?.seriesSequence;
+  
+  if (raw === undefined || raw === null) {
+    raw = meta?.sequence;
+  }
+  if (raw === undefined || raw === null) {
+    raw = props.fallbackSequence;
+  }
   
   if (raw === undefined || raw === null || raw === '') return null;
-  
-  // Return raw value if it's a string that looks like a number but might be "1.5" or "0.5"
-  // We want to avoid aggressive rounding if the metadata explicitly has decimals
   return raw;
 });
 
@@ -84,19 +96,19 @@ onMounted(async () => {
       />
       
       <!-- Book Sequence Badge (Top Right Pill) -->
-      <div v-if="displaySequence !== null" class="absolute top-2.5 right-2.5 bg-purple-600/90 backdrop-blur-md px-2.5 py-1 rounded-full flex items-center justify-center text-[10px] font-black text-white border border-white/20 shadow-xl z-30 tracking-tight">
+      <div v-if="displaySequence !== null" class="absolute top-2 right-2 bg-purple-600/90 backdrop-blur-md px-2 py-0.5 rounded-md flex items-center justify-center text-[10px] font-black text-white border border-white/20 shadow-xl z-50 tracking-tight">
         #{{ displaySequence }}
       </div>
       
       <!-- Downloaded Badge (Top Left) -->
-      <div v-if="isDownloaded" class="absolute top-2.5 left-2.5 z-30 text-purple-400 bg-black/60 rounded-full backdrop-blur-sm p-0.5 border border-white/10">
+      <div v-if="isDownloaded" class="absolute top-2 left-2 z-30 text-purple-400 bg-black/60 rounded-full backdrop-blur-sm p-0.5 border border-white/10">
         <CheckCircle :size="14" fill="currentColor" class="text-white" />
       </div>
 
       <!-- Mark Finished Button (Top Left - Hover or if in progress) -->
       <div 
         v-if="!isFinished && progress > 0" 
-        class="absolute top-2.5 left-2.5 z-40 opacity-0 group-hover:opacity-100 transition-opacity"
+        class="absolute top-2 left-2 z-40 opacity-0 group-hover:opacity-100 transition-opacity"
         :class="{ 'left-8': isDownloaded }"
       >
         <button 
@@ -116,9 +128,9 @@ onMounted(async () => {
       </div>
 
       <!-- High-Contrast Progress Bar (Bottom Edge) -->
-      <div v-if="progress > 0 && !isFinished" class="absolute bottom-0 left-0 h-1 w-full bg-black/60 z-30">
+      <div v-if="progress > 0 && !isFinished" class="absolute bottom-0 left-0 h-1.5 w-full bg-neutral-900/80 z-30">
         <div 
-          class="h-full bg-purple-500 shadow-[0_0_12px_rgba(168,85,247,0.8)] transition-all duration-300" 
+          class="h-full bg-gradient-to-r from-purple-600 to-purple-400 shadow-[0_0_12px_rgba(168,85,247,0.8)] transition-all duration-300" 
           :style="{ width: progress + '%' }" 
         />
       </div>
@@ -126,7 +138,7 @@ onMounted(async () => {
       <div v-if="isFinished" class="absolute bottom-0 left-0 h-1 w-full bg-green-500 z-30 shadow-[0_0_10px_rgba(34,197,94,0.3)]" />
       
       <!-- Percentage Text Overlay (Visible on hover when in progress) -->
-      <div v-if="progress > 0 && !isFinished" class="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/70 backdrop-blur-sm px-2 py-0.5 rounded text-[8px] font-black text-white uppercase tracking-widest z-30 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+      <div v-if="progress > 0 && !isFinished" class="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur-md px-2 py-1 rounded text-[9px] font-black text-white uppercase tracking-widest z-30 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none border border-white/10">
         {{ Math.round(progress) }}%
       </div>
     </div>

@@ -262,7 +262,7 @@ const infoRows = computed(() => {
             </div>
           </div>
 
-          <div class="text-center space-y-3 w-full max-w-md px-4 z-10">
+          <div class="text-center space-y-4 w-full max-w-md px-4 z-10">
             <div class="space-y-1">
               <h1 class="text-xl md:text-2xl font-black uppercase tracking-tight text-white leading-tight line-clamp-2" :title="metadata.title">
                 {{ metadata.title }}
@@ -270,17 +270,17 @@ const infoRows = computed(() => {
               <p class="text-[10px] font-black uppercase tracking-[0.3em] text-neutral-600 truncate">
                 {{ metadata.authorName }}
               </p>
-              
-              <!-- Series Link -->
-              <button 
-                v-if="metadata.seriesName && metadata.seriesId" 
-                @click="handleSeriesClick"
-                class="inline-flex items-center gap-2 mt-2 px-4 py-1.5 rounded-full bg-purple-900/20 border border-purple-500/20 text-[9px] font-black uppercase tracking-[0.2em] text-purple-400 hover:bg-purple-900/40 hover:text-purple-200 transition-all active:scale-95"
-              >
-                <Layers :size="10" />
-                <span class="truncate max-w-[200px]">{{ metadata.seriesName }}</span>
-              </button>
             </div>
+            
+            <!-- Series Link (Visible and Clickable) -->
+            <button 
+              v-if="metadata.seriesName && metadata.seriesId" 
+              @click.stop="handleSeriesClick"
+              class="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-neutral-900 border border-purple-500/30 text-[9px] font-black uppercase tracking-[0.2em] text-purple-400 hover:bg-purple-900/20 hover:text-purple-300 hover:border-purple-500/50 transition-all active:scale-95 shadow-lg"
+            >
+              <Layers :size="12" />
+              <span class="truncate max-w-[220px]">{{ metadata.seriesName }} {{ metadata.seriesSequence ? `#${metadata.seriesSequence}` : '' }}</span>
+            </button>
           </div>
         </div>
 
