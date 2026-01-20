@@ -122,7 +122,6 @@ const metadata = computed(() => activeItem.value?.media?.metadata || {});
 const formattedSeriesInfo = computed(() => {
   if (!metadata.value.seriesName) return null;
   const seq = metadata.value.sequence || '1';
-  // Try to find totalInSeries if provided in some library metadata format, or use seq as placeholder
   const total = (activeItem.value as any).totalInSeries || seq;
   return `${metadata.value.seriesName} nr${seq} - Book ${seq} of ${total}`;
 });
@@ -192,15 +191,15 @@ const infoRows = computed(() => {
       </div>
 
       <footer class="px-10 pb-16 space-y-12 max-w-xl mx-auto w-full z-20">
-        <!-- Dual-Layer Progress Bar -->
+        <!-- Dual-Layer Purple Progress Bar - Focusing on Chapter -->
         <div class="space-y-4">
           <div 
             class="h-2.5 w-full bg-neutral-900/60 rounded-full relative cursor-pointer overflow-hidden group shadow-[inset_0_2px_4px_rgba(0,0,0,0.5)] border border-white/5" 
             @click="handleGlobalProgressClick"
           >
-            <!-- Thin Background Fill (Total Book Progress) -->
+            <!-- Background: Thin Total Progress Bar (Subtle Purple) -->
             <div 
-              class="absolute inset-y-0 left-0 bg-purple-900/40 transition-all duration-300 z-0" 
+              class="absolute top-[35%] bottom-[35%] left-0 bg-purple-900/40 transition-all duration-300 z-0" 
               :style="{ width: totalProgressPercent + '%' }"
             />
 
@@ -212,9 +211,9 @@ const infoRows = computed(() => {
               :style="{ left: (ch.start / state.duration) * 100 + '%' }"
             />
             
-            <!-- Thick Chapter Progress Fill (Main Purple) -->
+            <!-- Foreground: Main Chapter Progress Bar (Bright Purple) -->
             <div 
-              class="absolute top-[20%] bottom-[20%] left-0 bg-purple-500 shadow-[0_0_20px_rgba(168,85,247,0.9)] transition-all duration-150 z-10 rounded-r-full" 
+              class="absolute top-[15%] bottom-[15%] left-0 bg-purple-500 shadow-[0_0_20px_rgba(168,85,247,0.9)] transition-all duration-150 z-10 rounded-r-full" 
               :style="{ width: totalProgressPercent + '%' }"
             />
           </div>
@@ -258,7 +257,6 @@ const infoRows = computed(() => {
               <button @click="setPlaybackRate(Math.min(2.5, state.playbackRate + 0.1))" class="p-1 text-neutral-600 hover:text-white"><Plus :size="14" /></button>
             </div>
           </div>
-          <!-- Real-Time Sleep Timer (Chapters) -->
           <div class="bg-neutral-900/20 border border-white/5 rounded-[24px] p-5 flex flex-col items-center gap-4">
             <div class="flex items-center gap-2 text-[8px] font-black uppercase tracking-[0.3em] text-neutral-700"><Moon :size="12" /><span>Sleep</span></div>
             <div class="flex items-center justify-between w-full px-2">

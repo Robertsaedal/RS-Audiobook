@@ -23,7 +23,7 @@ const emit = defineEmits<{
   (e: 'clear-initial-series'): void
 }>();
 
-const absService = new ABSService(props.auth.serverUrl, props.auth.user?.token || '');
+const absService = new ABSService(props.auth.serverUrl, props.auth.user?.token || '', props.auth.user?.id);
 
 const activeTab = ref<LibraryTab>('HOME');
 const searchTerm = ref('');
@@ -38,12 +38,19 @@ const recentSeries = ref<ABSSeries[]>([]);
 
 const fetchDashboardData = async () => {
   try {
-    const { results: reading } = await absService.getLibraryItemsPaged({ 
-      limit: 15, sort: 'lastUpdate', desc: 1, filter: 'progress' 
-    });
-    currentlyReading.value = reading.filter(i => 
-      i.userProgress && !i.userProgress.isFinished && i.userProgress.progress > 0
-    );
+    // Priority 1: Fetch actual active user listening sessions
+    const sessions = await absService.getListeningSessions();
+    if (sessions.length > 0) {
+      currentlyReading.value = sessions;
+    } else {
+      // Fallback: Fetch items with active progress filter
+      const { results: reading } = await absService.getLibraryItemsPaged({ 
+        limit: 15, sort: 'lastUpdate', desc: 1, filter: 'progress' 
+      });
+      currentlyReading.value = reading.filter(i => 
+        i.userProgress && !i.userProgress.isFinished && i.userProgress.progress > 0
+      );
+    }
 
     const { results: added } = await absService.getLibraryItemsPaged({ 
       limit: 20, sort: 'addedAt', desc: 1 
@@ -157,10 +164,11 @@ const filteredAdded = computed(() => {
       <template v-else>
         <div v-if="activeTab === 'HOME'" class="h-full bg-[#0d0d0d] overflow-y-auto custom-scrollbar -mx-4 md:-mx-8 px-4 md:px-8 pt-4 pb-40">
           
-          <!-- New Curated Shelf (Top Priority) -->
+          <!-- Curated Session Shelf -->
           <ContinueListening 
             v-if="!searchTerm" 
             :absService="absService" 
+            :items="currentlyReading"
             @resume-book="emit('select-item', $event)"
           />
 

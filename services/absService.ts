@@ -13,12 +13,15 @@ export interface LibraryQueryParams {
 export class ABSService {
   private serverUrl: string;
   private token: string;
+  private userId: string | null = null;
   private libraryId: string | null = null;
   private socket: Socket | null = null;
 
-  constructor(serverUrl: string, token: string) {
+  constructor(serverUrl: string, token: string, userId?: string) {
     this.serverUrl = ABSService.normalizeUrl(serverUrl);
-    this.token = token;
+    // Strip any existing "Bearer " prefix to prevent double-prefixing
+    this.token = token.replace(/^Bearer\s+/i, '');
+    this.userId = userId || null;
     this.initSocket();
   }
 
@@ -33,9 +36,6 @@ export class ABSService {
     return clean;
   }
 
-  /**
-   * Helper to ensure URL segments are joined without double slashes
-   */
   static cleanUrl(base: string, path: string): string {
     const sanitizedBase = base.replace(/\/+$/, '');
     const sanitizedPath = path.startsWith('/') ? path : `/${path}`;
@@ -62,10 +62,9 @@ export class ABSService {
         const response = await fetch(url, { ...options, signal: controller.signal });
         clearTimeout(id);
         
-        // Validation: Catch HTML redirects early (usually triggered by auth failure or bad URL)
         const contentType = response.headers.get("content-type");
-        if (contentType && contentType.includes("text/html")) {
-          throw new TypeError("Oops, we got HTML! Check if the API URL or Token is correct.");
+        if (contentType && contentType.includes("text/html") && !url.includes('/login')) {
+          throw new TypeError("Authorization check failed: Server returned HTML (Login redirect).");
         }
 
         if (response.ok || (response.status >= 400 && response.status < 500)) return response;
@@ -101,7 +100,7 @@ export class ABSService {
     const response = await this.fetchWithRetry(authUrl, {
       method: 'POST',
       headers: { 
-        'Authorization': `Bearer ${token}`,
+        'Authorization': `Bearer ${token.replace(/^Bearer\s+/i, '')}`,
         'Content-Type': 'application/json',
         'Accept': 'application/json' 
       },
@@ -143,13 +142,6 @@ export class ABSService {
       console.error(`API Fetch Error: ${endpoint}`, e);
       return null;
     }
-  }
-
-  normalizeDate(date: string | number | undefined): number {
-    if (!date) return 0;
-    if (typeof date === 'number') return date;
-    const parsed = Date.parse(date);
-    return isNaN(parsed) ? (parseInt(date, 10) || 0) : parsed;
   }
 
   async ensureLibraryId(): Promise<string> {
@@ -206,6 +198,22 @@ export class ABSService {
     else total = results.length;
 
     return { results, total };
+  }
+
+  async getListeningSessions(): Promise<ABSLibraryItem[]> {
+    if (!this.userId) return [];
+    const data = await this.fetchApi(`/users/${this.userId}/listening-sessions`);
+    const sessions = data?.sessions || data || [];
+    // Extract library items from unique sessions
+    const items: ABSLibraryItem[] = [];
+    const seen = new Set();
+    for (const session of sessions) {
+      if (session.libraryItem && !seen.has(session.libraryItem.id)) {
+        items.push(session.libraryItem);
+        seen.add(session.libraryItem.id);
+      }
+    }
+    return items;
   }
 
   async getShelves(): Promise<any[]> {

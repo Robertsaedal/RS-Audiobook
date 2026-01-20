@@ -60,7 +60,7 @@ onMounted(async () => {
         </button>
         <div class="space-y-0.5">
           <h2 class="text-xl font-black uppercase tracking-tighter text-white">Archive Index</h2>
-          <p class="text-[8px] font-black uppercase tracking-[0.4em] text-purple-600">{{ item?.media?.metadata?.title || 'Loading Metadata...' }}</p>
+          <p class="text-[8px] font-black uppercase tracking-[0.4em] text-purple-600">{{ item?.media?.metadata?.title || 'Index Loaded' }}</p>
         </div>
       </div>
 
@@ -80,7 +80,7 @@ onMounted(async () => {
     <div class="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar pb-32">
       <div class="max-w-4xl mx-auto">
         <!-- Table Header -->
-        <div class="grid grid-cols-[50px_1fr_100px] gap-4 px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-neutral-700 border-b border-white/5 mb-4">
+        <div v-if="chapters.length > 0" class="grid grid-cols-[50px_1fr_100px] gap-4 px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-neutral-700 border-b border-white/5 mb-4">
           <span>#</span>
           <span>Segment Title</span>
           <span class="text-right">Timestamp</span>
@@ -136,7 +136,7 @@ onMounted(async () => {
           </button>
         </div>
 
-        <!-- Empty State -->
+        <!-- Index Availability Message -->
         <div v-if="chapters.length === 0" class="py-40 flex flex-col items-center justify-center text-center opacity-20">
           <ListMusic :size="48" class="mb-4" />
           <p class="text-[10px] font-black uppercase tracking-[0.4em]">No index data available for this artifact</p>

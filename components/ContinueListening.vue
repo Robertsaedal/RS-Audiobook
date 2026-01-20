@@ -1,64 +1,29 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, watch } from 'vue';
 import { ABSLibraryItem, ABSProgress } from '../types';
 import { ABSService } from '../services/absService';
 
 const props = defineProps<{
-  absService: ABSService
+  absService: ABSService,
+  items: ABSLibraryItem[]
 }>();
 
 const emit = defineEmits<{
   (e: 'resume-book', item: ABSLibraryItem): void
 }>();
 
-const activeBooks = ref<ABSLibraryItem[]>([]);
-const isLoading = ref(true);
-
-const fetchContinueListening = async () => {
-  try {
-    const shelves = await props.absService.getShelves();
-    const continueShelf = shelves?.find((s: any) => s.id === 'continue-listening');
-    if (continueShelf && continueShelf.items) {
-      activeBooks.value = continueShelf.items;
-    }
-  } catch (e) {
-    console.error('Failed to fetch Continue Listening shelf', e);
-  } finally {
-    isLoading.value = false;
-  }
-};
-
-onMounted(() => {
-  fetchContinueListening();
-  
-  // Real-time updates via socket
-  props.absService.onProgressUpdate((updated: ABSProgress) => {
-    const index = activeBooks.value.findIndex(i => i.id === updated.itemId);
-    if (index !== -1) {
-      if (updated.isFinished) {
-        activeBooks.value.splice(index, 1);
-      } else {
-        activeBooks.value[index] = { ...activeBooks.value[index], userProgress: updated };
-      }
-    } else if (!updated.isFinished && updated.progress > 0) {
-      // New item started elsewhere, refresh to be safe
-      fetchContinueListening();
-    }
-  });
-});
-
 const getCoverUrl = (itemId: string) => props.absService.getCoverUrl(itemId);
 </script>
 
 <template>
-  <div v-if="activeBooks.length > 0" class="mb-12 animate-fade-in">
+  <div v-if="items.length > 0" class="mb-12 animate-fade-in">
     <h2 class="text-xl font-bold uppercase tracking-widest text-white mb-6 px-1">
       Continue Listening
     </h2>
     
     <div class="flex overflow-x-auto gap-4 no-scrollbar pb-4 -mx-1 px-1">
       <div 
-        v-for="item in activeBooks" 
+        v-for="item in items" 
         :key="item.id" 
         class="flex-shrink-0 w-32 md:w-40 group cursor-pointer"
         @click="emit('resume-book', item)"
@@ -74,7 +39,7 @@ const getCoverUrl = (itemId: string) => props.absService.getCoverUrl(itemId);
           <!-- Progress Overlay -->
           <div class="absolute bottom-0 left-0 right-0 h-1 bg-neutral-800/60 z-10">
             <div 
-              class="h-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)] transition-all duration-300"
+              class="h-full bg-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.6)] transition-all duration-300"
               :style="{ width: (item.userProgress?.progress || 0) * 100 + '%' }"
             />
           </div>

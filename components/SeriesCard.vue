@@ -45,8 +45,8 @@ const stackCovers = computed(() => {
         </div>
       </div>
 
-      <!-- Numeric Book Count Badge (User Request) -->
-      <div class="absolute -top-4 -right-4 z-30 w-10 h-10 rounded-full bg-purple-600 text-white flex items-center justify-center font-black text-xs border-4 border-[#0d0d0d] shadow-2xl transform group-hover:scale-110 group-hover:bg-purple-500 transition-all">
+      <!-- Numeric Book Count Badge - Enhanced Contrast -->
+      <div class="absolute -top-4 -right-4 z-30 w-10 h-10 rounded-full bg-purple-600 text-white flex items-center justify-center font-black text-xs border-4 border-[#0d0d0d] shadow-[0_0_20px_rgba(168,85,247,0.4)] transform group-hover:scale-110 group-hover:bg-purple-500 transition-all">
         {{ series.numBooks }}
       </div>
     </div>
