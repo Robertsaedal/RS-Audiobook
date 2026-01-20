@@ -124,11 +124,9 @@ export class ABSService {
     query.append('limit', limit.toString());
     query.append('offset', offset.toString());
     
-    // Add 'page' for compatibility with some ABS controller variants
     const page = Math.floor(offset / limit);
     query.append('page', page.toString());
     
-    // Strict Sorting Mapping
     let sort = params.sort || 'addedAt';
     if (sort === 'addedAt') query.append('sort', 'addedAt');
     else if (sort === 'updatedAt') query.append('sort', 'updatedAt');
@@ -142,18 +140,10 @@ export class ABSService {
     if (params.filter) query.append('filter', params.filter);
     if (params.search) query.append('search', params.search);
     
-    // Mandatory for reliable sorting and UI display
     query.append('include', 'progress,metadata');
-    
-    // CACHE BUSTING: Critical to bypass server-side apiCacheManager 
-    // that might be ignoring offset/limit in the cache key.
     query.append('_cb', Date.now().toString());
 
     const data = await this.fetchApi(`/libraries/${HARDCODED_LIBRARY_ID}/items?${query.toString()}`);
-    
-    // Log structure for debugging paging wall issues
-    console.debug('📡 [ABSService] Library Response Keys:', Object.keys(data || {}));
-
     const results = data?.results || data?.items || (Array.isArray(data) ? data : []);
     const total = data?.total ?? data?.totalItems ?? data?.count ?? results.length;
     
@@ -171,17 +161,27 @@ export class ABSService {
 
   async getLibrarySeriesPaged(params: LibraryQueryParams): Promise<{ results: ABSSeries[], total: number }> {
     const query = new URLSearchParams();
-    if (params.limit) query.append('limit', params.limit.toString());
-    if (params.offset !== undefined) query.append('offset', params.offset.toString());
+    const limit = params.limit || 20;
+    const offset = params.offset || 0;
+    
+    query.append('limit', limit.toString());
+    query.append('offset', offset.toString());
+    
+    // Add page calculation for series as well
+    const page = Math.floor(offset / limit);
+    query.append('page', page.toString());
+    
     const sort = params.sort === 'addedAt' ? 'addedDate' : params.sort;
     if (sort) query.append('sort', sort);
     if (params.desc !== undefined) query.append('desc', params.desc.toString());
+    
     query.append('include', 'books'); 
     query.append('_cb', Date.now().toString());
 
     const data = await this.fetchApi(`/libraries/${HARDCODED_LIBRARY_ID}/series?${query.toString()}`);
     const results = data?.results || data?.series || data?.items || (Array.isArray(data) ? data : []);
-    const total = data?.total ?? data?.totalSeries ?? results.length;
+    const total = data?.total ?? data?.totalSeries ?? data?.count ?? results.length;
+    
     return { results, total };
   }
 

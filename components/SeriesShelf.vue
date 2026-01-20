@@ -55,7 +55,9 @@ const fetchMoreSeries = async (isInitial = false) => {
     
     console.log(`📡 [SeriesShelf] Querying Page: Offset ${params.offset}, Sort ${params.sort}`);
 
-    const { results, total } = await props.absService.getLibrarySeriesPaged(params);
+    const response = await props.absService.getLibrarySeriesPaged(params);
+    const results = response?.results || [];
+    const total = response?.total || 0;
     
     totalSeries.value = total;
 
@@ -81,16 +83,22 @@ const fetchMoreSeries = async (isInitial = false) => {
       } else {
         console.warn("⚠️ [SeriesShelf] Pagination loop detected. Server returned only existing records for this offset.");
         duplicateWallDetected.value = true;
+        // Keep hasMore = true so the user can use "Jump" to bypass the cache.
       }
     }
     
-    // Check if we've theoretically hit the end
-    if (seriesItems.value.length >= totalSeries.value || internalOffset.value >= totalSeries.value) {
+    // Check if we've theoretically hit the end. 
+    // CRITICAL FIX: Only set hasMore = false if we've actually loaded enough unique items
+    // OR if the offset has truly exceeded the total and we aren't in a duplicate loop.
+    const reachedTerminus = seriesItems.value.length >= totalSeries.value || 
+                          (internalOffset.value >= totalSeries.value && !duplicateWallDetected.value);
+                          
+    if (reachedTerminus) {
       console.log(`🏁 [SeriesShelf] Reached terminus: ${seriesItems.value.length} of ${totalSeries.value}`);
       hasMore.value = false;
     }
 
-    // Auto-fill viewport
+    // Auto-fill viewport if we haven't hit a wall
     await nextTick();
     const sentinel = sentinelRef.value;
     if (sentinel && hasMore.value && !isLoading.value && !duplicateWallDetected.value) {
@@ -208,6 +216,9 @@ watch(() => [props.sortMethod, props.desc], () => reset());
                 <span>Jump Segment</span>
               </button>
            </div>
+           <p class="text-[8px] font-black text-neutral-700 uppercase tracking-widest text-center max-w-xs">
+             The server returned duplicates for this series segment. Using Re-Sync or Jump can bypass stale API caches.
+           </p>
         </div>
 
         <button 
@@ -235,5 +246,16 @@ watch(() => [props.sortMethod, props.desc], () => reset());
 @keyframes fade-in {
   from { opacity: 0; transform: scale(0.9) translateY(15px); }
   to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(168, 85, 247, 0.1);
+  border-radius: 10px;
 }
 </style>
