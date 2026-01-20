@@ -138,6 +138,7 @@ onMounted(() => {
           <div class="text-[9px] font-black uppercase tracking-widest text-neutral-600">Sequential Order</div>
         </div>
         <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-x-8 gap-y-16">
+          <!-- Explicitly passing fallback-sequence to ensure #1.5 works -->
           <BookCard 
             v-for="(book) in sortedBooks" 
             :key="book.id" 

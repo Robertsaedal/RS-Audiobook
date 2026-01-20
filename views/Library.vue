@@ -206,12 +206,19 @@ onMounted(async () => {
   window.addEventListener('offline', updateOnlineStatus);
 });
 
-// Since we use KeepAlive, we need onActivated to handle incoming navigation from Player
+// Use onActivated to handle incoming navigation from Player
 onActivated(async () => {
   if (props.initialSeriesId) {
-    // Small delay to ensure UI is ready if switching views
     await nextTick(); 
     handleJumpToSeries(props.initialSeriesId);
+  }
+});
+
+// Watch for prop change (in case Library is already active)
+watch(() => props.initialSeriesId, async (newVal) => {
+  if (newVal) {
+    await nextTick();
+    handleJumpToSeries(newVal);
   }
 });
 
@@ -224,8 +231,9 @@ onUnmounted(() => {
 const handleJumpToSeries = async (seriesId: string) => {
   if (!absService.value || isOfflineMode.value) return;
   
-  // If we are already viewing this series, do nothing
+  // If we are already viewing this series, check if we need to refresh, otherwise just switch tab
   if (selectedSeries.value?.id === seriesId) {
+    activeTab.value = 'SERIES';
     emit('clear-initial-series');
     return;
   }

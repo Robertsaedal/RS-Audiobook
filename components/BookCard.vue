@@ -28,10 +28,12 @@ const progress = computed(() => {
   
   if (!p) return 0;
   
-  if (p.progress !== undefined) {
+  // If progress is explicit (0-1)
+  if (p.progress !== undefined && p.progress !== null) {
     return p.progress * 100;
   }
   
+  // Fallback calculation: currentTime / duration
   const current = p.currentTime || 0;
   const total = props.item.media.duration || p.duration || 1;
   return Math.min(100, (current / total) * 100);
@@ -39,24 +41,22 @@ const progress = computed(() => {
 
 const isFinished = computed(() => {
   const p = props.item.userProgress || (props.item as any).userMediaProgress;
-  return p?.isFinished || false;
+  return p?.isFinished || progress.value >= 99;
 });
 
 const displaySequence = computed(() => {
-  // Prioritize seriesSequence from API, then sequence, then UI fallback
+  // 1. Try explicit fallback first (e.g. from Series view)
+  if (props.fallbackSequence !== undefined && props.fallbackSequence !== null && props.fallbackSequence !== '') {
+    return props.fallbackSequence;
+  }
+  
   const meta = props.item?.media?.metadata;
-  let raw = meta?.seriesSequence;
-  
-  if (raw === undefined || raw === null) {
-    raw = meta?.sequence;
+  // 2. Try metadata seriesSequence
+  if (meta?.seriesSequence !== undefined && meta?.seriesSequence !== null) {
+    return meta.seriesSequence;
   }
-  if (raw === undefined || raw === null || raw === '') {
-    raw = props.fallbackSequence;
-  }
-  
-  // Handle "0" or 0 correctly
-  if (raw === undefined || raw === null || raw === '') return null;
-  return raw;
+  // 3. Try metadata sequence
+  return meta?.sequence || null;
 });
 
 const handleImageLoad = () => {
@@ -96,8 +96,7 @@ onMounted(async () => {
         loading="lazy" 
       />
       
-      <!-- Book Sequence Badge (Top Right Pill) -->
-      <!-- Added explicit Z-index and opacity to ensure visibility -->
+      <!-- Book Sequence Badge (Top Right Pill) - High Z-index -->
       <div v-if="displaySequence !== null" class="absolute top-2 right-2 bg-purple-600/95 backdrop-blur-md px-2 py-0.5 rounded-md flex items-center justify-center text-[10px] font-black text-white border border-white/20 shadow-xl z-[60] tracking-tight">
         #{{ displaySequence }}
       </div>
@@ -138,11 +137,11 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- Progress Bar (4px height) - Force show if showProgress is true even if 0% -->
+      <!-- Progress Bar (4px height) - Force show if showProgress is true even if calculated 0% -->
       <div v-if="(progress > 0 || showProgress) && !isFinished" class="absolute bottom-0 left-0 w-full z-30 bg-neutral-900/50">
          <div 
           class="h-1 bg-gradient-to-r from-purple-600 to-purple-400 shadow-[0_0_8px_rgba(168,85,247,0.8)]" 
-          :style="{ width: Math.max(progress, showProgress ? 2 : 0) + '%' }" 
+          :style="{ width: Math.max(progress, showProgress && progress === 0 ? 2 : progress) + '%' }" 
         />
       </div>
       

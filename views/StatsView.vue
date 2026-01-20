@@ -15,7 +15,7 @@ const stats = ref<{
   recentSessions: any[];
 } | null>(null);
 
-const finishedBooksCount = ref(0);
+const booksFinishedThisYear = ref(0);
 
 const monthlyData = computed(() => {
   const months = new Array(12).fill(0);
@@ -49,17 +49,32 @@ const fetchStats = async () => {
     if (!data) throw new Error("No stats available.");
     stats.value = data;
 
-    // Fetch finished books count (items with isFinished = true)
-    // We use a specific filter query to the library
+    // Fetch finished books client-side for accuracy
+    // API filtering can be unreliable for specific "finished" states or date ranges on some servers
     try {
-        const finishedRes = await props.absService.getLibraryItemsPaged({ 
-            limit: 1, 
-            filter: 'progress.isFinished' 
+        const response = await props.absService.getLibraryItemsPaged({ 
+            limit: 500, // Fetch chunk
+            sort: 'updatedAt',
+            desc: 1
         });
-        finishedBooksCount.value = finishedRes.total || 0;
-    } catch {
-        // Fallback: Estimate from what we know or just show 0
-        finishedBooksCount.value = 0;
+        
+        const currentYear = new Date().getFullYear();
+        const items = response.results || [];
+        
+        // Filter for books finished THIS YEAR
+        const finishedItems = items.filter(item => {
+            const p = item.userProgress;
+            if (!p || !p.isFinished) return false;
+            
+            // Check if finished this year (approximate using lastUpdate)
+            const finishedDate = new Date(p.lastUpdate);
+            return finishedDate.getFullYear() === currentYear;
+        });
+
+        booksFinishedThisYear.value = finishedItems.length;
+    } catch (e) {
+        console.warn("Failed to calculate finished books", e);
+        booksFinishedThisYear.value = 0;
     }
 
   } catch (e: any) {
@@ -109,10 +124,10 @@ const currentYear = new Date().getFullYear();
              <div class="absolute inset-0 bg-gradient-to-br from-purple-500/10 to-transparent opacity-50" />
              <div class="relative z-10 flex items-center gap-3 text-purple-400">
                <Trophy :size="24" />
-               <span class="text-[10px] font-black uppercase tracking-[0.3em]">Books Finished</span>
+               <span class="text-[10px] font-black uppercase tracking-[0.3em]">Books Read ({{ currentYear }})</span>
              </div>
              <div class="relative z-10 flex items-baseline gap-2">
-                <span class="text-7xl font-black text-white tracking-tighter drop-shadow-lg">{{ finishedBooksCount }}</span>
+                <span class="text-7xl font-black text-white tracking-tighter drop-shadow-lg">{{ booksFinishedThisYear }}</span>
                 <span class="text-xl font-black text-neutral-500 uppercase">Titles</span>
              </div>
              <div class="relative z-10 w-full h-1.5 bg-neutral-800 rounded-full overflow-hidden">
