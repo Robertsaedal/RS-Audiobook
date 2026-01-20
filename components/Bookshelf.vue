@@ -3,7 +3,7 @@ import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { ABSLibraryItem, ABSProgress } from '../types';
 import { ABSService, LibraryQueryParams } from '../services/absService';
 import BookCard from './BookCard.vue';
-import { PackageOpen, Loader2, Plus, AlertTriangle } from 'lucide-vue-next';
+import { PackageOpen, Loader2, Plus, AlertTriangle, FastForward } from 'lucide-vue-next';
 
 const props = defineProps<{
   absService: ABSService,
@@ -19,9 +19,10 @@ const emit = defineEmits<{
 
 const libraryItems = ref<ABSLibraryItem[]>([]);
 const totalItems = ref(0);
+const internalOffset = ref(0);
 const isLoading = ref(false);
 const hasMore = ref(true);
-const circuitBreakerTriggered = ref(false);
+const duplicateWallDetected = ref(false);
 const scrollContainerRef = ref<HTMLElement | null>(null);
 const sentinelRef = ref<HTMLElement | null>(null);
 
@@ -31,7 +32,6 @@ const ITEMS_PER_FETCH = 60;
  * Maps human-readable sort keys to Audiobookshelf API expectations.
  */
 const getMappedSortKey = (method: string) => {
-  // Normalize key names for ABS API
   const m = method.toLowerCase();
   if (m === 'added' || m === 'addedat') return 'addedAt';
   if (m === 'updated' || m === 'updatedat') return 'updatedAt';
@@ -41,85 +41,80 @@ const getMappedSortKey = (method: string) => {
 };
 
 /**
- * Core fetch function with circuit breakers and unique-filtering.
+ * Core fetch function with dynamic offset and duplicate bypass logic.
  */
 const fetchMoreItems = async (isInitial = false) => {
-  // 1. Immediate Guards
   if (isLoading.value) return;
   if (!isInitial && !hasMore.value) return;
 
   isLoading.value = true;
-  circuitBreakerTriggered.value = false;
+  duplicateWallDetected.value = false;
 
   try {
-    // 2. Strict Offset Calculation
-    const fetchOffset = isInitial ? 0 : libraryItems.value.length;
     const sortKey = getMappedSortKey(props.sortMethod);
     
     const params: LibraryQueryParams = {
       limit: ITEMS_PER_FETCH,
-      offset: fetchOffset,
+      offset: internalOffset.value,
       sort: sortKey,
       desc: props.desc,
       search: props.search
     };
     
-    // 3. Debugging Trail
-    console.log(`📡 [Bookshelf] Fetching batch: Offset ${params.offset}, Sort ${params.sort}, Desc ${params.desc}`);
+    console.log(`📡 [Bookshelf] Requesting Index: Offset ${params.offset}, Sort ${params.sort}, Desc ${params.desc}`);
 
     const response = await props.absService.getLibraryItemsPaged(params);
     const results = response?.results || [];
     const total = response?.total || 0;
+    totalItems.value = total;
 
-    // 4. Empty Result Catch
+    // 1. Handle Empty Response
     if (results.length === 0) {
-      console.log("⏹️ [Bookshelf] API returned 0 items. Closing stream.");
+      console.log("⏹️ [Bookshelf] Archive returned empty set. Terminating stream.");
       hasMore.value = false;
-      totalItems.value = libraryItems.value.length;
       return;
     }
 
+    // 2. Increment Offset Immediately (Force progress even if shifted)
+    internalOffset.value += results.length;
+
     if (isInitial) {
       libraryItems.value = results;
-      totalItems.value = total;
     } else {
-      // 5. Unique Filtering / Circuit Breaker
+      // 3. Unique Filtering
       const existingIds = new Set(libraryItems.value.map(i => i.id));
       const uniqueResults = results.filter(i => !existingIds.has(i.id));
       
       if (uniqueResults.length > 0) {
         libraryItems.value.push(...uniqueResults);
-        totalItems.value = total;
+        console.log(`✅ [Bookshelf] Added ${uniqueResults.length} new unique items.`);
       } else {
-        // 6. Resolve the "Circuit Breaker" Loop
-        // If we get results but they are all duplicates, the offset isn't working on server
-        // or the list shifted significantly. We force a stop to prevent a request storm.
-        console.warn("⚠️ [Bookshelf] Circuit Breaker: Batch contained only duplicates. Terminating to prevent loop.");
-        circuitBreakerTriggered.value = true;
-        hasMore.value = false;
-        totalItems.value = libraryItems.value.length; 
-        return;
+        // 4. Force Jump Logic (List Shifting Mitigation)
+        console.warn("⚠️ [Bookshelf] Batch contained only duplicates. Jumping offset to skip shifted content.");
+        duplicateWallDetected.value = true;
+        // We don't set hasMore = false here because we want to allow 
+        // the next fetch (with the newly incremented offset) to attempt recovery.
       }
     }
     
-    // Check if we've consumed the entire total
-    if (libraryItems.value.length >= total) {
-      console.log("🏁 [Bookshelf] Total count reached.");
+    // Check if we've theoretically reached the end
+    if (internalOffset.value >= total) {
+      console.log("🏁 [Bookshelf] Index terminus reached.");
       hasMore.value = false;
     }
 
-    // 7. Recursive Viewport Fill (Guarded)
+    // 5. Recursive Fill Check (Strictly Guarded)
     await nextTick();
     const sentinel = sentinelRef.value;
-    if (sentinel && hasMore.value && !isLoading.value) {
+    if (sentinel && hasMore.value && !isLoading.value && !duplicateWallDetected.value) {
       const rect = sentinel.getBoundingClientRect();
       if (rect.top < window.innerHeight + 400) {
-        // Yield to event loop
-        setTimeout(() => fetchMoreItems(false), 50);
+        // Use timeout to yield to UI thread
+        setTimeout(() => fetchMoreItems(false), 100);
       }
     }
   } catch (e) {
-    console.error("❌ [Bookshelf] Library fetch failed:", e);
+    console.error("❌ [Bookshelf] Portal Connection Failed:", e);
     hasMore.value = false; 
   } finally {
     isLoading.value = false;
@@ -132,6 +127,7 @@ const setupObserver = () => {
   if (!sentinelRef.value) return;
 
   observer = new IntersectionObserver((entries) => {
+    // Only trigger if intersecting AND not already processing
     if (entries[0].isIntersecting && !isLoading.value && hasMore.value) {
       fetchMoreItems();
     }
@@ -147,20 +143,21 @@ const setupObserver = () => {
 const reset = async () => {
   if (observer) observer.disconnect();
   
-  // Clean Reset State immediately
+  console.log("♻️ [Bookshelf] Resetting archive index...");
+  
   isLoading.value = false;
   hasMore.value = true;
-  circuitBreakerTriggered.value = false;
+  duplicateWallDetected.value = false;
   totalItems.value = 0;
+  internalOffset.value = 0;
   libraryItems.value = [];
   
   if (scrollContainerRef.value) {
     scrollContainerRef.value.scrollTop = 0;
   }
   
-  // Explicitly wait for DOM to clear
+  // Wait for clear then fetch initial
   await nextTick();
-  console.log("♻️ [Bookshelf] Resetting archive index...");
   await fetchMoreItems(true);
   await nextTick();
   setupObserver();
@@ -183,7 +180,7 @@ onUnmounted(() => {
   observer?.disconnect();
 });
 
-// Watch for sort/filter changes to trigger a fresh reset
+// Watch for sorting/searching changes to reset the stream
 watch(() => [props.sortMethod, props.desc, props.search], () => reset(), { deep: true });
 </script>
 
@@ -195,7 +192,7 @@ watch(() => [props.sortMethod, props.desc, props.search], () => reset(), { deep:
       <div v-if="libraryItems.length === 0 && !isLoading" class="flex flex-col items-center justify-center py-40 text-center opacity-40">
         <PackageOpen :size="64" class="text-neutral-800 mb-6" />
         <h3 class="text-xl font-black uppercase tracking-tighter">Archive Empty</h3>
-        <p class="text-[9px] font-black uppercase tracking-widest mt-2">No artifacts detected in current frequency</p>
+        <p class="text-[9px] font-black uppercase tracking-widest mt-2">No records detected in current sector</p>
       </div>
 
       <!-- Bookshelf Grid -->
@@ -213,35 +210,35 @@ watch(() => [props.sortMethod, props.desc, props.search], () => reset(), { deep:
       <!-- Detection Sentinel -->
       <div ref="sentinelRef" class="h-24 w-full flex flex-col items-center justify-center mt-12 mb-24 gap-6">
         
-        <!-- Loading UI -->
+        <!-- Loading State -->
         <div v-if="isLoading" class="flex flex-col items-center gap-4">
           <div class="w-8 h-8 border-2 border-purple-600/10 border-t-purple-600 rounded-full animate-spin" />
           <p class="text-[8px] font-black uppercase tracking-[0.4em] text-neutral-700">Accessing Index...</p>
         </div>
         
-        <!-- Circuit Breaker Feedback & Manual Retry -->
-        <div v-else-if="circuitBreakerTriggered" class="flex flex-col items-center gap-4">
+        <!-- Wall Detected State (Allow Manual Jump) -->
+        <div v-else-if="duplicateWallDetected" class="flex flex-col items-center gap-4">
            <div class="flex items-center gap-3 px-4 py-2 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-500">
              <AlertTriangle :size="14" />
-             <span class="text-[9px] font-black uppercase tracking-widest">Duplicate Wall Detected</span>
+             <span class="text-[9px] font-black uppercase tracking-widest">Index Shift Detected</span>
            </div>
            <button 
-            @click="reset()"
+            @click="fetchMoreItems()"
             class="flex items-center gap-3 px-6 py-3 bg-neutral-900/60 border border-white/5 rounded-full text-[9px] font-black uppercase tracking-[0.4em] text-neutral-400 hover:text-purple-400 hover:border-purple-500/20 transition-all active:scale-95"
            >
-            <Plus :size="14" />
-            <span>Force Re-Index</span>
+            <FastForward :size="14" />
+            <span>Jump to Next Page</span>
           </button>
         </div>
 
-        <!-- Manual Fetch Fallback -->
+        <!-- Manual Fetch Trigger -->
         <button 
           v-else-if="!isLoading && hasMore && totalItems > 0"
           @click="fetchMoreItems()"
           class="flex items-center gap-3 px-6 py-3 bg-neutral-900/60 border border-white/5 rounded-full text-[9px] font-black uppercase tracking-[0.4em] text-neutral-500 hover:text-purple-400 hover:border-purple-500/20 transition-all active:scale-95"
         >
           <Plus :size="14" />
-          <span>Load More</span>
+          <span>Sync More</span>
         </button>
 
         <!-- Terminus -->
