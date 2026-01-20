@@ -1,4 +1,3 @@
-
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { AuthState, ABSLibraryItem } from './types';
@@ -11,6 +10,7 @@ const auth = ref<AuthState | null>(null);
 const selectedItem = ref<ABSLibraryItem | null>(null);
 const isInitializing = ref(true);
 const isStreaming = ref(false);
+const initialSeriesId = ref<string | null>(null);
 
 onMounted(() => {
   const savedAuth = localStorage.getItem('rs_auth');
@@ -43,6 +43,11 @@ const openPlayer = (item: ABSLibraryItem) => {
   isStreaming.value = true;
 };
 
+const handleSelectSeriesFromPlayer = (seriesId: string) => {
+  initialSeriesId.value = seriesId;
+  currentView.value = 'library';
+};
+
 const closePlayer = () => {
   currentView.value = 'library';
 };
@@ -62,11 +67,19 @@ const closePlayer = () => {
         <Library 
           v-else-if="currentView === 'library' && auth" 
           :auth="auth" 
-          :isStreaming="isStreaming" 
+          :isStreaming="isStreaming"
+          :initialSeriesId="initialSeriesId"
           @select-item="openPlayer" 
           @logout="handleLogout" 
+          @clear-initial-series="initialSeriesId = null"
         />
-        <Player v-else-if="currentView === 'player' && auth && selectedItem" :auth="auth" :item="selectedItem" @back="closePlayer" />
+        <Player 
+          v-else-if="currentView === 'player' && auth && selectedItem" 
+          :auth="auth" 
+          :item="selectedItem" 
+          @back="closePlayer" 
+          @select-series="handleSelectSeriesFromPlayer"
+        />
       </Transition>
     </template>
   </div>

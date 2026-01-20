@@ -1,4 +1,3 @@
-
 export interface ABSUser {
   id: string;
   username: string;
@@ -40,7 +39,11 @@ export interface ABSLibraryItem {
       authorName: string;
       description?: string;
       seriesName?: string;
+      seriesId?: string;
       sequence?: string;
+      narratorName?: string;
+      publisher?: string;
+      publishedYear?: string;
     };
     duration: number;
     chapters: ABSChapter[];

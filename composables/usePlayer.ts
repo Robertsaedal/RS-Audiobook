@@ -71,16 +71,16 @@ export function usePlayer() {
     if (state.sleepChapters <= 0 || !activeItem?.media?.chapters) return;
     const chapters = activeItem.media.chapters;
     
-    // Find current chapter
+    // Find current chapter index
     const currentIdx = chapters.findIndex((ch, i) => 
       state.currentTime >= ch.start && (i === chapters.length - 1 || state.currentTime < (chapters[i+1]?.start || ch.end))
     );
 
     if (currentIdx === -1) return;
 
-    // We want to stop at the end of (currentIdx + state.sleepChapters - 1)
+    // We stop at the end of (currentIdx + state.sleepChapters - 1)
     const targetIdx = currentIdx + (state.sleepChapters - 1);
-    const targetChapter = chapters[targetIdx >= chapters.length ? chapters.length - 1 : targetIdx];
+    const targetChapter = chapters[Math.min(targetIdx, chapters.length - 1)];
     
     if (state.currentTime >= targetChapter.end - 0.5) {
       pause();
@@ -107,9 +107,12 @@ export function usePlayer() {
   const loadTrack = (idx: number, offset = 0) => {
     if (!audioEl || !tracks[idx]) return;
     const track = tracks[idx];
-    const baseUrl = absService?.getCoverUrl('').split('/api/')[0];
+    const rawUrl = ABSService.normalizeUrl(absService?.getCoverUrl('').split('/api/')[0] || '');
+    
+    // Ensure we don't duplicate /api
+    const contentPath = track.contentUrl.startsWith('/api') ? track.contentUrl : `/api${track.contentUrl}`;
     const token = localStorage.getItem('rs_auth') ? JSON.parse(localStorage.getItem('rs_auth')!).user.token : '';
-    const url = `${baseUrl}${track.contentUrl}${track.contentUrl.includes('?') ? '&' : '?'}token=${token}`;
+    const url = `${rawUrl}${contentPath}${contentPath.includes('?') ? '&' : '?'}token=${token}`;
     
     audioEl.src = url;
     audioEl.load();
@@ -148,7 +151,7 @@ export function usePlayer() {
 
     try {
       const deviceInfo = {
-        clientName: 'Archive Web Premium',
+        clientName: 'R.S Audio Premium',
         deviceId: localStorage.getItem('absDeviceId') || Math.random().toString(36).substring(7)
       };
       if (!localStorage.getItem('absDeviceId')) localStorage.setItem('absDeviceId', deviceInfo.deviceId);
@@ -175,8 +178,10 @@ export function usePlayer() {
               xhr.setRequestHeader('Authorization', `Bearer ${auth.user?.token}`);
             },
           });
-          const baseUrl = auth.serverUrl.replace(/\/api\/?$/, '');
-          const hlsUrl = `${baseUrl}${tracks[0].contentUrl}&token=${auth.user?.token}`;
+          const rawBase = ABSService.normalizeUrl(auth.serverUrl);
+          const contentPath = tracks[0].contentUrl.startsWith('/api') ? tracks[0].contentUrl : `/api${tracks[0].contentUrl}`;
+          const hlsUrl = `${rawBase}${contentPath}${contentPath.includes('?') ? '&' : '?'}token=${auth.user?.token}`;
+          
           hls.attachMedia(audio);
           hls.on(Hls.Events.MEDIA_ATTACHED, () => {
             hls!.loadSource(hlsUrl);
@@ -187,14 +192,14 @@ export function usePlayer() {
           });
           hls.on(Hls.Events.ERROR, (event, data) => {
             if (data.fatal) {
-              console.error('HLS Fatal Error', data);
-              state.error = "Archive stream fatal error.";
+              state.error = "HLS stream link severed.";
               hls?.destroy();
             }
           });
         } else {
-          const baseUrl = auth.serverUrl.replace(/\/api\/?$/, '');
-          audio.src = `${baseUrl}${tracks[0].contentUrl}&token=${auth.user?.token}`;
+          const rawBase = ABSService.normalizeUrl(auth.serverUrl);
+          const contentPath = tracks[0].contentUrl.startsWith('/api') ? tracks[0].contentUrl : `/api${tracks[0].contentUrl}`;
+          audio.src = `${rawBase}${contentPath}${contentPath.includes('?') ? '&' : '?'}token=${auth.user?.token}`;
           audio.currentTime = startAt;
           state.isLoading = false;
           audio.play().catch(() => {});

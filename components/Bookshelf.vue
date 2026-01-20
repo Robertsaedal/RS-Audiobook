@@ -1,10 +1,9 @@
-
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, computed, reactive, nextTick } from 'vue';
+import { ref, onMounted, onUnmounted, watch, computed, nextTick } from 'vue';
 import { ABSLibraryItem, ABSProgress } from '../types';
 import { ABSService, LibraryQueryParams } from '../services/absService';
 import BookCard from './BookCard.vue';
-import { PackageOpen, Activity } from 'lucide-vue-next';
+import { PackageOpen, Activity, Loader2 } from 'lucide-vue-next';
 
 const props = defineProps<{
   absService: ABSService,
@@ -18,164 +17,85 @@ const emit = defineEmits<{
   (e: 'select-item', item: ABSLibraryItem): void
 }>();
 
-// Layout State
-const bookshelfRef = ref<HTMLElement | null>(null);
-const containerWidth = ref(0);
-const containerHeight = ref(0);
-const scrollTop = ref(0);
-
 // Data State
-const entities = ref<(ABSLibraryItem | null)[]>([]);
-const totalEntities = ref(0);
-const loadingPages = new Set<number>();
-const selectedIds = ref<Set<string>>(new Set());
+const libraryItems = ref<ABSLibraryItem[]>([]);
+const totalItems = ref(0);
+const currentPage = ref(0);
+const isLoading = ref(false);
+const sentinelRef = ref<HTMLElement | null>(null);
 
-// Configuration Constants
-const CARD_ASPECT_RATIO = 1.5; // 2:3
-const MIN_CARD_WIDTH = 140;
-const CARD_GUTTER = 24;
-const SHELF_PADDING_Y = 40;
 const ITEMS_PER_FETCH = 48;
 
-// Computed Layout Logic
-const layout = reactive({
-  cardWidth: 0,
-  cardHeight: 0,
-  entitiesPerRow: 0,
-  totalRows: 0,
-  shelfHeight: 0,
-  marginLeft: 0
+// Local search filtering as requested
+const filteredBooks = computed(() => {
+  if (!props.search) return libraryItems.value;
+  const term = props.search.toLowerCase();
+  return libraryItems.value.filter(item => 
+    item.media.metadata.title.toLowerCase().includes(term) || 
+    item.media.metadata.authorName.toLowerCase().includes(term)
+  );
 });
 
-const calculateLayout = async () => {
-  await nextTick();
-  if (!bookshelfRef.value) return;
-  const width = bookshelfRef.value.clientWidth;
-  const height = bookshelfRef.value.clientHeight;
-  
-  if (width === 0) return;
+const fetchItems = async (isInitial = false) => {
+  if (isLoading.value) return;
+  if (!isInitial && libraryItems.value.length >= totalItems.value && totalItems.value > 0) return;
 
-  containerWidth.value = width;
-  containerHeight.value = height;
-
-  const availableWidth = width - 48;
-  layout.entitiesPerRow = Math.max(2, Math.floor(availableWidth / (MIN_CARD_WIDTH + CARD_GUTTER)));
-  layout.cardWidth = Math.floor((availableWidth - (layout.entitiesPerRow - 1) * CARD_GUTTER) / layout.entitiesPerRow);
-  layout.cardHeight = layout.cardWidth * CARD_ASPECT_RATIO;
-  layout.shelfHeight = layout.cardHeight + SHELF_PADDING_Y;
-  layout.totalRows = Math.ceil(totalEntities.value / Math.max(1, layout.entitiesPerRow));
-  layout.marginLeft = (width - (layout.entitiesPerRow * layout.cardWidth + (layout.entitiesPerRow - 1) * CARD_GUTTER)) / 2;
-};
-
-// Virtual Visibility Logic
-const visibleRange = computed(() => {
-  if (totalEntities.value === 0 || layout.shelfHeight === 0) return { start: 0, end: 0 };
-  const startRow = Math.max(0, Math.floor(scrollTop.value / layout.shelfHeight) - 1);
-  const endRow = Math.ceil((scrollTop.value + containerHeight.value) / layout.shelfHeight) + 1;
-  
-  return {
-    start: startRow * layout.entitiesPerRow,
-    end: Math.min(totalEntities.value, (endRow + 1) * layout.entitiesPerRow)
-  };
-});
-
-const visibleEntities = computed(() => {
-  const { start, end } = visibleRange.value;
-  const result = [];
-  for (let i = start; i < end; i++) {
-    result.push({
-      index: i,
-      data: entities.value[i] || null,
-      x: layout.marginLeft + (i % layout.entitiesPerRow) * (layout.cardWidth + CARD_GUTTER),
-      y: Math.floor(i / layout.entitiesPerRow) * layout.shelfHeight
-    });
-  }
-  return result;
-});
-
-// Data Fetching
-const fetchPage = async (page: number) => {
-  if (loadingPages.has(page)) return;
-  loadingPages.add(page);
-
+  isLoading.value = true;
   try {
     const params: LibraryQueryParams = {
       limit: ITEMS_PER_FETCH,
-      offset: page * ITEMS_PER_FETCH,
+      offset: currentPage.value * ITEMS_PER_FETCH,
       sort: props.sortMethod,
-      desc: props.desc,
-      search: props.search
+      desc: props.desc
+      // Note: We don't use API search here to support the "Local Computed Filter" requirement
     };
     
     const { results, total } = await props.absService.getLibraryItemsPaged(params);
     
-    // Safety check for total entities to avoid RangeError
-    const rawTotal = typeof total === 'number' ? total : parseInt(total as any) || 0;
-    const validTotal = Math.max(0, Math.min(Math.floor(rawTotal), 50000)); // Cap for sanity
-    
-    if (totalEntities.value !== validTotal) {
-      totalEntities.value = validTotal;
-      if (entities.value.length !== validTotal) {
-        entities.value = new Array(validTotal).fill(null);
-      }
-      await calculateLayout();
+    if (isInitial) {
+      libraryItems.value = results;
+    } else {
+      // Append results to current array
+      libraryItems.value = [...libraryItems.value, ...results];
     }
-
-    if (results && Array.isArray(results)) {
-      results.forEach((item, idx) => {
-        const targetIdx = (page * ITEMS_PER_FETCH) + idx;
-        if (targetIdx < entities.value.length) {
-          entities.value[targetIdx] = item;
-        }
-      });
-    }
+    totalItems.value = total;
+    currentPage.value++;
   } catch (e) {
-    console.error("Failed to fetch shelf page", e);
+    console.error("Failed to fetch library items", e);
   } finally {
-    loadingPages.delete(page);
+    isLoading.value = false;
   }
-};
-
-const handleScroll = (e: Event) => {
-  const target = e.target as HTMLElement;
-  scrollTop.value = target.scrollTop;
-  
-  const { start, end } = visibleRange.value;
-  const startPage = Math.floor(start / ITEMS_PER_FETCH);
-  const endPage = Math.floor(end / ITEMS_PER_FETCH);
-
-  for (let p = startPage; p <= endPage; p++) {
-    const startIdx = p * ITEMS_PER_FETCH;
-    if (startIdx < totalEntities.value && (!entities.value[startIdx])) {
-      fetchPage(p);
-    }
-  }
-};
-
-const handleSelect = (item: ABSLibraryItem | null) => {
-  if (!item) return;
-  emit('select-item', item);
 };
 
 const reset = async () => {
-  entities.value = [];
-  totalEntities.value = 0;
-  scrollTop.value = 0;
-  if (bookshelfRef.value) bookshelfRef.value.scrollTop = 0;
-  await fetchPage(0);
-  await calculateLayout();
+  libraryItems.value = [];
+  totalItems.value = 0;
+  currentPage.value = 0;
+  await fetchItems(true);
 };
 
-let resizeObserver: ResizeObserver | null = null;
+// Intersection Observer for Infinite Scroll
+let observer: IntersectionObserver | null = null;
+const setupObserver = () => {
+  if (observer) observer.disconnect();
+  observer = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting && !isLoading.value) {
+      fetchItems();
+    }
+  }, { threshold: 0.1 });
+  
+  if (sentinelRef.value) observer.observe(sentinelRef.value);
+};
+
 onMounted(async () => {
   await reset();
-  resizeObserver = new ResizeObserver(() => calculateLayout());
-  if (bookshelfRef.value) resizeObserver.observe(bookshelfRef.value);
+  setupObserver();
 
+  // Socket sync for this shelf
   props.absService.onProgressUpdate((updated: ABSProgress) => {
-    const index = entities.value.findIndex(i => i?.id === updated.itemId);
+    const index = libraryItems.value.findIndex(i => i.id === updated.itemId);
     if (index !== -1) {
-      entities.value[index] = { ...entities.value[index]!, userProgress: updated };
+      libraryItems.value[index] = { ...libraryItems.value[index], userProgress: updated };
     }
   });
 
@@ -183,53 +103,43 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-  resizeObserver?.disconnect();
+  observer?.disconnect();
 });
 
-watch(() => [props.sortMethod, props.desc, props.search], () => reset(), { deep: true });
+watch(() => [props.sortMethod, props.desc], () => reset());
 
-const totalHeight = computed(() => {
-  if (totalEntities.value === 0) return 400;
-  return layout.totalRows * layout.shelfHeight + (props.isStreaming ? 180 : 80);
-});
+// If search changes significantly, we might want to ensure we have enough results,
+// but for "Local Computed Filter" we just filter what we've loaded so far.
 </script>
 
 <template>
-  <div 
-    ref="bookshelfRef"
-    class="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar relative h-full"
-    @scroll="handleScroll"
-  >
-    <div :style="{ height: totalHeight + 'px' }" class="relative w-full">
-      <div v-if="totalEntities === 0 && !loadingPages.size" class="absolute inset-0 flex flex-col items-center justify-center text-center opacity-40">
+  <div class="h-full flex flex-col">
+    <!-- Bookshelf Grid -->
+    <div class="flex-1 overflow-y-auto custom-scrollbar px-2 pb-32">
+      <div v-if="filteredBooks.length === 0 && !isLoading" class="flex flex-col items-center justify-center py-40 text-center opacity-40">
         <PackageOpen :size="64" class="text-neutral-800 mb-6" />
         <h3 class="text-xl font-black uppercase tracking-tighter">Repository Empty</h3>
-        <p class="text-[9px] font-black uppercase tracking-widest mt-2">No artifacts detected in sector</p>
+        <p class="text-[9px] font-black uppercase tracking-widest mt-2">No matching artifacts in local index</p>
       </div>
 
-      <template v-for="entity in visibleEntities" :key="entity.index">
-        <div 
-          class="absolute transition-transform duration-500"
-          :style="{ 
-            transform: `translate3d(${entity.x}px, ${entity.y}px, 0)`,
-            width: layout.cardWidth + 'px',
-            height: layout.cardHeight + 'px'
-          }"
-        >
-          <div v-if="!entity.data" class="w-full h-full bg-neutral-900/40 rounded-[24px] border border-white/5 animate-shimmer flex items-center justify-center">
-            <Activity :size="20" class="text-neutral-800" />
-          </div>
+      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-x-6 gap-y-12">
+        <BookCard 
+          v-for="item in filteredBooks" 
+          :key="item.id"
+          :item="item"
+          :coverUrl="absService.getCoverUrl(item.id)"
+          show-metadata
+          @click="emit('select-item', item)"
+        />
+      </div>
 
-          <BookCard 
-            v-else
-            :item="entity.data"
-            :coverUrl="absService.getCoverUrl(entity.data.id)"
-            :isSelected="selectedIds.has(entity.data.id)"
-            class="animate-fade-in"
-            @click="handleSelect(entity.data)"
-          />
-        </div>
-      </template>
+      <!-- Infinite Scroll Sentinel -->
+      <div ref="sentinelRef" class="w-full h-24 flex items-center justify-center mt-12">
+        <Loader2 v-if="isLoading" class="animate-spin text-purple-500" :size="32" />
+        <span v-else-if="libraryItems.length >= totalItems && totalItems > 0" class="text-[8px] font-black uppercase tracking-[0.5em] text-neutral-800">
+          END OF REGISTRY
+        </span>
+      </div>
     </div>
   </div>
 </template>

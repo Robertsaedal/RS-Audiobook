@@ -1,7 +1,6 @@
-
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
-import { AuthState, ABSLibraryItem, ABSSeries } from '../types';
+import { AuthState, ABSLibraryItem, ABSSeries, ABSProgress } from '../types';
 import { ABSService } from '../services/absService';
 import LibraryLayout, { LibraryTab } from './LibraryLayout.vue';
 import Bookshelf from './Bookshelf.vue';
@@ -10,16 +9,17 @@ import SeriesView from './SeriesView.vue';
 import RequestPortal from './RequestPortal.vue';
 import BookCard from './BookCard.vue';
 import SeriesCard from './SeriesCard.vue';
-import { ArrowUpDown, Check, Play, Clock, ChevronRight } from 'lucide-vue-next';
 
 const props = defineProps<{
   auth: AuthState,
-  isStreaming?: boolean
+  isStreaming?: boolean,
+  initialSeriesId?: string | null
 }>();
 
 const emit = defineEmits<{
   (e: 'select-item', item: ABSLibraryItem): void
   (e: 'logout'): void
+  (e: 'clear-initial-series'): void
 }>();
 
 const absService = new ABSService(props.auth.serverUrl, props.auth.user?.token || '');
@@ -28,7 +28,6 @@ const activeTab = ref<LibraryTab>('HOME');
 const searchTerm = ref('');
 const sortMethod = ref('addedAt'); 
 const desc = ref(1);
-const showSortMenu = ref(false);
 const selectedSeries = ref<ABSSeries | null>(null);
 const isScanning = ref(false);
 
@@ -38,21 +37,18 @@ const recentSeries = ref<ABSSeries[]>([]);
 
 const fetchDashboardData = async () => {
   try {
-    // 1. Continue Listening
     const { results: reading } = await absService.getLibraryItemsPaged({ 
       limit: 15, sort: 'lastUpdate', desc: 1, filter: 'progress' 
     });
     currentlyReading.value = reading.filter(i => 
-      i.userProgress && !i.userProgress.isFinished && i.userProgress.progress > 0
+      i.userProgress && !i.userProgress.isFinished
     );
 
-    // 2. Recently Added
     const { results: added } = await absService.getLibraryItemsPaged({ 
       limit: 20, sort: 'addedAt', desc: 1 
     });
     recentlyAdded.value = added;
 
-    // 3. Recent Series
     const { results: series } = await absService.getLibrarySeriesPaged({ 
       limit: 12, sort: 'addedAt', desc: 1 
     });
@@ -62,8 +58,45 @@ const fetchDashboardData = async () => {
   }
 };
 
+const handleJumpToSeries = async (seriesId: string) => {
+  // We need to fetch the series object to display the view
+  const libId = await absService.ensureLibraryId();
+  const { results: allSeries } = await absService.getLibrarySeriesPaged({ limit: 999 });
+  const target = allSeries.find(s => s.id === seriesId);
+  if (target) {
+    selectedSeries.value = target;
+    activeTab.value = 'SERIES';
+  }
+  emit('clear-initial-series');
+};
+
 onMounted(() => {
   fetchDashboardData();
+  
+  if (props.initialSeriesId) {
+    handleJumpToSeries(props.initialSeriesId);
+  }
+
+  absService.onProgressUpdate((updated: ABSProgress) => {
+    const currentIdx = currentlyReading.value.findIndex(i => i.id === updated.itemId);
+    if (currentIdx !== -1) {
+      currentlyReading.value[currentIdx] = { 
+        ...currentlyReading.value[currentIdx], 
+        userProgress: updated 
+      };
+      if (updated.isFinished) currentlyReading.value.splice(currentIdx, 1);
+    } else if (!updated.isFinished && updated.progress > 0) {
+      fetchDashboardData();
+    }
+
+    const addedIdx = recentlyAdded.value.findIndex(i => i.id === updated.itemId);
+    if (addedIdx !== -1) {
+      recentlyAdded.value[addedIdx] = { 
+        ...recentlyAdded.value[addedIdx], 
+        userProgress: updated 
+      };
+    }
+  });
 });
 
 onUnmounted(() => {
@@ -76,15 +109,17 @@ const handleTabChange = (tab: LibraryTab) => {
   if (tab === 'HOME') fetchDashboardData();
 };
 
-absService.onProgressUpdate((updated) => {
-  const idx = currentlyReading.value.findIndex(i => i.id === updated.itemId);
-  if (idx !== -1) {
-    currentlyReading.value[idx] = { ...currentlyReading.value[idx], userProgress: updated };
-    if (updated.isFinished) currentlyReading.value.splice(idx, 1);
-  } else if (!updated.isFinished && updated.progress > 0) {
-    fetchDashboardData();
+const handleScan = async () => {
+  if (isScanning.value) return;
+  isScanning.value = true;
+  try {
+    await absService.scanLibrary();
+  } catch (e) {
+    console.error("Scan failed", e);
+  } finally {
+    setTimeout(() => isScanning.value = false, 2000); 
   }
-});
+};
 </script>
 
 <template>
@@ -96,9 +131,9 @@ absService.onProgressUpdate((updated) => {
     :username="auth.user?.username"
     @tab-change="handleTabChange" 
     @logout="emit('logout')"
+    @scan="handleScan"
   >
     <div class="flex-1 min-h-0">
-      <!-- Search Overlay -->
       <div v-if="searchTerm && !selectedSeries" class="h-full">
         <Bookshelf 
           :absService="absService" :sortMethod="sortMethod" :desc="desc" :search="searchTerm"
@@ -114,16 +149,14 @@ absService.onProgressUpdate((updated) => {
       />
 
       <template v-else>
-        <!-- HOME DASHBOARD: Horizontal Shelves on Wood -->
         <div v-if="activeTab === 'HOME'" class="h-full bookshelf-bg overflow-y-auto custom-scrollbar -mx-4 md:-mx-8 px-4 md:px-8 pt-4 pb-32">
           
-          <!-- Continue Listening Shelf -->
           <section v-if="currentlyReading.length > 0" class="shelf-row">
             <div class="shelf-tag">
-              <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Continue Listening</span>
+              <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Currently Listening</span>
             </div>
-            <div class="flex gap-6 overflow-x-auto no-scrollbar pb-2">
-              <div v-for="item in currentlyReading" :key="item.id" class="w-36 shrink-0">
+            <div class="flex gap-6 overflow-x-auto no-scrollbar pb-4 pl-4">
+              <div v-for="item in currentlyReading" :key="item.id" class="w-32 md:w-36 shrink-0">
                 <BookCard 
                   :item="item" 
                   :coverUrl="absService.getCoverUrl(item.id)" 
@@ -133,29 +166,28 @@ absService.onProgressUpdate((updated) => {
             </div>
           </section>
 
-          <!-- Recently Added Shelf -->
           <section class="shelf-row">
             <div class="shelf-tag">
               <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Recently Added</span>
             </div>
-            <div class="flex gap-6 overflow-x-auto no-scrollbar pb-2">
-              <div v-for="item in recentlyAdded" :key="item.id" class="w-36 shrink-0">
+            <div class="flex gap-8 overflow-x-auto no-scrollbar pb-8 pl-4">
+              <div v-for="item in recentlyAdded" :key="item.id" class="w-32 md:w-36 shrink-0">
                 <BookCard 
                   :item="item" 
                   :coverUrl="absService.getCoverUrl(item.id)" 
+                  show-metadata
                   @click="emit('select-item', item)" 
                 />
               </div>
             </div>
           </section>
 
-          <!-- Recent Series Shelf -->
           <section v-if="recentSeries.length > 0" class="shelf-row">
             <div class="shelf-tag">
               <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Recent Series</span>
             </div>
-            <div class="flex gap-12 overflow-x-auto no-scrollbar pb-2 pl-4">
-              <div v-for="series in recentSeries" :key="series.id" class="w-56 shrink-0">
+            <div class="flex gap-12 md:gap-16 overflow-x-auto no-scrollbar pb-4 pl-8">
+              <div v-for="series in recentSeries" :key="series.id" class="w-44 md:w-52 shrink-0">
                 <SeriesCard 
                   :series="series" 
                   :coverUrl="absService.getCoverUrl(series.books?.[0]?.id || '')"
@@ -167,7 +199,6 @@ absService.onProgressUpdate((updated) => {
 
         </div>
 
-        <!-- Vertial Grid Tabs -->
         <div v-else-if="activeTab === 'LIBRARY'" class="h-full">
           <Bookshelf :absService="absService" :sortMethod="sortMethod" :desc="desc" @select-item="emit('select-item', $event)" />
         </div>
@@ -181,14 +212,3 @@ absService.onProgressUpdate((updated) => {
     </div>
   </LibraryLayout>
 </template>
-
-<style scoped>
-.animate-fade-in {
-  animation: fade-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-}
-
-@keyframes fade-in {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-</style>
