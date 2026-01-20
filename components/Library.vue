@@ -41,7 +41,7 @@ const fetchDashboardData = async () => {
       limit: 15, sort: 'lastUpdate', desc: 1, filter: 'progress' 
     });
     currentlyReading.value = reading.filter(i => 
-      i.userProgress && !i.userProgress.isFinished
+      i.userProgress && !i.userProgress.isFinished && i.userProgress.progress > 0
     );
 
     const { results: added } = await absService.getLibraryItemsPaged({ 
@@ -59,9 +59,7 @@ const fetchDashboardData = async () => {
 };
 
 const handleJumpToSeries = async (seriesId: string) => {
-  // We need to fetch the series object to display the view
-  const libId = await absService.ensureLibraryId();
-  const { results: allSeries } = await absService.getLibrarySeriesPaged({ limit: 999 });
+  const { results: allSeries } = await absService.getLibrarySeriesPaged({ limit: 100 });
   const target = allSeries.find(s => s.id === seriesId);
   if (target) {
     selectedSeries.value = target;
@@ -77,18 +75,23 @@ onMounted(() => {
     handleJumpToSeries(props.initialSeriesId);
   }
 
+  // Socket Sync: Real-time update for 'Currently Listening' and library items
   absService.onProgressUpdate((updated: ABSProgress) => {
-    const currentIdx = currentlyReading.value.findIndex(i => i.id === updated.itemId);
-    if (currentIdx !== -1) {
-      currentlyReading.value[currentIdx] = { 
-        ...currentlyReading.value[currentIdx], 
+    // 1. Update Currently Reading shelf
+    const readingIdx = currentlyReading.value.findIndex(i => i.id === updated.itemId);
+    if (readingIdx !== -1) {
+      currentlyReading.value[readingIdx] = { 
+        ...currentlyReading.value[readingIdx], 
         userProgress: updated 
       };
-      if (updated.isFinished) currentlyReading.value.splice(currentIdx, 1);
+      // If finished via socket, remove from the shelf
+      if (updated.isFinished) currentlyReading.value.splice(readingIdx, 1);
     } else if (!updated.isFinished && updated.progress > 0) {
+      // If item started elsewhere, we might need a fetch to get the full item object
       fetchDashboardData();
     }
 
+    // 2. Update Recently Added items if they exist in that array
     const addedIdx = recentlyAdded.value.findIndex(i => i.id === updated.itemId);
     if (addedIdx !== -1) {
       recentlyAdded.value[addedIdx] = { 
@@ -97,6 +100,8 @@ onMounted(() => {
       };
     }
   });
+
+  absService.onLibraryUpdate(() => fetchDashboardData());
 });
 
 onUnmounted(() => {
@@ -120,6 +125,18 @@ const handleScan = async () => {
     setTimeout(() => isScanning.value = false, 2000); 
   }
 };
+
+const filteredReading = computed(() => {
+  if (!searchTerm.value) return currentlyReading.value;
+  const term = searchTerm.value.toLowerCase();
+  return currentlyReading.value.filter(i => i.media.metadata.title.toLowerCase().includes(term) || i.media.metadata.authorName.toLowerCase().includes(term));
+});
+
+const filteredAdded = computed(() => {
+  if (!searchTerm.value) return recentlyAdded.value;
+  const term = searchTerm.value.toLowerCase();
+  return recentlyAdded.value.filter(i => i.media.metadata.title.toLowerCase().includes(term) || i.media.metadata.authorName.toLowerCase().includes(term));
+});
 </script>
 
 <template>
@@ -134,44 +151,24 @@ const handleScan = async () => {
     @scan="handleScan"
   >
     <div class="flex-1 min-h-0">
-      <div v-if="searchTerm && !selectedSeries" class="h-full">
-        <Bookshelf 
-          :absService="absService" :sortMethod="sortMethod" :desc="desc" :search="searchTerm"
-          @select-item="emit('select-item', $event)"
-        />
-      </div>
-
       <SeriesView 
-        v-else-if="selectedSeries"
+        v-if="selectedSeries"
         :series="selectedSeries" :absService="absService"
         @back="selectedSeries = null"
         @select-item="emit('select-item', $event)"
       />
 
       <template v-else>
-        <div v-if="activeTab === 'HOME'" class="h-full bookshelf-bg overflow-y-auto custom-scrollbar -mx-4 md:-mx-8 px-4 md:px-8 pt-4 pb-32">
+        <!-- Home Dashboard - Matte Black Finish -->
+        <div v-if="activeTab === 'HOME'" class="h-full bg-[#0d0d0d] overflow-y-auto custom-scrollbar -mx-4 md:-mx-8 px-4 md:px-8 pt-4 pb-40">
           
-          <section v-if="currentlyReading.length > 0" class="shelf-row">
+          <!-- Shelf: Currently Listening (Top Priority) -->
+          <section v-if="filteredReading.length > 0" class="shelf-row">
             <div class="shelf-tag">
               <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Currently Listening</span>
             </div>
-            <div class="flex gap-6 overflow-x-auto no-scrollbar pb-4 pl-4">
-              <div v-for="item in currentlyReading" :key="item.id" class="w-32 md:w-36 shrink-0">
-                <BookCard 
-                  :item="item" 
-                  :coverUrl="absService.getCoverUrl(item.id)" 
-                  @click="emit('select-item', item)" 
-                />
-              </div>
-            </div>
-          </section>
-
-          <section class="shelf-row">
-            <div class="shelf-tag">
-              <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Recently Added</span>
-            </div>
-            <div class="flex gap-8 overflow-x-auto no-scrollbar pb-8 pl-4">
-              <div v-for="item in recentlyAdded" :key="item.id" class="w-32 md:w-36 shrink-0">
+            <div class="flex gap-6 overflow-x-auto no-scrollbar pb-6 pl-2">
+              <div v-for="item in filteredReading" :key="item.id" class="w-32 md:w-40 shrink-0">
                 <BookCard 
                   :item="item" 
                   :coverUrl="absService.getCoverUrl(item.id)" 
@@ -182,12 +179,30 @@ const handleScan = async () => {
             </div>
           </section>
 
-          <section v-if="recentSeries.length > 0" class="shelf-row">
+          <!-- Shelf: Recently Added -->
+          <section v-if="filteredAdded.length > 0" class="shelf-row">
             <div class="shelf-tag">
-              <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Recent Series</span>
+              <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Recently Added</span>
             </div>
-            <div class="flex gap-12 md:gap-16 overflow-x-auto no-scrollbar pb-4 pl-8">
-              <div v-for="series in recentSeries" :key="series.id" class="w-44 md:w-52 shrink-0">
+            <div class="flex gap-8 overflow-x-auto no-scrollbar pb-10 pl-2">
+              <div v-for="item in filteredAdded" :key="item.id" class="w-32 md:w-40 shrink-0">
+                <BookCard 
+                  :item="item" 
+                  :coverUrl="absService.getCoverUrl(item.id)" 
+                  show-metadata
+                  @click="emit('select-item', item)" 
+                />
+              </div>
+            </div>
+          </section>
+
+          <!-- Shelf: Recent Series -->
+          <section v-if="recentSeries.length > 0 && !searchTerm" class="shelf-row">
+            <div class="shelf-tag">
+              <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Archives by Stacks</span>
+            </div>
+            <div class="flex gap-12 md:gap-16 overflow-x-auto no-scrollbar pb-6 pl-4">
+              <div v-for="series in recentSeries" :key="series.id" class="w-44 md:w-56 shrink-0">
                 <SeriesCard 
                   :series="series" 
                   :coverUrl="absService.getCoverUrl(series.books?.[0]?.id || '')"
@@ -197,10 +212,13 @@ const handleScan = async () => {
             </div>
           </section>
 
+          <div v-if="searchTerm && filteredReading.length === 0 && filteredAdded.length === 0" class="flex flex-col items-center justify-center py-40 text-center opacity-40">
+            <h3 class="text-xl font-black uppercase tracking-tighter text-neutral-500">No matching artifacts</h3>
+          </div>
         </div>
 
         <div v-else-if="activeTab === 'LIBRARY'" class="h-full">
-          <Bookshelf :absService="absService" :sortMethod="sortMethod" :desc="desc" @select-item="emit('select-item', $event)" />
+          <Bookshelf :absService="absService" :sortMethod="sortMethod" :desc="desc" :search="searchTerm" @select-item="emit('select-item', $event)" />
         </div>
         <div v-else-if="activeTab === 'SERIES'" class="h-full">
           <SeriesShelf :absService="absService" :sortMethod="sortMethod" :desc="desc" @select-series="selectedSeries = $event" />

@@ -4,7 +4,7 @@
 
 @layer base {
   html, body {
-    @apply bg-[#0a0a0a] text-white h-[100dvh] w-full overflow-hidden;
+    @apply bg-[#0d0d0d] text-white h-[100dvh] w-full overflow-hidden;
     overscroll-behavior-y: contain;
     -webkit-tap-highlight-color: transparent;
   }
@@ -26,13 +26,13 @@
     margin-left: 80px;
   }
 
-  /* Modern Dark Shelves */
+  /* Modern Matte Dark Shelves - horizontal border layout */
   .bookshelf-bg {
-    @apply bg-[#0a0a0a];
+    @apply bg-[#0d0d0d];
   }
 
   .shelf-row {
-    @apply relative py-12 px-4 border-t border-white/10;
+    @apply relative py-12 px-4 border-t border-white/10 bg-[#0d0d0d];
   }
 
   .shelf-row:first-of-type {
@@ -41,7 +41,7 @@
 
   .shelf-tag {
     @apply inline-flex items-center bg-[#111111] border border-white/5 rounded-full px-4 py-1.5 mb-8 shadow-xl;
-    border-left: 3px solid #eab308;
+    border-left: 3px solid #a855f7;
   }
 
   .no-scrollbar::-webkit-scrollbar {
@@ -65,6 +65,14 @@
   }
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
     background: rgba(168, 85, 247, 0.5);
+  }
+
+  .shadow-aether-glow {
+    text-shadow: 0 0 15px rgba(168, 85, 247, 0.6);
+  }
+
+  .gradient-aether {
+    background: linear-gradient(135deg, #a855f7 0%, #7e22ce 100%);
   }
 }
 

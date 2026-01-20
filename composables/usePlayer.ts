@@ -46,7 +46,6 @@ export function usePlayer() {
     audioEl.id = 'archive-player-core';
     audioEl.crossOrigin = 'anonymous';
     
-    // Fix: Removed non-standard 'type' property assignment on HTMLAudioElement
     audioEl.addEventListener('play', () => state.isPlaying = true);
     audioEl.addEventListener('pause', () => state.isPlaying = false);
     audioEl.addEventListener('timeupdate', onTimeUpdate);
@@ -102,18 +101,13 @@ export function usePlayer() {
     }
   };
 
-  /**
-   * REBIND LOGIC: Explicitly resets the audio element to clear state before new source
-   */
   const resetAudioSource = () => {
     if (!audioEl) return;
     audioEl.pause();
     audioEl.src = '';
     try {
       audioEl.load();
-    } catch (e) {
-      // Ignore load errors on empty source
-    }
+    } catch (e) {}
   };
 
   const loadTrack = (idx: number, offset = 0) => {
@@ -121,17 +115,20 @@ export function usePlayer() {
     
     resetAudioSource();
 
-    const track = tracks[idx];
-    const rawUrl = ABSService.normalizeUrl(absService?.getCoverUrl('').split('/api/')[0] || '');
-    
-    // Always pull fresh token to avoid expiry issues
+    // Pull fresh credentials
     const authString = localStorage.getItem('rs_auth');
-    const token = authString ? JSON.parse(authString).user.token : '';
+    if (!authString) return;
+    const auth = JSON.parse(authString);
+    const token = auth.user.token;
+    
+    // THE 404 FIX: Rewrite URL logic
+    // Construct robust BASE URL by removing /api suffix and trailing slashes
+    const baseUrl = auth.serverUrl.replace(/\/api\/?$/, '').replace(/\/+$/, '');
 
-    // Fix: Robust URL construction using Item ID and File ID instead of Inode
-    // Fallback to libraryItemId if specific file ID is missing
-    const fileId = activeItem.media.audioFiles[idx]?.id || activeItem.id;
-    const url = `${rawUrl}/api/items/${activeItem.id}/file/${fileId}?token=${token}`;
+    // Robust file selection using strictly activeItem.id and audioFile ID
+    const audioFile = activeItem.media.audioFiles[idx];
+    const fileId = audioFile?.id || activeItem.id;
+    const url = `${baseUrl}/api/items/${activeItem.id}/file/${fileId}?token=${token}`;
     
     audioEl.src = url;
     audioEl.load();
@@ -167,7 +164,7 @@ export function usePlayer() {
     absService = new ABSService(auth.serverUrl, auth.user?.token || '');
     
     const audio = initAudio();
-    resetAudioSource(); // Clear any previous item's state
+    resetAudioSource();
 
     try {
       const deviceInfo = {
@@ -198,7 +195,7 @@ export function usePlayer() {
               xhr.setRequestHeader('Authorization', `Bearer ${auth.user?.token}`);
             },
           });
-          const rawBase = ABSService.normalizeUrl(auth.serverUrl);
+          const rawBase = auth.serverUrl.replace(/\/api\/?$/, '').replace(/\/+$/, '');
           const contentPath = tracks[0].contentUrl.startsWith('/api') ? tracks[0].contentUrl : `/api${tracks[0].contentUrl}`;
           const hlsUrl = `${rawBase}${contentPath}${contentPath.includes('?') ? '&' : '?'}token=${auth.user?.token}`;
           
@@ -217,8 +214,7 @@ export function usePlayer() {
             }
           });
         } else {
-          // Fallback for Safari/Mobile HLS
-          const rawBase = ABSService.normalizeUrl(auth.serverUrl);
+          const rawBase = auth.serverUrl.replace(/\/api\/?$/, '').replace(/\/+$/, '');
           const contentPath = tracks[0].contentUrl.startsWith('/api') ? tracks[0].contentUrl : `/api${tracks[0].contentUrl}`;
           audio.src = `${rawBase}${contentPath}${contentPath.includes('?') ? '&' : '?'}token=${auth.user?.token}`;
           audio.currentTime = startAt;
@@ -244,7 +240,7 @@ export function usePlayer() {
 
   const setupMediaSession = (item: ABSLibraryItem, auth: AuthState) => {
     if ('mediaSession' in navigator) {
-      const baseUrl = auth.serverUrl.replace(/\/api\/?$/, '');
+      const baseUrl = auth.serverUrl.replace(/\/api\/?$/, '').replace(/\/+$/, '');
       navigator.mediaSession.metadata = new MediaMetadata({
         title: item.media.metadata.title,
         artist: item.media.metadata.authorName,

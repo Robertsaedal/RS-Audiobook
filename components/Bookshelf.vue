@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, computed, nextTick } from 'vue';
+import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
 import { ABSLibraryItem, ABSProgress } from '../types';
 import { ABSService, LibraryQueryParams } from '../services/absService';
 import BookCard from './BookCard.vue';
-import { PackageOpen, Activity, Loader2 } from 'lucide-vue-next';
+import { PackageOpen, Loader2 } from 'lucide-vue-next';
 
 const props = defineProps<{
   absService: ABSService,
@@ -17,7 +17,6 @@ const emit = defineEmits<{
   (e: 'select-item', item: ABSLibraryItem): void
 }>();
 
-// Data State
 const libraryItems = ref<ABSLibraryItem[]>([]);
 const totalItems = ref(0);
 const currentPage = ref(0);
@@ -26,7 +25,7 @@ const sentinelRef = ref<HTMLElement | null>(null);
 
 const ITEMS_PER_FETCH = 48;
 
-// Local search filtering as requested
+// Local search filtering for instant results as requested
 const filteredBooks = computed(() => {
   if (!props.search) return libraryItems.value;
   const term = props.search.toLowerCase();
@@ -38,28 +37,38 @@ const filteredBooks = computed(() => {
 
 const fetchItems = async (isInitial = false) => {
   if (isLoading.value) return;
-  if (!isInitial && libraryItems.value.length >= totalItems.value && totalItems.value > 0) return;
+  
+  // Safety check: if we've loaded everything, stop.
+  if (!isInitial && totalItems.value > 0 && libraryItems.value.length >= totalItems.value) return;
 
   isLoading.value = true;
   try {
+    // 1. Calculate offset and increment page BEFORE fetch to prevent race condition loops
+    const offset = currentPage.value * ITEMS_PER_FETCH;
+    
     const params: LibraryQueryParams = {
       limit: ITEMS_PER_FETCH,
-      offset: currentPage.value * ITEMS_PER_FETCH,
+      offset: offset,
       sort: props.sortMethod,
       desc: props.desc
-      // Note: We don't use API search here to support the "Local Computed Filter" requirement
     };
     
     const { results, total } = await props.absService.getLibraryItemsPaged(params);
     
     if (isInitial) {
       libraryItems.value = results;
+      currentPage.value = 1; // Set to next page
     } else {
-      // Append results to current array
-      libraryItems.value = [...libraryItems.value, ...results];
+      // 2. Prevent Duplicates: Check if ID already exists before pushing
+      const existingIds = new Set(libraryItems.value.map(i => i.id));
+      const uniqueResults = results.filter(i => !existingIds.has(i.id));
+      
+      if (uniqueResults.length > 0) {
+        libraryItems.value = [...libraryItems.value, ...uniqueResults];
+        currentPage.value++; // Successfully loaded a page, increment pointer
+      }
     }
     totalItems.value = total;
-    currentPage.value++;
   } catch (e) {
     console.error("Failed to fetch library items", e);
   } finally {
@@ -74,15 +83,19 @@ const reset = async () => {
   await fetchItems(true);
 };
 
-// Intersection Observer for Infinite Scroll
 let observer: IntersectionObserver | null = null;
 const setupObserver = () => {
   if (observer) observer.disconnect();
+  
+  // Fix IntersectionObserver: rootMargin helps trigger earlier for smoother experience
   observer = new IntersectionObserver((entries) => {
     if (entries[0].isIntersecting && !isLoading.value) {
-      fetchItems();
+      // Only fetch if there are actually more items to get
+      if (totalItems.value === 0 || libraryItems.value.length < totalItems.value) {
+        fetchItems();
+      }
     }
-  }, { threshold: 0.1 });
+  }, { threshold: 0.1, rootMargin: '400px' });
   
   if (sentinelRef.value) observer.observe(sentinelRef.value);
 };
@@ -91,7 +104,7 @@ onMounted(async () => {
   await reset();
   setupObserver();
 
-  // Socket sync for this shelf
+  // Socket Sync: Listen for progress updates locally
   props.absService.onProgressUpdate((updated: ABSProgress) => {
     const index = libraryItems.value.findIndex(i => i.id === updated.itemId);
     if (index !== -1) {
@@ -106,20 +119,16 @@ onUnmounted(() => {
   observer?.disconnect();
 });
 
+// Reset logic when sorting or direction changes
 watch(() => [props.sortMethod, props.desc], () => reset());
-
-// If search changes significantly, we might want to ensure we have enough results,
-// but for "Local Computed Filter" we just filter what we've loaded so far.
 </script>
 
 <template>
   <div class="h-full flex flex-col">
-    <!-- Bookshelf Grid -->
-    <div class="flex-1 overflow-y-auto custom-scrollbar px-2 pb-32">
+    <div class="flex-1 overflow-y-auto custom-scrollbar px-2 pb-40">
       <div v-if="filteredBooks.length === 0 && !isLoading" class="flex flex-col items-center justify-center py-40 text-center opacity-40">
         <PackageOpen :size="64" class="text-neutral-800 mb-6" />
-        <h3 class="text-xl font-black uppercase tracking-tighter">Repository Empty</h3>
-        <p class="text-[9px] font-black uppercase tracking-widest mt-2">No matching artifacts in local index</p>
+        <h3 class="text-xl font-black uppercase tracking-tighter">No artifacts found</h3>
       </div>
 
       <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-x-6 gap-y-12">
@@ -133,11 +142,11 @@ watch(() => [props.sortMethod, props.desc], () => reset());
         />
       </div>
 
-      <!-- Infinite Scroll Sentinel -->
-      <div ref="sentinelRef" class="w-full h-24 flex items-center justify-center mt-12">
+      <!-- Scroll Sentinel -->
+      <div ref="sentinelRef" class="w-full h-32 flex items-center justify-center mt-8">
         <Loader2 v-if="isLoading" class="animate-spin text-purple-500" :size="32" />
-        <span v-else-if="libraryItems.length >= totalItems && totalItems > 0" class="text-[8px] font-black uppercase tracking-[0.5em] text-neutral-800">
-          END OF REGISTRY
+        <span v-else-if="libraryItems.length >= totalItems && totalItems > 0" class="text-[8px] font-black uppercase tracking-[0.6em] text-neutral-800">
+          INDEX REACHED END
         </span>
       </div>
     </div>

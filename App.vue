@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import { AuthState, ABSLibraryItem } from './types';
 import Login from './components/Login.vue';
 import Library from './components/Library.vue';
@@ -12,6 +12,12 @@ const isInitializing = ref(true);
 const isStreaming = ref(false);
 const initialSeriesId = ref<string | null>(null);
 
+const handlePopState = (event: PopStateEvent) => {
+  if (currentView.value === 'player') {
+    closePlayer(false); // Close without pushing state
+  }
+};
+
 onMounted(() => {
   const savedAuth = localStorage.getItem('rs_auth');
   if (savedAuth) {
@@ -23,6 +29,11 @@ onMounted(() => {
     }
   }
   isInitializing.value = false;
+  window.addEventListener('popstate', handlePopState);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('popstate', handlePopState);
 });
 
 const handleLogin = (newAuth: AuthState) => {
@@ -41,22 +52,27 @@ const openPlayer = (item: ABSLibraryItem) => {
   selectedItem.value = item;
   currentView.value = 'player';
   isStreaming.value = true;
+  // Push state to trap mobile back button
+  history.pushState({ player: true }, '', '#player');
 };
 
 const handleSelectSeriesFromPlayer = (seriesId: string) => {
   initialSeriesId.value = seriesId;
-  currentView.value = 'library';
+  closePlayer(true);
 };
 
-const closePlayer = () => {
+const closePlayer = (shouldPopState = true) => {
   currentView.value = 'library';
+  if (shouldPopState && window.location.hash === '#player') {
+    history.back();
+  }
 };
 </script>
 
 <template>
-  <div class="min-h-screen bg-black text-white selection:bg-purple-900 flex flex-col font-sans overflow-hidden">
+  <div class="min-h-screen bg-[#0d0d0d] text-white selection:bg-purple-900 flex flex-col font-sans overflow-hidden">
     <!-- Loader -->
-    <div v-if="isInitializing" class="fixed inset-0 bg-black flex flex-col items-center justify-center gap-6 z-[200]">
+    <div v-if="isInitializing" class="fixed inset-0 bg-[#0d0d0d] flex flex-col items-center justify-center gap-6 z-[200]">
       <div class="w-16 h-16 border-4 border-purple-600/10 border-t-purple-600 rounded-full animate-spin" />
       <h2 class="font-black text-purple-500 tracking-[0.6em] text-[10px] uppercase">R.S ARCHIVE</h2>
     </div>

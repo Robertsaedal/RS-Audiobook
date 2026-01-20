@@ -23,7 +23,7 @@ const showChapters = ref(false);
 const showInfo = ref(false);
 
 const coverUrl = computed(() => {
-  const baseUrl = props.auth.serverUrl.replace(/\/api\/?$/, '');
+  const baseUrl = props.auth.serverUrl.replace(/\/api\/?$/, '').replace(/\/+$/, '');
   return `${baseUrl}/api/items/${props.item.id}/cover?token=${props.auth.user?.token}`;
 });
 
@@ -118,8 +118,8 @@ const handleSeriesClick = () => {
 const metadata = computed(() => props.item?.media?.metadata || {});
 
 const infoRows = computed(() => {
-  // Correctly handle narrator with fallbacks, removing any hardcoded "System Default"
-  const narratorValue = metadata.value.narratorName || (props.item.media as any).narrator || 'Unknown Narrator';
+  // Fix: implement robust narrator fallback and remove "System Default"
+  const narratorValue = metadata.value.narratorName || 'Unknown Narrator';
 
   return [
     { label: 'Narrator', value: narratorValue, icon: Mic },
@@ -132,7 +132,7 @@ const infoRows = computed(() => {
 </script>
 
 <template>
-  <div class="h-[100dvh] w-full bg-black text-white flex flex-col relative overflow-hidden font-sans select-none safe-top safe-bottom">
+  <div class="h-[100dvh] w-full bg-[#0d0d0d] text-white flex flex-col relative overflow-hidden font-sans select-none safe-top safe-bottom">
     
     <!-- Ambient Glow -->
     <div class="absolute inset-0 z-0 pointer-events-none flex items-center justify-center">
@@ -141,7 +141,7 @@ const infoRows = computed(() => {
 
     <!-- Portal Loader -->
     <Transition name="fade">
-      <div v-if="state.isLoading" class="absolute inset-0 bg-black flex flex-col items-center justify-center gap-6 z-[100]">
+      <div v-if="state.isLoading" class="absolute inset-0 bg-[#0d0d0d] flex flex-col items-center justify-center gap-6 z-[100]">
         <div class="w-12 h-12 border-2 border-purple-600/10 border-t-purple-600 rounded-full animate-spin" />
         <p class="text-[8px] font-black uppercase tracking-[0.6em] text-neutral-600">Establishing Archive Stream...</p>
       </div>
