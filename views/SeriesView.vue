@@ -136,7 +136,14 @@ onMounted(() => {
         <div class="text-[9px] font-black uppercase tracking-widest text-neutral-600">Ascending Order</div>
       </div>
       <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-x-8 gap-y-16">
-        <BookCard v-for="book in sortedBooks" :key="book.id" :item="book" :coverUrl="absService.getCoverUrl(book.id)" @click="emit('select-item', book)" />
+        <BookCard 
+          v-for="book in sortedBooks" 
+          :key="book.id" 
+          :item="book" 
+          :coverUrl="absService.getCoverUrl(book.id)" 
+          show-metadata
+          @click="emit('select-item', book)" 
+        />
       </div>
     </section>
   </div>

@@ -41,14 +41,14 @@ const fetchMoreSeries = async (isInitial = false) => {
     
     if (isInitial) {
       seriesItems.value = results;
-      offset.value = ITEMS_PER_FETCH;
+      offset.value = results.length;
     } else {
       const existingIds = new Set(seriesItems.value.map(s => s.id));
       const uniqueResults = results.filter(s => !existingIds.has(s.id));
       
       if (uniqueResults.length > 0) {
         seriesItems.value.push(...uniqueResults);
-        offset.value += ITEMS_PER_FETCH;
+        offset.value += results.length;
       }
     }
     totalSeries.value = total;
@@ -76,7 +76,7 @@ const setupObserver = () => {
         fetchMoreSeries();
       }
     }
-  }, { threshold: 0.1, rootMargin: '400px' });
+  }, { threshold: 0.1, rootMargin: '600px' });
   
   if (sentinelRef.value) observer.observe(sentinelRef.value);
 };
@@ -96,7 +96,7 @@ watch(() => [props.sortMethod, props.desc], () => reset());
 
 <template>
   <div class="h-full flex flex-col">
-    <div class="flex-1 overflow-y-auto custom-scrollbar px-2 pb-40">
+    <div class="flex-1 overflow-y-auto custom-scrollbar px-2 pb-40 relative">
       <div v-if="seriesItems.length === 0 && !isLoading" class="flex flex-col items-center justify-center py-40 text-center opacity-40">
         <PackageOpen :size="64" class="text-neutral-800 mb-6" />
         <h3 class="text-xl font-black uppercase tracking-tighter">No Stacks Established</h3>
@@ -115,7 +115,7 @@ watch(() => [props.sortMethod, props.desc], () => reset());
         />
       </div>
 
-      <div id="series-scroll-sentinel" ref="sentinelRef" class="h-20 w-full flex items-center justify-center mt-8">
+      <div id="series-scroll-sentinel" ref="sentinelRef" class="h-24 w-full flex items-center justify-center mt-12 mb-20">
         <Loader2 v-if="isLoading" class="animate-spin text-purple-500" :size="24" />
         <span v-else-if="seriesItems.length >= totalSeries && totalSeries > 0" class="text-[8px] font-black uppercase tracking-[0.6em] text-neutral-800">
           ARCHIVE END REACHED

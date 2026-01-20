@@ -79,17 +79,25 @@ const setupListeners = () => {
 const fetchDashboardData = async () => {
   if (!absService.value) return;
   try {
+    // 1. Fetch official listening sessions
     const sessions = await absService.value.getListeningSessions();
-    if (sessions.length > 0) {
-      currentlyReading.value = sessions;
-    } else {
-      const { results: reading } = await absService.value.getLibraryItemsPaged({ 
-        limit: 15, sort: 'lastUpdate', desc: 1, filter: 'progress' 
-      });
-      currentlyReading.value = reading.filter(i => 
-        i.userProgress && !i.userProgress.isFinished && i.userProgress.progress > 0
-      );
-    }
+    
+    // 2. Fetch recent in-progress items as fallback/supplement
+    const { results: inProgress } = await absService.value.getLibraryItemsPaged({ 
+      limit: 20, sort: 'lastUpdate', desc: 1, filter: 'progress' 
+    });
+
+    // Merge and deduplicate
+    const combined = [...sessions];
+    inProgress.forEach(item => {
+      if (!combined.some(c => c.id === item.id)) {
+        combined.push(item);
+      }
+    });
+
+    currentlyReading.value = combined.filter(i => 
+      i.userProgress && !i.userProgress.isFinished && i.userProgress.progress > 0
+    ).slice(0, 15);
 
     const { results: added } = await absService.value.getLibraryItemsPaged({ 
       limit: 20, sort: 'addedAt', desc: 1 
@@ -185,7 +193,7 @@ const filteredAdded = computed(() => {
         <div v-if="activeTab === 'HOME'" class="h-full bg-[#0d0d0d] overflow-y-auto custom-scrollbar -mx-4 md:-mx-8 px-4 md:px-8 pt-4 pb-40">
           
           <ContinueListening 
-            v-if="!searchTerm && absService" 
+            v-if="!searchTerm && absService && currentlyReading.length > 0" 
             :absService="absService" 
             :items="currentlyReading"
             @resume-book="emit('select-item', $event)"

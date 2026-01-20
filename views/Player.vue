@@ -46,12 +46,7 @@ const currentChapterIndex = computed(() => {
 
 const currentChapter = computed(() => currentChapterIndex.value !== -1 ? chapters.value[currentChapterIndex.value] : null);
 
-const totalProgressPercent = computed(() => {
-  if (state.duration <= 0) return 0;
-  return Math.min(100, (state.currentTime / state.duration) * 100);
-});
-
-// Revert logic: Use chapterProgressPercent for the width of the purple bar
+// chapterProgressPercent for the purple bar fill
 const chapterProgressPercent = computed(() => {
   if (!currentChapter.value) return 0;
   const chapterDur = currentChapter.value.end - currentChapter.value.start;
@@ -225,7 +220,7 @@ const infoRows = computed(() => {
               :style="{ left: (ch.start / state.duration) * 100 + '%' }"
             />
             
-            <!-- Purple Progress Bar Fill (chapter-based reset logic) -->
+            <!-- Purple Progress Bar Fill (chapter-based focus) -->
             <div 
               class="absolute top-0 bottom-0 left-0 bg-purple-500 shadow-[0_0_20px_rgba(168,85,247,0.9)] transition-all duration-150 z-10 rounded-r-full" 
               :style="{ width: chapterProgressPercent + '%' }"
@@ -276,8 +271,8 @@ const infoRows = computed(() => {
             <div class="flex items-center justify-between w-full px-2">
               <button @click="adjustSleepTimer(-1)" class="p-1 text-neutral-600 hover:text-white"><Minus :size="14" /></button>
               <div class="flex flex-col items-center">
-                 <span v-if="state.sleepChapters > 0" class="text-[9px] font-black text-purple-500 tracking-tighter">
-                   {{ secondsToTimestamp(sleepTimeRemaining) }} until zzz
+                 <span v-if="state.sleepChapters > 0" class="text-[9px] font-black text-purple-500 tracking-tighter text-center">
+                   {{ state.sleepChapters }} ch • {{ secondsToTimestamp(sleepTimeRemaining) }} until zzz
                  </span>
                  <span v-else class="text-xs font-black font-mono text-neutral-600 uppercase">OFF</span>
               </div>

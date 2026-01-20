@@ -26,16 +26,12 @@ const sentinelRef = ref<HTMLElement | null>(null);
 const ITEMS_PER_FETCH = 20;
 
 const filteredBooks = computed(() => {
-  // If search is truthy, we assume libraryItems already contains server-side search results
-  if (props.search) return libraryItems.value;
-  
-  // Local filtering logic: If search is empty, we could apply local filters here
-  // For now, we return the items as-is since they are paginated
   return libraryItems.value;
 });
 
 const fetchMoreItems = async (isInitial = false) => {
   if (isLoading.value) return;
+  // If not initial, check if we've reached the end
   if (!isInitial && totalItems.value > 0 && libraryItems.value.length >= totalItems.value) return;
 
   isLoading.value = true;
@@ -52,16 +48,14 @@ const fetchMoreItems = async (isInitial = false) => {
     
     if (isInitial) {
       libraryItems.value = results;
-      offset.value = ITEMS_PER_FETCH;
+      offset.value = results.length;
     } else {
-      // Logic: Use items.value.push(...newItems) to add them to the screen
       const existingIds = new Set(libraryItems.value.map(i => i.id));
       const uniqueResults = results.filter(i => !existingIds.has(i.id));
       
       if (uniqueResults.length > 0) {
         libraryItems.value.push(...uniqueResults);
-        // Increment offset by 20
-        offset.value += ITEMS_PER_FETCH;
+        offset.value += results.length;
       }
     }
     totalItems.value = total;
@@ -83,16 +77,13 @@ let observer: IntersectionObserver | null = null;
 const setupObserver = () => {
   if (observer) observer.disconnect();
   
-  // IntersectionObserver to watch #scroll-sentinel
   observer = new IntersectionObserver((entries) => {
-    // When the sentinel enters the viewport
     if (entries[0].isIntersecting && !isLoading.value) {
       if (totalItems.value === 0 || libraryItems.value.length < totalItems.value) {
-        // Call fetchMoreItems()
         fetchMoreItems();
       }
     }
-  }, { threshold: 0.1, rootMargin: '400px' });
+  }, { threshold: 0.1, rootMargin: '600px' });
   
   if (sentinelRef.value) observer.observe(sentinelRef.value);
 };
@@ -120,7 +111,7 @@ watch(() => [props.sortMethod, props.desc, props.search], () => reset());
 
 <template>
   <div class="h-full flex flex-col">
-    <div class="flex-1 overflow-y-auto custom-scrollbar px-2 pb-40">
+    <div class="flex-1 overflow-y-auto custom-scrollbar px-2 pb-40 relative">
       <div v-if="filteredBooks.length === 0 && !isLoading" class="flex flex-col items-center justify-center py-40 text-center opacity-40">
         <PackageOpen :size="64" class="text-neutral-800 mb-6" />
         <h3 class="text-xl font-black uppercase tracking-tighter">No artifacts found</h3>
@@ -137,8 +128,7 @@ watch(() => [props.sortMethod, props.desc, props.search], () => reset());
         />
       </div>
 
-      <!-- Sentinel element for infinite scrolling -->
-      <div id="scroll-sentinel" ref="sentinelRef" class="h-10 w-full flex items-center justify-center mt-8">
+      <div id="scroll-sentinel" ref="sentinelRef" class="h-20 w-full flex items-center justify-center mt-12 mb-20">
         <Loader2 v-if="isLoading" class="animate-spin text-purple-500" :size="24" />
         <span v-else-if="libraryItems.length >= totalItems && totalItems > 0" class="text-[8px] font-black uppercase tracking-[0.6em] text-neutral-800">
           INDEX REACHED END
