@@ -41,6 +41,7 @@ export interface ABSLibraryItem {
       seriesName?: string;
       seriesId?: string;
       sequence?: string;
+      seriesSequence?: string | number;
       narratorName?: string;
       publisher?: string;
       publishedYear?: string;
@@ -73,6 +74,7 @@ export interface ABSProgress {
   progress: number;
   isFinished: boolean;
   lastUpdate: number;
+  hideFromContinueListening?: boolean;
 }
 
 export interface ABSPlaybackSession {

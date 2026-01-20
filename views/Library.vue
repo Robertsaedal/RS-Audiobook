@@ -32,6 +32,7 @@ const selectedSeries = ref<ABSSeries | null>(null);
 const isScanning = ref(false);
 
 const currentlyReading = ref<ABSLibraryItem[]>([]);
+const continueSeries = ref<ABSLibraryItem[]>([]);
 const recentlyAdded = ref<ABSLibraryItem[]>([]);
 const recentSeries = ref<ABSSeries[]>([]);
 
@@ -49,8 +50,49 @@ const initService = () => {
 
 const setupListeners = () => {
   if (!absService.value) return;
-  absService.value.onProgressUpdate(() => fetchDashboardData());
+  
+  // Real-time progress synchronization
+  absService.value.onProgressUpdate((progress) => handleProgressUpdate(progress));
   absService.value.onLibraryUpdate(() => fetchDashboardData());
+};
+
+const handleProgressUpdate = (progress: ABSProgress) => {
+  let found = false;
+
+  // 1. Update Currently Reading (Continue Listening)
+  const crIndex = currentlyReading.value.findIndex(i => i.id === progress.itemId);
+  if (crIndex !== -1) {
+    found = true;
+    if (progress.isFinished || progress.hideFromContinueListening) {
+      currentlyReading.value.splice(crIndex, 1);
+    } else {
+      // In-place update to trigger reactivity without list jumps
+      const item = currentlyReading.value[crIndex];
+      item.userProgress = progress;
+      currentlyReading.value[crIndex] = { ...item }; // Force reactivity
+    }
+  }
+
+  // 2. Update Recently Added
+  const raIndex = recentlyAdded.value.findIndex(i => i.id === progress.itemId);
+  if (raIndex !== -1) {
+    const item = recentlyAdded.value[raIndex];
+    item.userProgress = progress;
+    recentlyAdded.value[raIndex] = { ...item };
+  }
+
+  // 3. Update Continue Series
+  const csIndex = continueSeries.value.findIndex(i => i.id === progress.itemId);
+  if (csIndex !== -1) {
+    const item = continueSeries.value[csIndex];
+    item.userProgress = progress;
+    continueSeries.value[csIndex] = { ...item };
+  }
+
+  // If item not found in "Continue Listening" and it's active, refetch dashboard to add it
+  if (!found && !progress.isFinished && !progress.hideFromContinueListening) {
+    fetchDashboardData();
+  }
 };
 
 const fetchDashboardData = async () => {
@@ -67,23 +109,32 @@ const fetchDashboardData = async () => {
     
     // 1. High priority: Items currently in progress
     inProgress.forEach(item => {
-      if (item.userProgress && !item.userProgress.isFinished) {
+      if (item.userProgress && !item.userProgress.isFinished && !item.userProgress.hideFromContinueListening) {
         combinedMap.set(item.id, item);
       }
     });
 
     // 2. Secondary: Items from personalized shelves (Continue Listening)
     if (personalized && Array.isArray(personalized)) {
+      // Continue Listening Shelf
       const continueShelf = personalized.find(s => s.id === 'continue-listening');
       if (continueShelf && continueShelf.entities) {
         continueShelf.entities.forEach((entity: any) => {
           const item = entity.libraryItem || entity;
           if (item?.id && !combinedMap.has(item.id)) {
-            if (item.userProgress && !item.userProgress.isFinished) {
+            if (item.userProgress && !item.userProgress.isFinished && !item.userProgress.hideFromContinueListening) {
               combinedMap.set(item.id, item);
             }
           }
         });
+      }
+
+      // Continue Series Shelf (Next in series)
+      const seriesShelf = personalized.find(s => s.id === 'continue-series');
+      if (seriesShelf && seriesShelf.entities) {
+        continueSeries.value = seriesShelf.entities.map((e: any) => e.libraryItem || e);
+      } else {
+        continueSeries.value = [];
       }
     }
 
@@ -166,6 +217,17 @@ const filteredReading = computed(() => {
   );
 });
 
+const filteredNextUp = computed(() => {
+  const list = continueSeries.value;
+  if (!trimmedSearch.value) return list;
+  const term = trimmedSearch.value.toLowerCase();
+  return list.filter(i => 
+    i.media.metadata.title.toLowerCase().includes(term) || 
+    i.media.metadata.authorName.toLowerCase().includes(term) ||
+    (i.media.metadata.seriesName && i.media.metadata.seriesName.toLowerCase().includes(term))
+  );
+});
+
 const filteredAdded = computed(() => {
   if (!trimmedSearch.value) return recentlyAdded.value;
   const term = trimmedSearch.value.toLowerCase();
@@ -177,7 +239,7 @@ const filteredAdded = computed(() => {
 });
 
 const isHomeEmpty = computed(() => {
-  return filteredReading.value.length === 0 && filteredAdded.value.length === 0 && recentSeries.value.length === 0;
+  return filteredReading.value.length === 0 && filteredAdded.value.length === 0 && recentSeries.value.length === 0 && filteredNextUp.value.length === 0;
 });
 </script>
 
@@ -220,6 +282,22 @@ const isHomeEmpty = computed(() => {
               </div>
             </section>
 
+            <section v-if="filteredNextUp.length > 0 && absService" class="shelf-row">
+              <div class="shelf-tag">
+                <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Next in Series</span>
+              </div>
+              <div class="flex gap-8 overflow-x-auto no-scrollbar pb-10 pl-2">
+                <div v-for="item in filteredNextUp" :key="item.id" class="w-32 md:w-40 shrink-0">
+                  <BookCard 
+                    :item="item" 
+                    :coverUrl="absService.getCoverUrl(item.id)" 
+                    show-metadata
+                    @click="emit('select-item', item)" 
+                  />
+                </div>
+              </div>
+            </section>
+
             <section v-if="filteredAdded.length > 0 && absService" class="shelf-row">
               <div class="shelf-tag">
                 <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Recently Added</span>
@@ -252,7 +330,7 @@ const isHomeEmpty = computed(() => {
               </div>
             </section>
 
-            <div v-if="trimmedSearch && filteredReading.length === 0 && filteredAdded.length === 0" class="flex flex-col items-center justify-center py-40 text-center opacity-40">
+            <div v-if="trimmedSearch && filteredReading.length === 0 && filteredAdded.length === 0 && filteredNextUp.length === 0" class="flex flex-col items-center justify-center py-40 text-center opacity-40">
               <h3 class="text-xl font-black uppercase tracking-tighter text-neutral-500">No matching artifacts</h3>
               <p class="text-[10px] font-black uppercase tracking-[0.4em] mt-2">Adjust frequency or search term</p>
             </div>

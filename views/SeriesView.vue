@@ -35,8 +35,9 @@ const totalDurationPretty = computed(() => {
 
 const sortedBooks = computed(() => {
   return [...localSeries.value.books].sort((a, b) => {
-    const seqA = parseFloat(a.media.metadata.sequence || '0');
-    const seqB = parseFloat(b.media.metadata.sequence || '0');
+    // Priority: seriesSequence (numeric) -> sequence (numeric) -> 0
+    const seqA = parseFloat(String(a.media.metadata.seriesSequence || a.media.metadata.sequence || '0'));
+    const seqB = parseFloat(String(b.media.metadata.seriesSequence || b.media.metadata.sequence || '0'));
     return seqA - seqB;
   });
 });
@@ -143,7 +144,7 @@ onMounted(() => {
             :item="book" 
             :coverUrl="absService.getCoverUrl(book.id)" 
             show-metadata
-            :fallbackSequence="book.media.metadata.sequence || index + 1"
+            :fallbackSequence="index + 1"
             @click="emit('select-item', book)" 
           />
         </div>

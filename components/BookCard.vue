@@ -27,13 +27,15 @@ const progress = computed(() => {
 const isFinished = computed(() => props.item?.userProgress?.isFinished || false);
 
 const displaySequence = computed(() => {
-  const raw = props.item?.media?.metadata?.sequence || props.fallbackSequence;
+  // Prioritize seriesSequence from API, then sequence, then UI fallback
+  const raw = props.item?.media?.metadata?.seriesSequence || props.item?.media?.metadata?.sequence || props.fallbackSequence;
+  
   if (raw === undefined || raw === null || raw === '') return null;
   
   const num = parseFloat(String(raw));
   if (isNaN(num)) return raw;
   
-  // Format: 1.0 -> 1, 1.5 -> 1.5
+  // Logic: If whole number (e.g. 1.0), show #1. If decimal (e.g. 1.5), show #1.5.
   return num % 1 === 0 ? Math.floor(num) : num;
 });
 
@@ -95,3 +97,12 @@ const handleImageLoad = () => {
     </div>
   </button>
 </template>
+
+<style scoped>
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+</style>
