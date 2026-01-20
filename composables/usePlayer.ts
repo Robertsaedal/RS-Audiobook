@@ -15,6 +15,8 @@ interface PlayerState {
   sessionId: string | null;
   isHls: boolean;
   sleepChapters: number; // Remaining chapters to play before stop
+  sleepEndTime: number | null; // Timestamp for time-based sleep
+  currentRealtime: number; // Reactive Date.now() for UI timers
   activeItem: ABSLibraryItem | null;
   isOffline: boolean;
 }
@@ -30,6 +32,8 @@ const state = reactive<PlayerState>({
   sessionId: null,
   isHls: false,
   sleepChapters: 0,
+  sleepEndTime: null,
+  currentRealtime: Date.now(),
   activeItem: null,
   isOffline: false
 });
@@ -118,6 +122,14 @@ export function usePlayer() {
 
   const onEvtTimeupdate = () => {
     if (!audioEl || !state.activeItem) return;
+    
+    state.currentRealtime = Date.now();
+
+    // Check Sleep Timer (Time-based)
+    if (state.sleepEndTime && state.currentRealtime >= state.sleepEndTime) {
+      pause();
+      state.sleepEndTime = null;
+    }
     
     // For offline or single-blob playback, track offset is 0.
     const currentTrackOffset = state.isOffline ? 0 : (audioTracks[currentTrackIndex]?.startOffset || 0);
@@ -248,6 +260,7 @@ export function usePlayer() {
     state.error = null;
     state.activeItem = item;
     state.sleepChapters = 0; // Reset sleep timer on new book load
+    state.sleepEndTime = null;
     state.isOffline = false;
     lastChapterIndex = -1;
     activeAuth = auth;
@@ -369,6 +382,16 @@ export function usePlayer() {
 
   const setSleepChapters = (count: number) => {
     state.sleepChapters = Math.max(0, count);
+    state.sleepEndTime = null; // Prioritize chapter mode
+  };
+
+  const setSleepTimer = (seconds: number) => {
+    state.sleepChapters = 0; // Prioritize time mode
+    if (seconds <= 0) {
+      state.sleepEndTime = null;
+    } else {
+      state.sleepEndTime = Date.now() + (seconds * 1000);
+    }
   };
 
   const getLastBufferedTime = () => {
@@ -407,6 +430,7 @@ export function usePlayer() {
     state.isPlaying = false;
     state.activeItem = null;
     state.sleepChapters = 0;
+    state.sleepEndTime = null;
     state.isOffline = false;
     activeAuth = null;
   };
@@ -419,6 +443,7 @@ export function usePlayer() {
     seek,
     setPlaybackRate,
     setSleepChapters,
+    setSleepTimer,
     destroy
   };
 }

@@ -9,7 +9,8 @@ const props = defineProps<{
   coverUrl: string,
   isSelected?: boolean,
   showMetadata?: boolean,
-  fallbackSequence?: number | string
+  fallbackSequence?: number | string,
+  showProgress?: boolean
 }>();
 
 const emit = defineEmits<{
@@ -132,19 +133,22 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- Progress Bar (3px height) -->
+      <!-- Progress Bar (4px height) -->
       <div v-if="progress > 0 && !isFinished" class="absolute bottom-0 left-0 w-full z-30 bg-neutral-900/50">
          <div 
-          class="h-[3px] bg-gradient-to-r from-purple-600 to-purple-400 shadow-[0_0_8px_rgba(168,85,247,0.8)]" 
+          class="h-1 bg-gradient-to-r from-purple-600 to-purple-400 shadow-[0_0_8px_rgba(168,85,247,0.8)]" 
           :style="{ width: progress + '%' }" 
         />
       </div>
 
       <!-- Finished Bar -->
-      <div v-if="isFinished" class="absolute bottom-0 left-0 h-[3px] w-full bg-green-500 z-30 shadow-[0_0_10px_rgba(34,197,94,0.3)]" />
+      <div v-if="isFinished" class="absolute bottom-0 left-0 h-1 w-full bg-green-500 z-30 shadow-[0_0_10px_rgba(34,197,94,0.3)]" />
       
-      <!-- Percentage Text Overlay (Visible on hover when in progress) -->
-      <div v-if="progress > 0 && !isFinished" class="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur-md px-2 py-1 rounded text-[9px] font-black text-white uppercase tracking-widest z-30 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none border border-white/10">
+      <!-- Percentage Text Overlay -->
+      <div v-if="progress > 0 && !isFinished" 
+        class="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur-md px-2 py-1 rounded text-[9px] font-black text-white uppercase tracking-widest z-30 transition-opacity pointer-events-none border border-white/10"
+        :class="showProgress ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'"
+      >
         {{ Math.round(progress) }}%
       </div>
     </div>

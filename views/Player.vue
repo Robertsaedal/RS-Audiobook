@@ -21,7 +21,7 @@ const emit = defineEmits<{
   (e: 'item-updated', updatedItem: ABSLibraryItem): void
 }>();
 
-const { state, load, play, pause, seek, setPlaybackRate, setSleepChapters, destroy } = usePlayer();
+const { state, load, play, pause, seek, setPlaybackRate, setSleepChapters, setSleepTimer, destroy } = usePlayer();
 const absService = computed(() => new ABSService(props.auth.serverUrl, props.auth.user?.token || ''));
 
 const showChapters = ref(false);
@@ -35,6 +35,10 @@ const activeItem = computed(() => state.activeItem || props.item);
 const coverUrl = computed(() => {
   const baseUrl = props.auth.serverUrl.replace(/\/api\/?$/, '').replace(/\/+$/, '');
   return `${baseUrl}/api/items/${activeItem.value.id}/cover?token=${props.auth.user?.token}`;
+});
+
+const isFinished = computed(() => {
+  return activeItem.value?.userProgress?.isFinished || false;
 });
 
 const chapters = computed(() => {
@@ -73,14 +77,18 @@ const bookProgressPercent = computed(() => {
   return (state.currentTime / state.duration) * 100;
 });
 
-// Sleep Timer: Calculate total time until zzz based on chapters and speed
+// Sleep Timer: Calculate total time until zzz
 const sleepTimeRemaining = computed(() => {
+  // 1. Check time-based timer first (Reactive via currentRealtime)
+  if (state.sleepEndTime) {
+    const remaining = Math.max(0, state.sleepEndTime - state.currentRealtime) / 1000;
+    return remaining > 0 ? remaining : 0;
+  }
+
+  // 2. Fallback to Chapter-based timer
   if (state.sleepChapters <= 0 || currentChapterIndex.value === -1) return 0;
   
-  // 1. Time remaining in current chapter
   let totalTime = Math.max(0, (currentChapter.value?.end || 0) - state.currentTime);
-  
-  // 2. Add durations of subsequent chapters
   const nextChaptersCount = state.sleepChapters - 1;
   for (let i = 1; i <= nextChaptersCount; i++) {
     const nextIdx = currentChapterIndex.value + i;
@@ -250,7 +258,7 @@ const infoRows = computed(() => {
         <!-- Left Column: Visuals & Metadata (40% Desktop) -->
         <div class="flex-1 lg:flex-none lg:w-[40%] flex flex-col items-center justify-center px-8 pb-4 lg:pb-0 relative z-10 min-h-0">
           <!-- Book Cover - Formatted as a Book (2:3 aspect) -->
-          <div @click="showInfo = true" class="relative w-full max-w-[260px] md:max-w-[340px] aspect-[2/3] group cursor-pointer perspective-1000 shrink-0 mb-6 lg:mb-10 max-h-[55vh] lg:max-h-none object-contain">
+          <div @click="showInfo = true" class="relative w-full max-w-[260px] md:max-w-[340px] aspect-[2/3] group cursor-pointer perspective-1000 shrink-0 mb-6 lg:mb-10 max-h-[50vh] lg:max-h-none">
             <div class="absolute -inset-10 bg-purple-600/5 blur-[100px] rounded-full opacity-50" />
             
             <div class="relative z-10 w-full h-full rounded-r-2xl rounded-l-sm overflow-hidden border-t border-r border-b border-white/10 shadow-[20px_20px_60px_-15px_rgba(0,0,0,0.8)] transition-transform duration-700 group-hover:scale-[1.02] group-hover:-translate-y-2 book-spine">
@@ -258,28 +266,31 @@ const infoRows = computed(() => {
                <div class="absolute left-0 top-0 bottom-0 w-1.5 bg-gradient-to-r from-white/20 to-transparent z-20" />
                <div class="absolute left-1.5 top-0 bottom-0 w-px bg-black/40 z-20" />
 
-               <img :src="coverUrl" class="w-full h-full object-cover" />
+               <img :src="coverUrl" class="w-full h-full object-contain bg-black" />
             </div>
           </div>
 
           <div class="text-center space-y-4 w-full max-w-md px-4 z-10">
-            <div class="space-y-1">
-              <h1 class="text-xl md:text-2xl font-black uppercase tracking-tight text-white leading-tight line-clamp-2" :title="metadata.title">
-                {{ metadata.title }}
-              </h1>
-              <p class="text-[10px] font-black uppercase tracking-[0.3em] text-neutral-600 truncate">
+            <!-- Updated Typography for Metadata -->
+            <div class="space-y-2">
+              <div class="flex items-center justify-center gap-3">
+                <h1 class="text-2xl md:text-3xl font-black uppercase tracking-tight text-white leading-tight line-clamp-2" :title="metadata.title">
+                  {{ metadata.title }}
+                </h1>
+                <CheckCircle v-if="isFinished" class="text-green-500 shrink-0" :size="24" fill="currentColor" stroke-width="2" stroke="black" />
+              </div>
+              <p class="text-lg font-bold text-neutral-500 line-clamp-1">
                 {{ metadata.authorName }}
               </p>
             </div>
             
-            <!-- Series Link (Visible and Clickable) -->
+            <!-- Series Link (Visible and Clickable) - Moved/Styled as requested -->
             <button 
-              v-if="metadata.seriesName && metadata.seriesId" 
+              v-if="metadata.seriesName" 
               @click.stop="handleSeriesClick"
-              class="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-neutral-900 border border-purple-500/30 text-[9px] font-black uppercase tracking-[0.2em] text-purple-400 hover:bg-purple-900/20 hover:text-purple-300 hover:border-purple-500/50 transition-all active:scale-95 shadow-lg"
+              class="text-purple-400 font-semibold block mt-2 hover:text-purple-300 transition-colors text-sm uppercase tracking-widest truncate max-w-full mx-auto px-4 py-1.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/5"
             >
-              <Layers :size="12" />
-              <span class="truncate max-w-[220px]">{{ metadata.seriesName }} {{ metadata.seriesSequence ? `#${metadata.seriesSequence}` : '' }}</span>
+              {{ metadata.seriesName }} {{ metadata.seriesSequence ? `#${metadata.seriesSequence}` : '' }}
             </button>
           </div>
         </div>
@@ -311,21 +322,27 @@ const infoRows = computed(() => {
               />
             </div>
 
-            <!-- Secondary Global Progress Bar (Thin, Non-Interactive) -->
-            <div 
-              class="h-1 w-full bg-neutral-900/40 rounded-full relative overflow-hidden border border-white/5 pointer-events-none" 
-            >
-              <div 
-                class="h-full bg-neutral-600/50 transition-all duration-150" 
-                :style="{ width: bookProgressPercent + '%' }"
-              />
+            <!-- Secondary Global Progress Bar -->
+            <div class="h-1 w-full bg-neutral-900/40 rounded-full relative overflow-hidden border border-white/5 pointer-events-none">
+              <div class="h-full bg-neutral-600/50 transition-all duration-150" :style="{ width: bookProgressPercent + '%' }" />
             </div>
-            
-            <div class="flex justify-center items-center text-[7px] font-black uppercase tracking-[0.4em] text-neutral-700">
-              <div class="flex items-center gap-2">
-                 <Clock :size="8" />
-                 <span>Book Progress: {{ secondsToTimestamp(state.currentTime) }} / {{ secondsToTimestamp(state.duration) }}</span>
-              </div>
+
+            <!-- Quick Timer Buttons Row -->
+            <div class="flex items-center justify-center gap-3 pt-2">
+              <button 
+                @click="setSleepTimer(900)" 
+                class="px-3 py-1 rounded-full border border-neutral-700 text-[10px] font-bold text-neutral-400 hover:text-white hover:border-white/20 hover:bg-white/5 transition-all active:scale-95"
+                :class="{ 'bg-purple-600/20 border-purple-500/50 text-purple-300': state.sleepEndTime && (state.sleepEndTime - state.currentRealtime) <= 900000 && (state.sleepEndTime - state.currentRealtime) > 0 }"
+              >
+                15m
+              </button>
+              <button 
+                @click="setSleepTimer(1800)" 
+                class="px-3 py-1 rounded-full border border-neutral-700 text-[10px] font-bold text-neutral-400 hover:text-white hover:border-white/20 hover:bg-white/5 transition-all active:scale-95"
+                :class="{ 'bg-purple-600/20 border-purple-500/50 text-purple-300': state.sleepEndTime && (state.sleepEndTime - state.currentRealtime) > 900000 }"
+              >
+                30m
+              </button>
             </div>
           </div>
 
@@ -356,10 +373,10 @@ const infoRows = computed(() => {
               <div class="flex items-center justify-between w-full px-2">
                 <button @click="adjustSleepTimer(-1)" class="p-1 text-neutral-600 hover:text-white"><Minus :size="14" /></button>
                 <div class="flex flex-col items-center min-w-[60px]">
-                   <span v-if="state.sleepChapters > 0" class="text-[10px] font-black text-purple-500 tracking-tighter text-center leading-none">
-                     {{ state.sleepChapters }} ch selected
+                   <span v-if="state.sleepChapters > 0 || state.sleepEndTime" class="text-[10px] font-black text-purple-500 tracking-tighter text-center leading-none">
+                     {{ state.sleepChapters > 0 ? `${state.sleepChapters} ch` : 'Time' }}
                    </span>
-                   <span v-if="state.sleepChapters > 0" class="text-[8px] font-black text-neutral-600 mt-1">{{ secondsToTimestamp(sleepTimeRemaining) }} until zzz</span>
+                   <span v-if="state.sleepChapters > 0 || state.sleepEndTime" class="text-[8px] font-black text-neutral-600 mt-1">{{ secondsToTimestamp(sleepTimeRemaining) }}</span>
                    <span v-else class="text-xs font-black font-mono text-neutral-600 uppercase">OFF</span>
                 </div>
                 <button @click="adjustSleepTimer(1)" class="p-1 text-neutral-600 hover:text-white"><Plus :size="14" /></button>

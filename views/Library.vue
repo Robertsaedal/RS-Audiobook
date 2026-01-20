@@ -377,6 +377,7 @@ const isHomeEmpty = computed(() => {
                       :item="item" 
                       :coverUrl="absService.getCoverUrl(item.id)" 
                       show-metadata
+                      show-progress
                       @click="emit('select-item', item)"
                       @finish="handleMarkFinished"
                     />
