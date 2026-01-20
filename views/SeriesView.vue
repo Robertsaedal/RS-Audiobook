@@ -126,22 +126,23 @@ onMounted(() => {
       </div>
     </section>
 
-    <section class="space-y-12 pb-40">
+    <section class="space-y-12 pb-40 px-4 md:px-0">
       <div class="flex items-center justify-between px-2">
         <div class="flex items-center gap-3 text-neutral-700">
           <Layers :size="12" />
           <h3 class="text-[9px] font-black uppercase tracking-[0.5em]">Timeline View</h3>
         </div>
         <div class="h-px flex-1 bg-white/5 mx-8 hidden md:block" />
-        <div class="text-[9px] font-black uppercase tracking-widest text-neutral-600">Ascending Order</div>
+        <div class="text-[9px] font-black uppercase tracking-widest text-neutral-600">Sequential Order</div>
       </div>
       <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-x-8 gap-y-16">
         <BookCard 
-          v-for="book in sortedBooks" 
+          v-for="(book, index) in sortedBooks" 
           :key="book.id" 
           :item="book" 
           :coverUrl="absService.getCoverUrl(book.id)" 
           show-metadata
+          :fallbackSequence="index + 1"
           @click="emit('select-item', book)" 
         />
       </div>

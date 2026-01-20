@@ -7,7 +7,8 @@ const props = defineProps<{
   item: ABSLibraryItem,
   coverUrl: string,
   isSelected?: boolean,
-  showMetadata?: boolean
+  showMetadata?: boolean,
+  fallbackSequence?: number | string
 }>();
 
 const emit = defineEmits<{
@@ -24,7 +25,7 @@ const progress = computed(() => {
 });
 
 const isFinished = computed(() => props.item?.userProgress?.isFinished || false);
-const sequence = computed(() => props.item?.media?.metadata?.sequence);
+const displaySequence = computed(() => props.item?.media?.metadata?.sequence || props.fallbackSequence);
 
 const handleImageLoad = () => {
   imageReady.value = true;
@@ -46,14 +47,14 @@ const handleImageLoad = () => {
       <img 
         :src="coverUrl" 
         @load="handleImageLoad"
-        class="w-full h-full object-cover" 
+        class="w-full h-full object-cover transition-opacity duration-700" 
         :class="{ 'opacity-0': !imageReady, 'opacity-100': imageReady }"
         loading="lazy" 
       />
       
       <!-- Book Sequence Badge (Top Right Pill) -->
-      <div v-if="sequence" class="absolute top-2.5 right-2.5 bg-black/70 backdrop-blur-md px-2.5 py-1 rounded-full flex items-center justify-center text-[9px] font-black text-white border border-white/10 shadow-xl z-30 tracking-tight">
-        #{{ sequence }}
+      <div v-if="displaySequence" class="absolute top-2.5 right-2.5 bg-purple-600/90 backdrop-blur-md px-2.5 py-1 rounded-full flex items-center justify-center text-[10px] font-black text-white border border-white/20 shadow-xl z-30 tracking-tight">
+        #{{ displaySequence }}
       </div>
 
       <!-- Play Overlay -->
@@ -73,12 +74,12 @@ const handleImageLoad = () => {
       <div v-if="isFinished" class="absolute bottom-0 left-0 h-1.5 w-full bg-green-500 z-30 shadow-[0_0_10px_rgba(34,197,94,0.3)]" />
     </div>
     
-    <!-- Permanent Metadata Display (Condensed, Matte Style) -->
-    <div v-if="showMetadata" class="mt-3 px-1 space-y-0.5">
-      <h3 class="text-[10px] font-bold text-white truncate uppercase tracking-tight leading-none group-hover:text-purple-400 transition-colors">
+    <!-- Permanent Metadata Display -->
+    <div v-if="showMetadata" class="mt-3 px-1 space-y-1">
+      <h3 class="text-[11px] font-black text-white truncate uppercase tracking-tight leading-tight group-hover:text-purple-400 transition-colors">
         {{ item.media.metadata.title }}
       </h3>
-      <p class="text-[8px] font-black text-neutral-500 uppercase tracking-widest truncate">
+      <p class="text-[9px] font-black text-neutral-500 uppercase tracking-widest truncate">
         {{ item.media.metadata.authorName }}
       </p>
     </div>

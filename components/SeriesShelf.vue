@@ -33,7 +33,7 @@ const fetchMoreSeries = async (isInitial = false) => {
     const params: LibraryQueryParams = {
       limit: ITEMS_PER_FETCH,
       offset: isInitial ? 0 : offset.value,
-      sort: props.sortMethod === 'addedAt' ? 'addedDate' : props.sortMethod,
+      sort: props.sortMethod,
       desc: props.desc
     };
     
@@ -48,6 +48,8 @@ const fetchMoreSeries = async (isInitial = false) => {
       
       if (uniqueResults.length > 0) {
         seriesItems.value.push(...uniqueResults);
+        offset.value += results.length;
+      } else if (results.length > 0) {
         offset.value += results.length;
       }
     }
@@ -115,8 +117,11 @@ watch(() => [props.sortMethod, props.desc], () => reset());
         />
       </div>
 
-      <div id="series-scroll-sentinel" ref="sentinelRef" class="h-24 w-full flex items-center justify-center mt-12 mb-20">
-        <Loader2 v-if="isLoading" class="animate-spin text-purple-500" :size="24" />
+      <div id="series-scroll-sentinel" ref="sentinelRef" class="h-32 w-full flex items-center justify-center mt-12 mb-20">
+        <div v-if="isLoading" class="flex flex-col items-center gap-4">
+          <Loader2 class="animate-spin text-purple-500" :size="32" />
+          <p class="text-[8px] font-black uppercase tracking-[0.4em] text-neutral-700">Categorizing Artifact Stacks...</p>
+        </div>
         <span v-else-if="seriesItems.length >= totalSeries && totalSeries > 0" class="text-[8px] font-black uppercase tracking-[0.6em] text-neutral-800">
           ARCHIVE END REACHED
         </span>

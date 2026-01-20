@@ -25,10 +25,6 @@ const sentinelRef = ref<HTMLElement | null>(null);
 
 const ITEMS_PER_FETCH = 20;
 
-const filteredBooks = computed(() => {
-  return libraryItems.value;
-});
-
 const fetchMoreItems = async (isInitial = false) => {
   if (isLoading.value) return;
   // If not initial, check if we've reached the end
@@ -55,6 +51,10 @@ const fetchMoreItems = async (isInitial = false) => {
       
       if (uniqueResults.length > 0) {
         libraryItems.value.push(...uniqueResults);
+        offset.value += results.length;
+      } else if (results.length > 0) {
+        // If we got results but they weren't unique, we still need to increment offset 
+        // to eventually move past them if sorting is unstable
         offset.value += results.length;
       }
     }
@@ -112,14 +112,14 @@ watch(() => [props.sortMethod, props.desc, props.search], () => reset());
 <template>
   <div class="h-full flex flex-col">
     <div class="flex-1 overflow-y-auto custom-scrollbar px-2 pb-40 relative">
-      <div v-if="filteredBooks.length === 0 && !isLoading" class="flex flex-col items-center justify-center py-40 text-center opacity-40">
+      <div v-if="libraryItems.length === 0 && !isLoading" class="flex flex-col items-center justify-center py-40 text-center opacity-40">
         <PackageOpen :size="64" class="text-neutral-800 mb-6" />
         <h3 class="text-xl font-black uppercase tracking-tighter">No artifacts found</h3>
       </div>
 
       <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-x-6 gap-y-12">
         <BookCard 
-          v-for="item in filteredBooks" 
+          v-for="item in libraryItems" 
           :key="item.id"
           :item="item"
           :coverUrl="absService.getCoverUrl(item.id)"
@@ -128,8 +128,11 @@ watch(() => [props.sortMethod, props.desc, props.search], () => reset());
         />
       </div>
 
-      <div id="scroll-sentinel" ref="sentinelRef" class="h-20 w-full flex items-center justify-center mt-12 mb-20">
-        <Loader2 v-if="isLoading" class="animate-spin text-purple-500" :size="24" />
+      <div id="scroll-sentinel" ref="sentinelRef" class="h-32 w-full flex items-center justify-center mt-12 mb-20">
+        <div v-if="isLoading" class="flex flex-col items-center gap-4">
+          <Loader2 class="animate-spin text-purple-500" :size="32" />
+          <p class="text-[8px] font-black uppercase tracking-[0.4em] text-neutral-700">Deciphering Archive Index...</p>
+        </div>
         <span v-else-if="libraryItems.length >= totalItems && totalItems > 0" class="text-[8px] font-black uppercase tracking-[0.6em] text-neutral-800">
           INDEX REACHED END
         </span>
