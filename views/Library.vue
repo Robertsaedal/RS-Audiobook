@@ -159,13 +159,21 @@ const filteredReading = computed(() => {
   const list = currentlyReading.value;
   if (!trimmedSearch.value) return list;
   const term = trimmedSearch.value.toLowerCase();
-  return list.filter(i => i.media.metadata.title.toLowerCase().includes(term) || i.media.metadata.authorName.toLowerCase().includes(term));
+  return list.filter(i => 
+    i.media.metadata.title.toLowerCase().includes(term) || 
+    i.media.metadata.authorName.toLowerCase().includes(term) ||
+    (i.media.metadata.seriesName && i.media.metadata.seriesName.toLowerCase().includes(term))
+  );
 });
 
 const filteredAdded = computed(() => {
   if (!trimmedSearch.value) return recentlyAdded.value;
   const term = trimmedSearch.value.toLowerCase();
-  return recentlyAdded.value.filter(i => i.media.metadata.title.toLowerCase().includes(term) || i.media.metadata.authorName.toLowerCase().includes(term));
+  return recentlyAdded.value.filter(i => 
+    i.media.metadata.title.toLowerCase().includes(term) || 
+    i.media.metadata.authorName.toLowerCase().includes(term) ||
+    (i.media.metadata.seriesName && i.media.metadata.seriesName.toLowerCase().includes(term))
+  );
 });
 
 const isHomeEmpty = computed(() => {
@@ -262,7 +270,7 @@ const isHomeEmpty = computed(() => {
         </div>
 
         <div v-else-if="activeTab === 'SERIES' && absService" class="h-full flex flex-col overflow-hidden">
-          <SeriesShelf :absService="absService" :sortMethod="sortMethod" :desc="desc" @select-series="selectedSeries = $event" />
+          <SeriesShelf :absService="absService" :sortMethod="sortMethod" :desc="desc" :search="trimmedSearch" @select-series="selectedSeries = $event" />
         </div>
 
         <div v-else-if="activeTab === 'REQUEST'" class="h-full flex flex-col overflow-hidden">

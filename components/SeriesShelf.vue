@@ -9,7 +9,8 @@ const props = defineProps<{
   absService: ABSService,
   isStreaming?: boolean,
   sortMethod: string,
-  desc: number
+  desc: number,
+  search?: string
 }>();
 
 const emit = defineEmits<{
@@ -50,7 +51,8 @@ const fetchMoreSeries = async (isInitial = false) => {
       limit: ITEMS_PER_FETCH,
       offset: fetchOffset,
       sort: props.sortMethod,
-      desc: props.desc
+      desc: props.desc,
+      search: props.search
     };
     
     console.log(`📡 [SeriesShelf] Querying Page: Offset ${params.offset}, Sort ${params.sort}`);
@@ -164,7 +166,7 @@ onUnmounted(() => {
   observer?.disconnect();
 });
 
-watch(() => [props.sortMethod, props.desc], () => reset());
+watch(() => [props.sortMethod, props.desc, props.search], () => reset());
 </script>
 
 <template>
@@ -257,5 +259,8 @@ watch(() => [props.sortMethod, props.desc], () => reset());
 .custom-scrollbar::-webkit-scrollbar-thumb {
   background: rgba(168, 85, 247, 0.1);
   border-radius: 10px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(168, 85, 247, 0.3);
 }
 </style>

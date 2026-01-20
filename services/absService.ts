@@ -167,7 +167,6 @@ export class ABSService {
     query.append('limit', limit.toString());
     query.append('offset', offset.toString());
     
-    // Add page calculation for series as well
     const page = Math.floor(offset / limit);
     query.append('page', page.toString());
     
@@ -175,6 +174,9 @@ export class ABSService {
     if (sort) query.append('sort', sort);
     if (params.desc !== undefined) query.append('desc', params.desc.toString());
     
+    // Add search support for series
+    if (params.search) query.append('search', params.search);
+
     query.append('include', 'books'); 
     query.append('_cb', Date.now().toString());
 

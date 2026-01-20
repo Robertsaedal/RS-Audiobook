@@ -25,7 +25,17 @@ const progress = computed(() => {
 });
 
 const isFinished = computed(() => props.item?.userProgress?.isFinished || false);
-const displaySequence = computed(() => props.item?.media?.metadata?.sequence || props.fallbackSequence);
+
+const displaySequence = computed(() => {
+  const raw = props.item?.media?.metadata?.sequence || props.fallbackSequence;
+  if (raw === undefined || raw === null || raw === '') return null;
+  
+  const num = parseFloat(String(raw));
+  if (isNaN(num)) return raw;
+  
+  // Format: 1.0 -> 1, 1.5 -> 1.5
+  return num % 1 === 0 ? Math.floor(num) : num;
+});
 
 const handleImageLoad = () => {
   imageReady.value = true;
@@ -53,7 +63,7 @@ const handleImageLoad = () => {
       />
       
       <!-- Book Sequence Badge (Top Right Pill) -->
-      <div v-if="displaySequence" class="absolute top-2.5 right-2.5 bg-purple-600/90 backdrop-blur-md px-2.5 py-1 rounded-full flex items-center justify-center text-[10px] font-black text-white border border-white/20 shadow-xl z-30 tracking-tight">
+      <div v-if="displaySequence !== null" class="absolute top-2.5 right-2.5 bg-purple-600/90 backdrop-blur-md px-2.5 py-1 rounded-full flex items-center justify-center text-[10px] font-black text-white border border-white/20 shadow-xl z-30 tracking-tight">
         #{{ displaySequence }}
       </div>
 
@@ -76,7 +86,7 @@ const handleImageLoad = () => {
     
     <!-- Permanent Metadata Display -->
     <div v-if="showMetadata" class="mt-3 px-1 space-y-1">
-      <h3 class="text-[11px] font-black text-white truncate uppercase tracking-tight leading-tight group-hover:text-purple-400 transition-colors">
+      <h3 class="text-[11px] font-black text-white uppercase tracking-tight leading-[1.2] h-[2.4em] group-hover:text-purple-400 transition-colors line-clamp-2 overflow-hidden">
         {{ item.media.metadata.title }}
       </h3>
       <p class="text-[9px] font-black text-neutral-500 uppercase tracking-widest truncate">
