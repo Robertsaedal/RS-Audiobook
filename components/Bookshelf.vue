@@ -3,7 +3,7 @@ import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { ABSLibraryItem, ABSProgress } from '../types';
 import { ABSService, LibraryQueryParams } from '../services/absService';
 import BookCard from './BookCard.vue';
-import { PackageOpen, Loader2 } from 'lucide-vue-next';
+import { PackageOpen, Loader2, Plus } from 'lucide-vue-next';
 
 const props = defineProps<{
   absService: ABSService,
@@ -23,7 +23,7 @@ const isLoading = ref(false);
 const scrollContainerRef = ref<HTMLElement | null>(null);
 const sentinelRef = ref<HTMLElement | null>(null);
 
-// Batch size optimized for modern displays
+// Batch size optimized for modern displays and reliability
 const ITEMS_PER_FETCH = 60;
 
 /**
@@ -64,11 +64,15 @@ const fetchMoreItems = async (isInitial = false) => {
 
     // Wait for DOM to update then check if we need to fill more screen space
     await nextTick();
-    if (libraryItems.value.length < totalItems.value && scrollContainerRef.value) {
-      const container = scrollContainerRef.value;
-      // If there is no scrollbar (scrollHeight <= clientHeight), fetch the next page immediately
-      if (container.scrollHeight <= container.clientHeight + 50) {
-        isLoading.value = false; // Allow immediate recursion
+    
+    // Safety check: if the sentinel is still visible/near the viewport, trigger another fetch immediately
+    const sentinel = sentinelRef.value;
+    if (sentinel && libraryItems.value.length < totalItems.value) {
+      const rect = sentinel.getBoundingClientRect();
+      // If the sentinel is still near the viewport, force next fetch recursively
+      if (rect.top < window.innerHeight + 1000) {
+        console.log("Sentinel still visible/near, force-fetching next page...");
+        isLoading.value = false; // Temporarily reset to allow recursion bypass
         await fetchMoreItems(false);
       }
     }
@@ -82,26 +86,26 @@ const fetchMoreItems = async (isInitial = false) => {
 let observer: IntersectionObserver | null = null;
 const setupObserver = () => {
   if (observer) observer.disconnect();
-  if (!scrollContainerRef.value || !sentinelRef.value) return;
+  if (!sentinelRef.value) return;
 
+  // root: null defaults to the browser viewport for absolute reliability across nested layouts
   observer = new IntersectionObserver((entries) => {
-    // Trigger when sentinel enters the viewport + margin
     if (entries[0].isIntersecting && !isLoading.value) {
       if (totalItems.value === 0 || libraryItems.value.length < totalItems.value) {
         fetchMoreItems();
       }
     }
   }, { 
-    threshold: 0, // Trigger as soon as the first pixel of the margin enters
-    rootMargin: '600px', // Fetch well before hitting bottom
-    root: scrollContainerRef.value 
+    threshold: 0, // Trigger as soon as the first pixel enters the root area
+    rootMargin: '800px', // Fetch well before hitting bottom
+    root: null 
   });
   
   observer.observe(sentinelRef.value);
 };
 
 const reset = async () => {
-  // Clean up existing observer before reset
+  // Prevent observer collisions during reset
   if (observer) observer.disconnect();
   
   libraryItems.value = [];
@@ -139,7 +143,7 @@ watch(() => [props.sortMethod, props.desc, props.search], () => reset());
 
 <template>
   <div class="flex-1 h-full min-h-0 flex flex-col overflow-hidden">
-    <!-- Explicitly anchored scroll container -->
+    <!-- Main scroll container -->
     <div ref="scrollContainerRef" class="flex-1 overflow-y-auto custom-scrollbar px-2 pb-40 relative">
       
       <!-- Empty State -->
@@ -160,13 +164,24 @@ watch(() => [props.sortMethod, props.desc, props.search], () => reset());
         />
       </div>
 
-      <!-- Detection Sentinel: Fixed height ensures visibility for IntersectionObserver -->
-      <div ref="sentinelRef" class="h-20 w-full flex items-center justify-center mt-12 mb-20">
+      <!-- Detection Sentinel: Direct sibling to grid, within scroll container -->
+      <div ref="sentinelRef" class="h-24 w-full flex flex-col items-center justify-center mt-12 mb-24 gap-6">
         <div v-if="isLoading" class="flex flex-col items-center gap-4">
           <Loader2 class="animate-spin text-purple-500" :size="32" />
           <p class="text-[8px] font-black uppercase tracking-[0.4em] text-neutral-700">Accessing Index...</p>
         </div>
-        <span v-else-if="libraryItems.length >= totalItems && totalItems > 0" class="text-[8px] font-black uppercase tracking-[0.6em] text-neutral-800/20">
+        
+        <!-- Manual Fetch Fallback -->
+        <button 
+          v-if="!isLoading && libraryItems.length < totalItems && totalItems > 0"
+          @click="fetchMoreItems()"
+          class="flex items-center gap-3 px-6 py-3 bg-neutral-900/60 border border-white/5 rounded-full text-[9px] font-black uppercase tracking-[0.4em] text-neutral-500 hover:text-purple-400 hover:border-purple-500/20 transition-all active:scale-95"
+        >
+          <Plus :size="14" />
+          <span>Load More (Manual)</span>
+        </button>
+
+        <span v-else-if="!isLoading && libraryItems.length >= totalItems && totalItems > 0" class="text-[8px] font-black uppercase tracking-[0.6em] text-neutral-800/20">
           INDEX TERMINUS REACHED
         </span>
       </div>
