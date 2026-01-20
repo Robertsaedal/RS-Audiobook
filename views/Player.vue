@@ -6,7 +6,7 @@ import { usePlayer } from '../composables/usePlayer';
 import ChapterEditor from '../components/ChapterEditor.vue';
 import { 
   ChevronDown, Play, Pause, Info, X, SkipBack, SkipForward,
-  RotateCcw, RotateCw, ChevronRight, Gauge, Moon, Plus, Minus, Database, Mic, Clock, User, Book, Layers, Edit3
+  RotateCcw, RotateCw, ChevronRight, Gauge, Moon, Plus, Minus, Database, Mic, Clock, User, Book, Layers
 } from 'lucide-vue-next';
 
 const props = defineProps<{
@@ -20,11 +20,10 @@ const emit = defineEmits<{
   (e: 'item-updated', updatedItem: ABSLibraryItem): void
 }>();
 
-const { state, load, play, pause, seek, setPlaybackRate, destroy } = usePlayer();
+const { state, load, play, pause, seek, setPlaybackRate, setSleepTimer, destroy } = usePlayer();
 
 const showChapters = ref(false);
 const showInfo = ref(false);
-const showChapterEditor = ref(false);
 
 const coverUrl = computed(() => {
   const baseUrl = props.auth.serverUrl.replace(/\/api\/?$/, '').replace(/\/+$/, '');
@@ -46,17 +45,18 @@ const currentChapterIndex = computed(() => {
 
 const currentChapter = computed(() => currentChapterIndex.value !== -1 ? chapters.value[currentChapterIndex.value] : null);
 
-const chapterProgressPercent = computed(() => {
-  if (!currentChapter.value) return 0;
-  const chapterDuration = currentChapter.value.end - currentChapter.value.start;
-  if (chapterDuration <= 0) return 0;
-  const elapsedInChapter = Math.max(0, state.currentTime - currentChapter.value.start);
-  return Math.min(100, (elapsedInChapter / chapterDuration) * 100);
+// Full Book Progress Calculation
+const totalProgressPercent = computed(() => {
+  if (state.duration <= 0) return 0;
+  return Math.min(100, (state.currentTime / state.duration) * 100);
 });
 
-const timeRemainingInChapter = computed(() => {
-  if (!currentChapter.value) return 0;
-  return Math.max(0, currentChapter.value.end - state.currentTime);
+// Sleep Timer Formatting MM:SS
+const sleepTimerDisplay = computed(() => {
+  if (state.sleepTimer <= 0) return "OFF";
+  const m = Math.floor(state.sleepTimer / 60);
+  const s = Math.floor(state.sleepTimer % 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
 });
 
 const secondsToTimestamp = (s: number) => {
@@ -94,22 +94,20 @@ const skipToPrevChapter = () => {
   }
 };
 
-const handleChapterClick = (time: number) => {
+const handleChapterSeek = (time: number) => {
   seek(time);
-  showChapters.value = false;
 };
 
-const handleChapterProgressClick = (e: MouseEvent) => {
+const handleGlobalProgressClick = (e: MouseEvent) => {
   const el = e.currentTarget as HTMLElement;
   const rect = el.getBoundingClientRect();
   const ratio = (e.clientX - rect.left) / rect.width;
-  
-  if (currentChapter.value) {
-    const chapterDur = currentChapter.value.end - currentChapter.value.start;
-    seek(currentChapter.value.start + (ratio * chapterDur));
-  } else {
-    seek(ratio * state.duration);
-  }
+  seek(ratio * state.duration);
+};
+
+const adjustSleepTimer = (minutes: number) => {
+  const currentMinutes = state.sleepTimer / 60;
+  setSleepTimer(Math.max(0, currentMinutes + minutes));
 };
 
 const handleSeriesClick = () => {
@@ -119,11 +117,15 @@ const handleSeriesClick = () => {
   }
 };
 
-const onChaptersSaved = (updatedItem: ABSLibraryItem) => {
-  emit('item-updated', updatedItem);
-};
-
 const metadata = computed(() => props.item?.media?.metadata || {});
+
+// Requested series format
+const formattedSeriesInfo = computed(() => {
+  if (!metadata.value.seriesName) return null;
+  const seq = metadata.value.sequence || '1';
+  // We use sequence as a best guess for total if not explicitly provided in the library item metadata
+  return `${metadata.value.seriesName} nr${seq} - Book ${seq}`;
+});
 
 const infoRows = computed(() => {
   const narratorValue = metadata.value.narratorName || 'Unknown Narrator';
@@ -176,8 +178,8 @@ const infoRows = computed(() => {
         </div>
         <div class="text-center space-y-4 w-full max-w-md px-4 z-10">
           <div class="space-y-1">
-            <p v-if="metadata.seriesName" class="text-[8px] font-black uppercase tracking-[0.4em] text-neutral-500">
-              {{ metadata.seriesName }} <span class="mx-1 text-purple-900">—</span> BOOK {{ metadata.sequence || '01' }}
+            <p v-if="formattedSeriesInfo" class="text-[8px] font-black uppercase tracking-[0.4em] text-neutral-500">
+              {{ formattedSeriesInfo }}
             </p>
             <h1 class="text-lg md:text-xl font-black uppercase tracking-tight text-white leading-tight line-clamp-2">{{ metadata.title }}</h1>
             <p class="text-[9px] font-black uppercase tracking-[0.3em] text-neutral-600">{{ metadata.authorName }}</p>
@@ -190,14 +192,29 @@ const infoRows = computed(() => {
       </div>
 
       <footer class="px-10 pb-16 space-y-12 max-w-xl mx-auto w-full z-20">
+        <!-- Full Book Progress Bar -->
         <div class="space-y-4">
-          <div class="h-1.5 w-full bg-neutral-900 rounded-full relative cursor-pointer overflow-hidden group" @click="handleChapterProgressClick">
-            <div class="absolute inset-y-0 left-0 bg-yellow-500 shadow-[0_0_12px_rgba(234,179,8,0.5)] transition-all duration-150" :style="{ width: chapterProgressPercent + '%' }" />
+          <div 
+            class="h-1.5 w-full bg-neutral-900 rounded-full relative cursor-pointer overflow-hidden group" 
+            @click="handleGlobalProgressClick"
+          >
+            <!-- Chapter Markers -->
+            <div 
+              v-for="ch in chapters" 
+              :key="ch.start"
+              class="absolute top-0 bottom-0 w-px bg-white/20 z-10"
+              :style="{ left: (ch.start / state.duration) * 100 + '%' }"
+            />
+            
+            <div 
+              class="absolute inset-y-0 left-0 bg-yellow-500 shadow-[0_0_12px_rgba(234,179,8,0.5)] transition-all duration-150 z-0" 
+              :style="{ width: totalProgressPercent + '%' }"
+            />
           </div>
           <div class="flex justify-between items-center text-[8px] font-bold font-mono text-neutral-600 tracking-widest tabular-nums uppercase">
-            <span>{{ secondsToTimestamp(state.currentTime - (currentChapter?.start || 0)) }}</span>
-            <span class="text-purple-500/40 font-black">Segment Progress</span>
-            <span>-{{ secondsToTimestamp(timeRemainingInChapter) }}</span>
+            <span>{{ secondsToTimestamp(state.currentTime) }}</span>
+            <span class="text-purple-500/40 font-black">Archive Timeline</span>
+            <span>-{{ secondsToTimestamp(state.duration - state.currentTime) }}</span>
           </div>
         </div>
 
@@ -221,46 +238,31 @@ const infoRows = computed(() => {
               <button @click="setPlaybackRate(Math.min(2.5, state.playbackRate + 0.1))" class="p-1 text-neutral-600 hover:text-white"><Plus :size="14" /></button>
             </div>
           </div>
+          <!-- Real-Time Sleep Timer (Minutes) -->
           <div class="bg-neutral-900/20 border border-white/5 rounded-[24px] p-5 flex flex-col items-center gap-4">
             <div class="flex items-center gap-2 text-[8px] font-black uppercase tracking-[0.3em] text-neutral-700"><Moon :size="12" /><span>Sleep</span></div>
             <div class="flex items-center justify-between w-full px-2">
-              <button @click="state.sleepChapters = Math.max(0, state.sleepChapters - 1)" class="p-1 text-neutral-600 hover:text-white"><Minus :size="14" /></button>
+              <button @click="adjustSleepTimer(-5)" class="p-1 text-neutral-600 hover:text-white"><Minus :size="14" /></button>
               <div class="flex flex-col items-center">
-                 <span v-if="state.sleepChapters > 0" class="text-[9px] font-black text-purple-500">{{ state.sleepChapters }} Ch left</span>
-                 <span v-else class="text-xs font-black font-mono text-neutral-600">OFF</span>
+                 <span v-if="state.sleepTimer > 0" class="text-[9px] font-black text-purple-500 tracking-tighter">{{ sleepTimerDisplay }} left</span>
+                 <span v-else class="text-xs font-black font-mono text-neutral-600 uppercase">OFF</span>
               </div>
-              <button @click="state.sleepChapters = Math.min(10, state.sleepChapters + 1)" class="p-1 text-neutral-600 hover:text-white"><Plus :size="14" /></button>
+              <button @click="adjustSleepTimer(5)" class="p-1 text-neutral-600 hover:text-white"><Plus :size="14" /></button>
             </div>
           </div>
         </div>
       </footer>
     </template>
 
-    <!-- Index Overlay -->
-    <Transition name="slide-up">
-      <div v-if="showChapters" class="fixed inset-0 bg-black/95 backdrop-blur-3xl z-[150] flex flex-col">
-        <header class="p-10 flex justify-between items-center bg-transparent shrink-0">
-          <div class="space-y-1">
-            <h2 class="text-xl font-black uppercase tracking-tighter text-white">ARCHIVE INDEX</h2>
-            <p class="text-[8px] font-black uppercase tracking-[0.5em] text-purple-700">Captured Volume Segments</p>
-          </div>
-          <div class="flex items-center gap-4">
-            <button @click="showChapterEditor = true" class="p-4 bg-purple-600/10 border border-purple-500/20 rounded-full text-purple-400 hover:text-white transition-all active:scale-90">
-              <Edit3 :size="20"/>
-            </button>
-            <button @click="showChapters = false" class="p-4 bg-neutral-900/50 rounded-full text-neutral-500 hover:text-white border border-white/5 transition-all"><X :size="20"/></button>
-          </div>
-        </header>
-        <div class="flex-1 overflow-y-auto p-8 no-scrollbar max-w-2xl mx-auto w-full pb-32">
-          <button v-for="(ch, i) in chapters" :key="i" @click="handleChapterClick(ch.start)" class="w-full flex items-center justify-between p-6 rounded-[24px] mb-3 transition-all border border-transparent group text-left" :class="currentChapterIndex === i ? 'bg-purple-600/10 border-purple-500/20' : 'hover:bg-white/5'">
-            <div class="flex flex-col gap-1">
-              <span class="text-xs font-black uppercase tracking-tight" :class="currentChapterIndex === i ? 'text-white' : 'text-neutral-500'">{{ ch.title }}</span>
-              <span class="text-[9px] font-mono text-neutral-700 tabular-nums">{{ secondsToTimestamp(ch.start) }}</span>
-            </div>
-          </button>
-        </div>
-      </div>
-    </Transition>
+    <!-- Unified Chapter Selector Component -->
+    <ChapterEditor 
+      v-if="showChapters" 
+      :item="item" 
+      :currentTime="state.currentTime"
+      :isPlaying="state.isPlaying"
+      @close="showChapters = false"
+      @seek="handleChapterSeek"
+    />
 
     <!-- Info Overlay -->
     <Transition name="slide-up">
@@ -288,14 +290,6 @@ const infoRows = computed(() => {
         </div>
       </div>
     </Transition>
-
-    <ChapterEditor 
-      v-if="showChapterEditor" 
-      :item="item" 
-      :auth="auth" 
-      @close="showChapterEditor = false"
-      @saved="onChaptersSaved"
-    />
   </div>
 </template>
 

@@ -9,6 +9,7 @@ import SeriesView from './SeriesView.vue';
 import RequestPortal from '../components/RequestPortal.vue';
 import BookCard from '../components/BookCard.vue';
 import SeriesCard from '../components/SeriesCard.vue';
+import ContinueListening from '../components/ContinueListening.vue';
 
 const props = defineProps<{
   auth: AuthState,
@@ -155,7 +156,15 @@ const filteredAdded = computed(() => {
 
       <template v-else>
         <div v-if="activeTab === 'HOME'" class="h-full bg-[#0d0d0d] overflow-y-auto custom-scrollbar -mx-4 md:-mx-8 px-4 md:px-8 pt-4 pb-40">
-          <section v-if="filteredReading.length > 0" class="shelf-row">
+          
+          <!-- New Curated Shelf (Top Priority) -->
+          <ContinueListening 
+            v-if="!searchTerm" 
+            :absService="absService" 
+            @resume-book="emit('select-item', $event)"
+          />
+
+          <section v-if="filteredReading.length > 0 && searchTerm" class="shelf-row">
             <div class="shelf-tag">
               <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Currently Listening</span>
             </div>

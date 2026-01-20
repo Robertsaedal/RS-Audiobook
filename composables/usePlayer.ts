@@ -13,7 +13,7 @@ interface PlayerState {
   error: string | null;
   sessionId: string | null;
   isHls: boolean;
-  sleepChapters: number;
+  sleepTimer: number; // Remaining seconds for sleep
 }
 
 const state = reactive<PlayerState>({
@@ -26,7 +26,7 @@ const state = reactive<PlayerState>({
   error: null,
   sessionId: null,
   isHls: false,
-  sleepChapters: 0
+  sleepTimer: 0
 });
 
 let audioEl: HTMLAudioElement | null = null;
@@ -47,7 +47,6 @@ let activeAuth: AuthState | null = null;
 
 export function usePlayer() {
   const initialize = () => {
-    // Ported from LocalAudioPlayer.initialize(): Global element management
     const existing = document.getElementById('audio-player');
     if (existing) {
       existing.remove();
@@ -84,32 +83,25 @@ export function usePlayer() {
   };
 
   const onEvtEnded = async () => {
-    // Ported from LocalAudioPlayer.evtEnded()
     if (!state.isHls && currentTrackIndex < audioTracks.length - 1) {
-      console.log(`[LocalPlayer] Track ended - loading next track ${currentTrackIndex + 1}`);
       currentTrackIndex++;
       startTime = audioTracks[currentTrackIndex].startOffset;
       loadCurrentTrack();
     } else {
-      console.log(`[LocalPlayer] Ended`);
       state.isPlaying = false;
     }
   };
 
   const onEvtError = (e: any) => {
     if (state.isLoading || !audioEl?.src) return;
-    console.error('[LocalPlayer] Player error', e);
     state.error = "Archive stream interrupted. Attempting reconnection...";
   };
 
   const onEvtLoadedMetadata = () => {
-    // Ported from LocalAudioPlayer.evtLoadedMetadata()
     if (audioEl && !state.isHls) {
       audioEl.currentTime = trackStartTime;
     }
-
     state.isLoading = false;
-
     if (playWhenReady) {
       playWhenReady = false;
       play();
@@ -118,25 +110,8 @@ export function usePlayer() {
 
   const onEvtTimeupdate = () => {
     if (!audioEl) return;
-    // Mirrored from getCurrentTime() logic
     const currentTrackOffset = audioTracks[currentTrackIndex]?.startOffset || 0;
     state.currentTime = currentTrackOffset + audioEl.currentTime;
-    checkSleepTimer();
-  };
-
-  const checkSleepTimer = () => {
-    if (state.sleepChapters <= 0 || !activeItem?.media?.chapters) return;
-    const chapters = activeItem.media.chapters;
-    const currentIdx = chapters.findIndex((ch, i) => 
-      state.currentTime >= ch.start && (i === chapters.length - 1 || state.currentTime < (chapters[i+1]?.start || ch.end))
-    );
-    if (currentIdx === -1) return;
-    const targetIdx = currentIdx + (state.sleepChapters - 1);
-    const targetChapter = chapters[Math.min(targetIdx, chapters.length - 1)];
-    if (state.currentTime >= targetChapter.end - 0.5) {
-      pause();
-      state.sleepChapters = 0;
-    }
   };
 
   const getFullUrl = (relativeUrl: string) => {
@@ -147,7 +122,6 @@ export function usePlayer() {
   };
 
   const loadCurrentTrack = () => {
-    // Ported from LocalAudioPlayer.loadCurrentTrack()
     const currentTrack = audioTracks[currentTrackIndex];
     if (!currentTrack || !audioEl) return;
 
@@ -155,15 +129,11 @@ export function usePlayer() {
     trackStartTime = Math.max(0, startTime - (currentTrack.startOffset || 0));
     
     const url = getFullUrl(currentTrack.contentUrl);
-    console.log(`[LocalPlayer] Loading track src ${url}`);
-    
-    // Assigning src as instructed to avoid race conditions
     audioEl.src = url;
     audioEl.load();
   };
 
   const setHlsStream = () => {
-    // Ported from LocalAudioPlayer.setHlsStream()
     trackStartTime = 0;
     currentTrackIndex = 0;
 
@@ -171,7 +141,6 @@ export function usePlayer() {
     const url = getFullUrl(currentTrack.contentUrl);
 
     if (!Hls.isSupported()) {
-      console.warn('HLS is not supported - fallback to using native audio element');
       if (audioEl) {
         audioEl.src = url;
         audioEl.currentTime = startTime;
@@ -179,27 +148,19 @@ export function usePlayer() {
       return;
     }
 
-    // Official ABS Fragment Retry Policy implementation
     const hlsOptions: any = {
       startPosition: startTime || -1,
       fragLoadPolicy: {
         default: {
           maxTimeToFirstByteMs: 10000,
           maxLoadTimeMs: 120000,
-          timeoutRetry: {
-            maxNumRetry: 4,
-            retryDelayMs: 0,
-            maxRetryDelayMs: 0
-          },
+          timeoutRetry: { maxNumRetry: 4, retryDelayMs: 0, maxRetryDelayMs: 0 },
           errorRetry: {
             maxNumRetry: 8,
             retryDelayMs: 1000,
             maxRetryDelayMs: 8000,
             shouldRetry: (retryConfig: any, retryCount: number, isTimeout: boolean, httpStatus: any, retry: boolean) => {
-              if (httpStatus?.code === 404 && retryConfig?.maxNumRetry > retryCount) {
-                console.log(`[HLS] Server 404 for fragment retry ${retryCount} of ${retryConfig.maxNumRetry}`);
-                return true;
-              }
+              if (httpStatus?.code === 404 && retryConfig?.maxNumRetry > retryCount) return true;
               return retry;
             }
           }
@@ -211,9 +172,7 @@ export function usePlayer() {
     hls = new Hls(hlsOptions);
     if (audioEl) {
       hls.attachMedia(audioEl);
-      hls.on(Hls.Events.MEDIA_ATTACHED, () => {
-        hls!.loadSource(url);
-      });
+      hls.on(Hls.Events.MEDIA_ATTACHED, () => hls!.loadSource(url));
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         state.isLoading = false;
         if (playWhenReady) {
@@ -234,14 +193,25 @@ export function usePlayer() {
     stopHeartbeat();
     lastTickTime = Date.now();
     syncInterval = setInterval(() => {
-      if (!state.isPlaying || !state.sessionId) return;
       const now = Date.now();
       const delta = (now - lastTickTime) / 1000;
       lastTickTime = now;
-      listeningTimeSinceSync += delta;
-      if (listeningTimeSinceSync >= 10) {
-        absService?.syncSession(state.sessionId, Math.floor(listeningTimeSinceSync), state.currentTime);
-        listeningTimeSinceSync = 0;
+
+      if (state.isPlaying) {
+        // Handle Sleep Timer Countdown
+        if (state.sleepTimer > 0) {
+          state.sleepTimer = Math.max(0, state.sleepTimer - delta);
+          if (state.sleepTimer === 0) {
+            pause();
+          }
+        }
+
+        // Handle Session Sync
+        listeningTimeSinceSync += delta;
+        if (listeningTimeSinceSync >= 10 && state.sessionId) {
+          absService?.syncSession(state.sessionId, Math.floor(listeningTimeSinceSync), state.currentTime);
+          listeningTimeSinceSync = 0;
+        }
       }
     }, 1000);
   };
@@ -282,7 +252,6 @@ export function usePlayer() {
       if (state.isHls) {
         setHlsStream();
       } else {
-        // Ported from setDirectPlay() logic
         const trackIndex = audioTracks.findIndex((t) => startTime >= t.startOffset && startTime < t.startOffset + t.duration);
         currentTrackIndex = trackIndex >= 0 ? trackIndex : 0;
         loadCurrentTrack();
@@ -315,7 +284,6 @@ export function usePlayer() {
   const pause = () => audioEl?.pause();
 
   const seek = (time: number) => {
-    // Ported from LocalAudioPlayer.seek()
     if (!audioEl) return;
     const target = Math.max(0, Math.min(time, state.duration));
     playWhenReady = state.isPlaying;
@@ -345,8 +313,11 @@ export function usePlayer() {
     if (audioEl) audioEl.playbackRate = rate;
   };
 
+  const setSleepTimer = (minutes: number) => {
+    state.sleepTimer = minutes * 60;
+  };
+
   const getLastBufferedTime = () => {
-    // Ported from LocalAudioPlayer.getLastBufferedTime()
     if (!audioEl) return 0;
     const seekable = audioEl.buffered;
     const ranges = [];
@@ -378,6 +349,7 @@ export function usePlayer() {
     state.isPlaying = false;
     activeItem = null;
     activeAuth = null;
+    state.sleepTimer = 0;
   };
 
   return {
@@ -387,6 +359,7 @@ export function usePlayer() {
     pause,
     seek,
     setPlaybackRate,
+    setSleepTimer,
     destroy
   };
 }

@@ -1,4 +1,3 @@
-
 import { ABSUser, ABSLibraryItem, ABSProgress, ABSPlaybackSession, ABSSeries } from '../types';
 import { io, Socket } from 'socket.io-client';
 
@@ -201,6 +200,12 @@ export class ABSService {
     else total = results.length;
 
     return { results, total };
+  }
+
+  async getShelves(): Promise<any[]> {
+    const libId = await this.ensureLibraryId();
+    if (!libId) return [];
+    return this.fetchApi(`/libraries/${libId}/shelves`);
   }
 
   async scanLibrary(): Promise<boolean> {
