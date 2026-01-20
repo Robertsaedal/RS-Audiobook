@@ -207,19 +207,18 @@ export class ABSService {
     return { books, series };
   }
 
-  async getListeningSessions(): Promise<ABSLibraryItem[]> {
-    if (!this.userId) return [];
-    const data = await this.fetchApi(`/users/${this.userId}/listening-sessions?_cb=${Date.now()}`);
-    const sessions = data?.sessions || data || [];
-    const items: ABSLibraryItem[] = [];
-    const seen = new Set();
-    for (const session of sessions) {
-      if (session.libraryItem && !seen.has(session.libraryItem.id)) {
-        items.push(session.libraryItem);
-        seen.add(session.libraryItem.id);
-      }
-    }
-    return items;
+  /**
+   * Fetches listening stats from the server.
+   * Matches ABS endpoint: /api/me/listening-stats
+   */
+  async getListeningStats(): Promise<{
+    totalTime: number;
+    days: Record<string, number>;
+    recentSessions: any[];
+  } | null> {
+    const data = await this.fetchApi(`/me/listening-stats?_cb=${Date.now()}`);
+    if (!data) return null;
+    return data;
   }
 
   async scanLibrary(): Promise<boolean> {
@@ -227,13 +226,9 @@ export class ABSService {
     return data === 'OK' || !!data;
   }
 
-  /**
-   * Fetches a single series by ID, including its books.
-   */
   async getSeries(seriesId: string): Promise<ABSSeries | null> {
     const data = await this.fetchApi(`/libraries/${HARDCODED_LIBRARY_ID}/series/${seriesId}?include=books&_cb=${Date.now()}`);
     if (!data) return null;
-    // ABS API usually returns the series object with a 'books' array property
     return data;
   }
 
@@ -262,54 +257,11 @@ export class ABSService {
   }
 
   /**
-   * Calculates user stats by fetching raw listening sessions.
-   * This provides more accurate "time listened" data than the stats endpoint.
+   * Fallback for raw stats if needed, but getListeningStats is preferred.
    */
-  async getUserStatsForYear(year: number): Promise<{ 
-    totalTime: number; 
-    items: { id: string; title: string; author?: string }[]; 
-    days: Record<string, number>;
-  }> {
-    if (!this.userId) return { totalTime: 0, items: [], days: {} };
-
-    // Fetch all listening sessions
-    const data = await this.fetchApi(`/users/${this.userId}/listening-sessions?_cb=${Date.now()}`);
-    const sessions = data?.sessions || (Array.isArray(data) ? data : []);
-
-    const startOfYear = new Date(`${year}-01-01T00:00:00`).getTime();
-    const endOfYear = new Date(`${year}-12-31T23:59:59`).getTime();
-
-    let totalTime = 0;
-    const days: Record<string, number> = {};
-    const uniqueBooks = new Map<string, { id: string; title: string; author?: string }>();
-
-    for (const session of sessions) {
-      // Use createdAt (ms) to filter by year
-      if (session.createdAt >= startOfYear && session.createdAt <= endOfYear) {
-        // Add duration (seconds)
-        const duration = session.timeListened || 0;
-        totalTime += duration;
-
-        // Aggregate by day
-        const dateKey = new Date(session.createdAt).toISOString().split('T')[0];
-        days[dateKey] = (days[dateKey] || 0) + duration;
-
-        // Track items interacted with
-        if (session.libraryItem) {
-          uniqueBooks.set(session.libraryItem.id, {
-            id: session.libraryItem.id,
-            title: session.libraryItem.media?.metadata?.title || 'Unknown Title',
-            author: session.libraryItem.media?.metadata?.authorName
-          });
-        }
-      }
-    }
-
-    return {
-      totalTime,
-      items: Array.from(uniqueBooks.values()),
-      days
-    };
+  async getUserStatsForYear(year: number): Promise<any> {
+    // Redirect to main stats endpoint as it returns global stats
+    return this.getListeningStats();
   }
 
   async startPlaybackSession(itemId: string, deviceInfo: any, supportedMimeTypes: string[], forceTranscode = false): Promise<ABSPlaybackSession | null> {

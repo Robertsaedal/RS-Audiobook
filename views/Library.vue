@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
+import { ref, onMounted, onUnmounted, watch, computed, nextTick } from 'vue';
 import { AuthState, ABSLibraryItem, ABSSeries, ABSProgress } from '../types';
 import { ABSService } from '../services/absService';
 import { OfflineManager } from '../services/offlineManager';
@@ -199,10 +199,13 @@ const updateOnlineStatus = () => {
   }
 };
 
-onMounted(() => {
+onMounted(async () => {
   initService();
-  fetchDashboardData();
+  await fetchDashboardData();
+  
+  // Handle initial series jump if provided via props (from Player)
   if (props.initialSeriesId) {
+    await nextTick(); // Ensure service is ready
     handleJumpToSeries(props.initialSeriesId);
   }
   
@@ -368,13 +371,15 @@ const isHomeEmpty = computed(() => {
             <div :class="{ 'pt-8': isOfflineMode }"></div>
 
             <template v-if="!isHomeEmpty">
-              <section v-if="currentlyReading.length > 0 && absService" class="shelf-row">
+              <!-- Increased py-8 for extra spacing -->
+              <section v-if="currentlyReading.length > 0 && absService" class="shelf-row py-8">
                 <div class="shelf-tag">
                   <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">
                     {{ isOfflineMode ? 'In Progress (Local)' : 'Continue Listening' }}
                   </span>
                 </div>
-                <div class="flex gap-8 overflow-x-auto no-scrollbar pb-10 pl-2">
+                <!-- Increased gap-10 for better separation -->
+                <div class="flex gap-10 overflow-x-auto no-scrollbar pb-10 pl-2">
                   <div v-for="item in currentlyReading" :key="item.id" class="w-32 md:w-40 shrink-0">
                     <BookCard 
                       :item="item" 
@@ -388,11 +393,11 @@ const isHomeEmpty = computed(() => {
                 </div>
               </section>
 
-              <section v-if="continueSeries.length > 0 && absService" class="shelf-row">
+              <section v-if="continueSeries.length > 0 && absService" class="shelf-row py-8">
                 <div class="shelf-tag">
                   <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Next in Series</span>
                 </div>
-                <div class="flex gap-8 overflow-x-auto no-scrollbar pb-10 pl-2">
+                <div class="flex gap-10 overflow-x-auto no-scrollbar pb-10 pl-2">
                   <div v-for="item in continueSeries" :key="item.id" class="w-32 md:w-40 shrink-0">
                     <BookCard 
                       :item="item" 
@@ -404,13 +409,13 @@ const isHomeEmpty = computed(() => {
                 </div>
               </section>
 
-              <section v-if="recentlyAdded.length > 0 && absService" class="shelf-row">
+              <section v-if="recentlyAdded.length > 0 && absService" class="shelf-row py-8">
                 <div class="shelf-tag">
                   <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">
                     {{ isOfflineMode ? 'Downloaded' : 'Recently Added' }}
                   </span>
                 </div>
-                <div class="flex gap-8 overflow-x-auto no-scrollbar pb-10 pl-2">
+                <div class="flex gap-10 overflow-x-auto no-scrollbar pb-10 pl-2">
                   <div v-for="item in recentlyAdded" :key="item.id" class="w-32 md:w-40 shrink-0">
                     <BookCard 
                       :item="item" 
@@ -422,11 +427,11 @@ const isHomeEmpty = computed(() => {
                 </div>
               </section>
 
-              <section v-if="recentSeries.length > 0 && absService" class="shelf-row">
+              <section v-if="recentSeries.length > 0 && absService" class="shelf-row py-8">
                 <div class="shelf-tag">
                   <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Series Stacks</span>
                 </div>
-                <div class="flex gap-12 md:gap-16 overflow-x-auto no-scrollbar pb-6 pl-4">
+                <div class="flex gap-16 overflow-x-auto no-scrollbar pb-6 pl-4">
                   <div v-for="series in recentSeries" :key="series.id" class="w-44 md:w-56 shrink-0">
                     <SeriesCard 
                       :series="series" 

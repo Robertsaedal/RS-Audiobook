@@ -92,7 +92,7 @@ onMounted(async () => {
         :src="localCover || coverUrl" 
         @load="handleImageLoad"
         class="w-full h-full object-cover transition-opacity duration-700" 
-        :class="{ 'opacity-0': !imageReady, 'opacity-100': imageReady }"
+        :class="{ 'opacity-0': !imageReady, 'opacity-100': imageReady, 'grayscale opacity-60': isFinished }"
         loading="lazy" 
       />
       
@@ -121,13 +121,17 @@ onMounted(async () => {
         </button>
       </div>
 
-      <!-- Finished Indicator Overlay -->
-      <div v-if="isFinished" class="absolute top-2 left-2 z-40 bg-green-600 rounded-full p-1 border border-white/20 shadow-lg">
-        <Check :size="12" class="text-white" stroke-width="3" />
+      <!-- Finished Indicator Overlay (Prominent) -->
+      <div v-if="isFinished" class="absolute inset-0 flex items-center justify-center z-40 bg-black/20">
+         <div class="px-3 py-1 bg-green-600/90 backdrop-blur-md border border-green-400/30 rounded-full flex items-center gap-2 shadow-xl transform -rotate-12">
+            <Check :size="12" class="text-white" stroke-width="4" />
+            <span class="text-[9px] font-black text-white uppercase tracking-widest">FINISHED</span>
+         </div>
       </div>
+      <div v-if="isFinished" class="absolute bottom-0 left-0 h-1.5 w-full bg-green-500 z-30 shadow-[0_0_10px_rgba(34,197,94,0.5)]" />
 
       <!-- Play Overlay -->
-      <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex items-center justify-center pointer-events-none">
+      <div v-if="!isFinished" class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex items-center justify-center pointer-events-none">
         <div class="w-14 h-14 rounded-full bg-purple-600 text-white flex items-center justify-center shadow-[0_0_30px_rgba(168,85,247,0.5)] transform scale-90 group-hover:scale-100 transition-transform">
           <Play :size="24" fill="currentColor" class="translate-x-0.5" />
         </div>
@@ -140,9 +144,6 @@ onMounted(async () => {
           :style="{ width: progress + '%' }" 
         />
       </div>
-
-      <!-- Finished Bar -->
-      <div v-if="isFinished" class="absolute bottom-0 left-0 h-1 w-full bg-green-500 z-30 shadow-[0_0_10px_rgba(34,197,94,0.3)]" />
       
       <!-- Percentage Text Overlay -->
       <div v-if="progress > 0 && !isFinished" 
@@ -154,11 +155,11 @@ onMounted(async () => {
     </div>
     
     <!-- Permanent Metadata Display -->
-    <div v-if="showMetadata" class="mt-3 px-1 space-y-1">
-      <h3 class="text-[11px] font-black text-white uppercase tracking-tight leading-[1.2] h-[2.4em] group-hover:text-purple-400 transition-colors line-clamp-2 overflow-hidden">
+    <div v-if="showMetadata" class="mt-3 px-1 flex flex-col gap-1 w-full min-h-[3em]">
+      <h3 class="text-[11px] font-black text-white uppercase tracking-tight leading-[1.2] group-hover:text-purple-400 transition-colors line-clamp-2 w-full break-words" :title="item.media.metadata.title">
         {{ item.media.metadata.title }}
       </h3>
-      <p class="text-[9px] font-black text-neutral-500 uppercase tracking-widest truncate">
+      <p class="text-[9px] font-black text-neutral-500 uppercase tracking-widest truncate w-full">
         {{ item.media.metadata.authorName }}
       </p>
     </div>
@@ -166,6 +167,7 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+/* Ensure line-clamp works properly */
 .line-clamp-2 {
   display: -webkit-box;
   -webkit-line-clamp: 2;

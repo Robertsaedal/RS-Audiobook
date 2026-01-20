@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted, defineAsyncComponent } from 'vue';
 import { AuthState, ABSLibraryItem } from './types';
-import Login from './views/Login.vue';
-import Library from './views/Library.vue';
-import Player from './views/Player.vue';
 import InstallPwaBanner from './components/InstallPwaBanner.vue';
+
+// Dynamic Imports for Route-Based Code Splitting
+// This ensures the heavy Player or Library logic doesn't slow down the initial load.
+const Login = defineAsyncComponent(() => import('./views/Login.vue'));
+const Library = defineAsyncComponent(() => import('./views/Library.vue'));
+const Player = defineAsyncComponent(() => import('./views/Player.vue'));
 
 const currentView = ref<'login' | 'library' | 'player'>('login');
 const auth = ref<AuthState | null>(null);
@@ -50,8 +53,15 @@ onMounted(() => {
       setTimeout(() => {
         showPwaBanner.value = true;
       }, 2000);
+    } else {
+      // Android/Desktop: Check if event was already captured in main.ts
+      const earlyPrompt = (window as any).deferredPrompt;
+      if (earlyPrompt) {
+        deferredPrompt.value = earlyPrompt;
+        showPwaBanner.value = true;
+        (window as any).deferredPrompt = null; // Clear global
+      }
     }
-    // Android/Desktop handled via beforeinstallprompt
   }
 
   window.addEventListener('popstate', handlePopState);

@@ -25,7 +25,7 @@ const emit = defineEmits<{
   (e: 'update:search', val: string): void;
 }>();
 
-const version = "5.4.1";
+const version = "5.5.0";
 const showMobileSearch = ref(false);
 const mobileInputRef = ref<HTMLInputElement | null>(null);
 
@@ -112,7 +112,8 @@ const closeMobileSearch = () => {
       </div>
 
       <div class="flex items-center gap-2 md:gap-4 shrink-0">
-        <!-- Request Button (Visible on Mobile as Icon, Desktop as Pill) -->
+        <!-- Request Button (Optimized for Mobile) -->
+        <!-- Logic: Icon always visible (p-2), Text hidden on small screens (hidden sm:inline), Compact gap (gap-2) -->
         <button 
           @click="handleRequestClick"
           class="flex items-center gap-2 p-2 sm:px-4 sm:py-2 bg-transparent border border-purple-500/30 rounded-full text-[10px] font-black uppercase tracking-widest text-purple-400 hover:bg-purple-500/10 transition-all shrink-0 active:scale-95"
@@ -196,7 +197,7 @@ const closeMobileSearch = () => {
         class="h-full page-content overflow-hidden"
         :class="{ 'streaming': isStreaming }"
       >
-        <!-- CRITICAL: Added flex flex-col and h-full to the slot wrapper -->
+        <!-- Slot Wrapper -->
         <div class="max-w-7xl mx-auto w-full px-4 md:px-8 py-8 h-full flex flex-col">
           <slot></slot>
         </div>

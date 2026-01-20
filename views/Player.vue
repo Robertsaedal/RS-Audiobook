@@ -343,10 +343,10 @@ const infoRows = computed(() => {
           <!-- Speed & Sleep -->
           <div class="grid grid-cols-2 gap-4">
             <div class="bg-neutral-900/40 border border-white/5 rounded-[24px] p-5 flex flex-col items-center gap-4 hover:border-white/10 transition-colors">
-              <div class="flex items-center gap-2 text-[8px] font-black uppercase tracking-[0.4em] text-neutral-700"><Gauge :size="12" /><span>Speed</span></div>
+              <div class="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-neutral-500"><Gauge :size="12" /><span>Speed</span></div>
               <div class="flex items-center justify-between w-full px-2">
                 <button @click="setPlaybackRate(Math.max(0.5, state.playbackRate - 0.1))" class="p-1 text-neutral-600 hover:text-white"><Minus :size="14" /></button>
-                <span class="text-xs font-black font-mono text-purple-500">{{ state.playbackRate.toFixed(1) }}x</span>
+                <span class="text-base font-black font-mono text-white">{{ state.playbackRate.toFixed(1) }}x</span>
                 <button @click="setPlaybackRate(Math.min(2.5, state.playbackRate + 0.1))" class="p-1 text-neutral-600 hover:text-white"><Plus :size="14" /></button>
               </div>
             </div>
@@ -354,18 +354,18 @@ const infoRows = computed(() => {
             <div class="bg-neutral-900/40 border border-white/5 rounded-[24px] p-5 flex flex-col items-center gap-3 hover:border-white/10 transition-colors">
               <!-- Header Row -->
               <div class="flex items-center justify-between w-full px-1">
-                <div class="flex items-center gap-2 text-[8px] font-black uppercase tracking-[0.4em] text-neutral-700"><Moon :size="12" /><span>Sleep</span></div>
+                <div class="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-neutral-500"><Moon :size="12" /><span>Sleep</span></div>
                 
                 <!-- Quick Timers moved here -->
                 <div class="flex gap-2">
                    <button 
                     @click="setSleepTimer(900)" 
-                    class="text-[9px] font-bold px-1.5 py-0.5 rounded border border-neutral-800 text-neutral-500 hover:text-white hover:border-neutral-600 transition-all"
+                    class="text-[10px] font-bold px-1.5 py-0.5 rounded border border-neutral-800 text-neutral-500 hover:text-white hover:border-neutral-600 transition-all"
                     :class="{ 'text-purple-400 border-purple-500/30': state.sleepEndTime && (state.sleepEndTime - state.currentRealtime) <= 900000 && (state.sleepEndTime - state.currentRealtime) > 0 }"
                    >15m</button>
                    <button 
                     @click="setSleepTimer(1800)" 
-                    class="text-[9px] font-bold px-1.5 py-0.5 rounded border border-neutral-800 text-neutral-500 hover:text-white hover:border-neutral-600 transition-all"
+                    class="text-[10px] font-bold px-1.5 py-0.5 rounded border border-neutral-800 text-neutral-500 hover:text-white hover:border-neutral-600 transition-all"
                     :class="{ 'text-purple-400 border-purple-500/30': state.sleepEndTime && (state.sleepEndTime - state.currentRealtime) > 900000 }"
                    >30m</button>
                 </div>
@@ -375,11 +375,11 @@ const infoRows = computed(() => {
               <div class="flex items-center justify-between w-full px-2 mt-1">
                 <button @click="adjustSleepTimer(-1)" class="p-1 text-neutral-600 hover:text-white"><Minus :size="14" /></button>
                 <div class="flex flex-col items-center min-w-[60px]">
-                   <span v-if="state.sleepChapters > 0 || state.sleepEndTime" class="text-[10px] font-black text-purple-500 tracking-tighter text-center leading-none">
+                   <span v-if="state.sleepChapters > 0 || state.sleepEndTime" class="text-xs font-black text-purple-400 tracking-tighter text-center leading-none">
                      {{ state.sleepChapters > 0 ? `${state.sleepChapters} ch` : 'Time' }}
                    </span>
-                   <span v-if="state.sleepChapters > 0 || state.sleepEndTime" class="text-[8px] font-black text-neutral-600 mt-1">{{ secondsToTimestamp(sleepTimeRemaining) }}</span>
-                   <span v-else class="text-xs font-black font-mono text-neutral-600 uppercase">OFF</span>
+                   <span v-if="state.sleepChapters > 0 || state.sleepEndTime" class="text-sm font-black font-mono text-white mt-1 drop-shadow-md">{{ secondsToTimestamp(sleepTimeRemaining) }}</span>
+                   <span v-else class="text-sm font-black font-mono text-neutral-600 uppercase">OFF</span>
                 </div>
                 <button @click="adjustSleepTimer(1)" class="p-1 text-neutral-600 hover:text-white"><Plus :size="14" /></button>
               </div>
