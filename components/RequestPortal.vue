@@ -1,8 +1,7 @@
-
 <script setup lang="ts">
 import { ref, watch, onMounted } from 'vue';
 import { Search, BookOpen, Send, CheckCircle, User, Fingerprint, MessageSquare, Loader2, X, AlertTriangle, RotateCw, Check } from 'lucide-vue-next';
-import confetti from 'https://esm.sh/canvas-confetti';
+import confetti from 'canvas-confetti';
 
 // Configuration
 const DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/1462941148321546290/H0cmE88xjO3T73sJMRg0meSc6ar82TmvILqWCWkoN5jKXpNj4CJeJbhkd8I_1fbDtAXF';

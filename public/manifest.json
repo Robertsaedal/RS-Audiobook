@@ -1,6 +1,6 @@
 {
   "name": "R.S Audiobook Player",
-  "short_name": "R.S Audio",
+  "short_name": "R.S Player",
   "description": "Premium Audiobookshelf Spec Client",
   "start_url": "/",
   "display": "standalone",

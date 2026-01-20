@@ -1,10 +1,10 @@
-
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
 import { AuthState, ABSLibraryItem } from './types';
 import Login from './views/Login.vue';
 import Library from './views/Library.vue';
 import Player from './views/Player.vue';
+import InstallPwaBanner from './components/InstallPwaBanner.vue';
 
 const currentView = ref<'login' | 'library' | 'player'>('login');
 const auth = ref<AuthState | null>(null);
@@ -12,6 +12,9 @@ const selectedItem = ref<ABSLibraryItem | null>(null);
 const isInitializing = ref(true);
 const isStreaming = ref(false);
 const initialSeriesId = ref<string | null>(null);
+
+// PWA State
+const deferredPrompt = ref<any>(null);
 
 const handlePopState = (event: PopStateEvent) => {
   if (currentView.value === 'player') {
@@ -31,11 +34,29 @@ onMounted(() => {
   }
   isInitializing.value = false;
   window.addEventListener('popstate', handlePopState);
+  window.addEventListener('beforeinstallprompt', handleInstallPrompt);
 });
 
 onUnmounted(() => {
   window.removeEventListener('popstate', handlePopState);
+  window.removeEventListener('beforeinstallprompt', handleInstallPrompt);
 });
+
+const handleInstallPrompt = (e: Event) => {
+  e.preventDefault();
+  deferredPrompt.value = e;
+};
+
+const installApp = async () => {
+  if (!deferredPrompt.value) return;
+  deferredPrompt.value.prompt();
+  const { outcome } = await deferredPrompt.value.userChoice;
+  deferredPrompt.value = null;
+};
+
+const dismissInstall = () => {
+  deferredPrompt.value = null;
+};
 
 const handleLogin = (newAuth: AuthState) => {
   auth.value = newAuth;
@@ -102,6 +123,12 @@ const closePlayer = (shouldPopState = true) => {
           @item-updated="handleItemUpdated"
         />
       </Transition>
+
+      <InstallPwaBanner 
+        :show="!!deferredPrompt" 
+        @install="installApp" 
+        @dismiss="dismissInstall" 
+      />
     </template>
   </div>
 </template>

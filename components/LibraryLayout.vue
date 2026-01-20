@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, nextTick } from 'vue';
 import { 
   Home, BookOpen, Layers, User, Headphones,
-  X, RotateCw, PlusSquare, Search, BarChart2
+  X, RotateCw, PlusSquare, Search, BarChart2, ArrowLeft
 } from 'lucide-vue-next';
-import confetti from 'https://esm.sh/canvas-confetti';
+import confetti from 'canvas-confetti';
 
 export type LibraryTab = 'HOME' | 'LIBRARY' | 'SERIES' | 'REQUEST' | 'STATS';
 
@@ -26,6 +26,8 @@ const emit = defineEmits<{
 }>();
 
 const version = "5.4.1";
+const showMobileSearch = ref(false);
+const mobileInputRef = ref<HTMLInputElement | null>(null);
 
 const navItems = [
   { id: 'HOME' as LibraryTab, icon: Home, label: 'Home' },
@@ -55,6 +57,19 @@ const handleRequestClick = (event: MouseEvent) => {
   triggerSuccessSparks(event.currentTarget as HTMLElement);
   emit('tab-change', 'REQUEST');
 };
+
+const openMobileSearch = async () => {
+  showMobileSearch.value = true;
+  await nextTick();
+  mobileInputRef.value?.focus();
+};
+
+const closeMobileSearch = () => {
+  showMobileSearch.value = false;
+  if (props.search) {
+    emit('update:search', '');
+  }
+};
 </script>
 
 <template>
@@ -62,28 +77,28 @@ const handleRequestClick = (event: MouseEvent) => {
     
     <!-- Top Appbar -->
     <header class="h-16 w-full fixed top-0 left-0 right-0 bg-[#111111]/80 backdrop-blur-xl z-[60] px-4 md:px-6 flex items-center justify-between border-b border-white/5">
-      <div class="flex items-center gap-4">
-        <div class="flex items-center cursor-pointer group" @click="emit('tab-change', 'HOME')">
+      <div class="flex items-center gap-4 min-w-0 shrink">
+        <div class="flex items-center cursor-pointer group shrink-0" @click="emit('tab-change', 'HOME')">
           <div class="w-8 h-8 mr-3 flex items-center justify-center bg-neutral-900 rounded-lg border border-purple-500/20 group-hover:scale-110 transition-transform">
             <Headphones :size="18" class="text-purple-500" />
           </div>
-          <h1 class="text-xl font-bold tracking-tight hidden lg:block">audiobookshelf</h1>
+          <h1 class="text-sm md:text-xl font-bold tracking-tight truncate">R.S Audiobook Player</h1>
         </div>
       </div>
 
-      <!-- Global Search & Request -->
-      <div class="flex items-center gap-4 flex-1 max-w-2xl px-4 md:px-8">
+      <!-- Desktop Global Search & Request -->
+      <div class="hidden md:flex items-center gap-4 flex-1 max-w-2xl px-8">
         <!-- Request Button -->
         <button 
           @click="handleRequestClick"
           class="flex items-center gap-2 px-4 py-2 bg-transparent border border-purple-500/30 rounded-full text-[10px] font-black uppercase tracking-widest text-purple-400 hover:bg-purple-500/10 transition-all shrink-0 active:scale-95"
         >
           <PlusSquare :size="14" />
-          <span class="hidden sm:inline">Request</span>
+          <span>Request</span>
         </button>
 
         <!-- Search Bar -->
-        <div class="relative group flex-1 hidden sm:block">
+        <div class="relative group flex-1">
           <input
             type="text"
             placeholder="Search artifacts..."
@@ -95,7 +110,17 @@ const handleRequestClick = (event: MouseEvent) => {
         </div>
       </div>
 
-      <div class="flex items-center gap-2 md:gap-4">
+      <!-- Mobile Search Icon -->
+      <div class="flex md:hidden items-center justify-end flex-1 px-2">
+        <button 
+          @click="openMobileSearch"
+          class="p-2 text-neutral-400 hover:text-white transition-colors"
+        >
+          <Search :size="20" />
+        </button>
+      </div>
+
+      <div class="flex items-center gap-2 md:gap-4 shrink-0">
         <!-- Top-Right Sync Icon -->
         <button 
           @click="emit('scan')"
@@ -117,6 +142,26 @@ const handleRequestClick = (event: MouseEvent) => {
           </div>
         </div>
       </div>
+
+      <!-- Mobile Search Overlay -->
+      <Transition name="slide-down">
+        <div v-if="showMobileSearch" class="absolute inset-0 bg-[#111111] z-[70] flex items-center px-4 gap-3 border-b border-white/10">
+          <button @click="closeMobileSearch" class="p-2 -ml-2 text-neutral-400 hover:text-white">
+            <ArrowLeft :size="20" />
+          </button>
+          <div class="flex-1 relative">
+            <input
+              ref="mobileInputRef"
+              type="text"
+              placeholder="Search library..."
+              :value="search"
+              @input="e => emit('update:search', (e.target as HTMLInputElement).value)"
+              class="w-full bg-black/40 border border-white/10 rounded-full py-2 pl-10 pr-4 text-sm text-white placeholder-neutral-600 focus:border-purple-500/50 outline-none"
+            />
+            <Search class="w-4 h-4 text-neutral-600 absolute left-3.5 top-1/2 -translate-y-1/2" />
+          </div>
+        </div>
+      </Transition>
     </header>
 
     <!-- Side Rail -->
@@ -172,3 +217,13 @@ const handleRequestClick = (event: MouseEvent) => {
     </nav>
   </div>
 </template>
+
+<style scoped>
+.slide-down-enter-active, .slide-down-leave-active {
+  transition: all 0.2s ease-out;
+}
+.slide-down-enter-from, .slide-down-leave-to {
+  transform: translateY(-100%);
+  opacity: 0;
+}
+</style>
