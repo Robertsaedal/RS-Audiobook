@@ -148,9 +148,8 @@ export class ABSService {
     if (params.limit) query.append('limit', params.limit.toString());
     if (params.offset !== undefined) query.append('offset', params.offset.toString());
     
-    // Normalize sort key: ABS expects addedDate for items
-    const sort = params.sort === 'addedAt' ? 'addedDate' : params.sort;
-    if (sort) query.append('sort', sort);
+    // Sort logic: use params.sort directly to support specific keys like addedAt and updatedAt
+    if (params.sort) query.append('sort', params.sort);
     
     if (params.desc !== undefined) query.append('desc', params.desc.toString());
     if (params.filter) query.append('filter', params.filter);
@@ -169,7 +168,7 @@ export class ABSService {
     if (params.limit) query.append('limit', params.limit.toString());
     if (params.offset !== undefined) query.append('offset', params.offset.toString());
     
-    // Normalize sort key: ABS expects addedDate for series
+    // Series sorting fallback
     const sort = params.sort === 'addedAt' ? 'addedDate' : params.sort;
     if (sort) query.append('sort', sort);
     

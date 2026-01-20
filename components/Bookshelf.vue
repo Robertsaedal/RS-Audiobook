@@ -28,12 +28,17 @@ const ITEMS_PER_FETCH = 60;
 
 /**
  * Maps human-readable sort keys to Audiobookshelf API expectations.
+ * Recently Added -> addedAt
+ * Alphabetical -> media.metadata.title
+ * Recently Updated -> updatedAt
  */
 const getMappedSortKey = (method: string) => {
   switch (method) {
     case 'Title': return 'media.metadata.title';
     case 'Author': return 'media.metadata.authorName';
-    case 'Added': return 'addedAt';
+    case 'Added': 
+    case 'addedAt': return 'addedAt';
+    case 'Updated': return 'updatedAt';
     default: return method || 'addedAt';
   }
 };
@@ -48,23 +53,27 @@ const fetchMoreItems = async (isInitial = false) => {
 
   isLoading.value = true;
   try {
-    // 2. Strict Offset Calculation
+    // 2. Strict Offset Calculation: uses actual length of current list
     const fetchOffset = isInitial ? 0 : libraryItems.value.length;
+    const sortKey = getMappedSortKey(props.sortMethod);
     
     const params: LibraryQueryParams = {
       limit: ITEMS_PER_FETCH,
       offset: fetchOffset,
-      sort: getMappedSortKey(props.sortMethod),
+      sort: sortKey,
       desc: props.desc,
       search: props.search
     };
     
+    console.log(`📡 Fetching Artifact Batch: Offset ${fetchOffset}, Sort ${sortKey}, Desc ${props.desc}`);
+
     const response = await props.absService.getLibraryItemsPaged(params);
     const results = response?.results || [];
     const total = response?.total || 0;
 
     // 3. Circuit Breaker: Empty Result Catch
     if (results.length === 0) {
+      console.log("⏹️ Archive Stream Empty. Terminating fetch.");
       hasMore.value = false;
       totalItems.value = libraryItems.value.length;
       return;
@@ -77,9 +86,9 @@ const fetchMoreItems = async (isInitial = false) => {
       const existingIds = new Set(libraryItems.value.map(i => i.id));
       const uniqueResults = results.filter(i => !existingIds.has(i.id));
       
-      // If we got results but none are unique, the API might be looping; stop immediately
+      // If we got results but none are unique, the API or offset logic is failing/looping
       if (uniqueResults.length === 0) {
-        console.warn("Circuit Breaker: No new unique artifacts found in batch.");
+        console.warn("⚠️ Circuit Breaker Triggered: Batch contained only duplicates. Terminating stream to prevent loop.");
         hasMore.value = false;
         totalItems.value = libraryItems.value.length;
         return;
@@ -92,6 +101,7 @@ const fetchMoreItems = async (isInitial = false) => {
     
     // Check if we've consumed the entire total
     if (libraryItems.value.length >= total) {
+      console.log("🏁 Total Artifact Count Reached.");
       hasMore.value = false;
     }
 
@@ -100,15 +110,15 @@ const fetchMoreItems = async (isInitial = false) => {
     const sentinel = sentinelRef.value;
     if (sentinel && hasMore.value && !isLoading.value) {
       const rect = sentinel.getBoundingClientRect();
-      // If the sentinel is still inside the viewport, we need more content to enable scrolling
+      // If the sentinel is still inside or very near the viewport, we need more content
       if (rect.top < window.innerHeight + 200) {
-        isLoading.value = false; // Allow recursive call to pass its own guard
+        isLoading.value = false; 
         await fetchMoreItems(false);
       }
     }
   } catch (e) {
-    console.error("Archive Transmission Error:", e);
-    hasMore.value = false; // Safety stop on error
+    console.error("❌ Archive Transmission Error:", e);
+    hasMore.value = false; 
   } finally {
     isLoading.value = false;
   }
@@ -119,7 +129,7 @@ const setupObserver = () => {
   if (observer) observer.disconnect();
   if (!sentinelRef.value) return;
 
-  // Root: null uses the entire viewport as the trigger area for reliability.
+  // Root: null uses the entire viewport for absolute reliability.
   observer = new IntersectionObserver((entries) => {
     if (entries[0].isIntersecting && !isLoading.value && hasMore.value) {
       fetchMoreItems();
@@ -136,7 +146,7 @@ const setupObserver = () => {
 const reset = async () => {
   if (observer) observer.disconnect();
   
-  // Clean Reset State
+  // Clean Reset State immediately
   isLoading.value = false;
   hasMore.value = true;
   totalItems.value = 0;
@@ -146,7 +156,8 @@ const reset = async () => {
     scrollContainerRef.value.scrollTop = 0;
   }
   
-  // Initial Fetch
+  // Wait for Vue to clear the list from DOM before initial fetch
+  await nextTick();
   await fetchMoreItems(true);
   await nextTick();
   setupObserver();
@@ -155,7 +166,6 @@ const reset = async () => {
 onMounted(async () => {
   await reset();
 
-  // Progress update: update existing item without full reload
   props.absService.onProgressUpdate((updated: ABSProgress) => {
     const index = libraryItems.value.findIndex(i => i.id === updated.itemId);
     if (index !== -1) {
@@ -199,7 +209,6 @@ watch(() => [props.sortMethod, props.desc, props.search], () => reset(), { deep:
 
       <!-- Detection Sentinel -->
       <div ref="sentinelRef" class="h-24 w-full flex flex-col items-center justify-center mt-12 mb-24 gap-6">
-        <!-- Spinner only shows when actually loading more -->
         <div v-if="isLoading && hasMore" class="flex flex-col items-center gap-4">
           <div class="w-8 h-8 border-2 border-purple-600/10 border-t-purple-600 rounded-full animate-spin" />
           <p class="text-[8px] font-black uppercase tracking-[0.4em] text-neutral-700">Accessing Index...</p>
