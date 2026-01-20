@@ -38,12 +38,10 @@ const recentSeries = ref<ABSSeries[]>([]);
 
 const fetchDashboardData = async () => {
   try {
-    // Priority 1: Fetch actual active user listening sessions
     const sessions = await absService.getListeningSessions();
     if (sessions.length > 0) {
       currentlyReading.value = sessions;
     } else {
-      // Fallback: Fetch items with active progress filter
       const { results: reading } = await absService.getLibraryItemsPaged({ 
         limit: 15, sort: 'lastUpdate', desc: 1, filter: 'progress' 
       });
@@ -164,7 +162,6 @@ const filteredAdded = computed(() => {
       <template v-else>
         <div v-if="activeTab === 'HOME'" class="h-full bg-[#0d0d0d] overflow-y-auto custom-scrollbar -mx-4 md:-mx-8 px-4 md:px-8 pt-4 pb-40">
           
-          <!-- Curated Session Shelf -->
           <ContinueListening 
             v-if="!searchTerm" 
             :absService="absService" 
@@ -178,7 +175,7 @@ const filteredAdded = computed(() => {
             </div>
             <div class="flex gap-6 overflow-x-auto no-scrollbar pb-6 pl-2">
               <div v-for="item in filteredReading" :key="item.id" class="w-32 md:w-40 shrink-0">
-                <BookCard 
+                < BookCard 
                   :item="item" 
                   :coverUrl="absService.getCoverUrl(item.id)" 
                   show-metadata
@@ -213,6 +210,7 @@ const filteredAdded = computed(() => {
                 <SeriesCard 
                   :series="series" 
                   :coverUrl="absService.getCoverUrl(series.books?.[0]?.id || '')"
+                  :bookCovers="series.books?.slice(0, 3).map(b => absService.getCoverUrl(b.id)) || []"
                   @click="selectedSeries = series"
                 />
               </div>

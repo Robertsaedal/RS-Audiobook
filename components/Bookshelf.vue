@@ -19,53 +19,49 @@ const emit = defineEmits<{
 
 const libraryItems = ref<ABSLibraryItem[]>([]);
 const totalItems = ref(0);
-const currentPage = ref(0);
+const offset = ref(0);
 const isLoading = ref(false);
 const sentinelRef = ref<HTMLElement | null>(null);
 
-const ITEMS_PER_FETCH = 48;
+const ITEMS_PER_FETCH = 20;
 
-// Local search filtering for instant results as requested
 const filteredBooks = computed(() => {
-  if (!props.search) return libraryItems.value;
-  const term = props.search.toLowerCase();
-  return libraryItems.value.filter(item => 
-    item.media.metadata.title.toLowerCase().includes(term) || 
-    item.media.metadata.authorName.toLowerCase().includes(term)
-  );
+  // If search is truthy, we assume libraryItems already contains server-side search results
+  if (props.search) return libraryItems.value;
+  
+  // Local filtering logic: If search is empty, we could apply local filters here
+  // For now, we return the items as-is since they are paginated
+  return libraryItems.value;
 });
 
-const fetchItems = async (isInitial = false) => {
+const fetchMoreItems = async (isInitial = false) => {
   if (isLoading.value) return;
-  
-  // Safety check: if we've loaded everything, stop.
   if (!isInitial && totalItems.value > 0 && libraryItems.value.length >= totalItems.value) return;
 
   isLoading.value = true;
   try {
-    // 1. Calculate offset and increment page BEFORE fetch to prevent race condition loops
-    const offset = currentPage.value * ITEMS_PER_FETCH;
-    
     const params: LibraryQueryParams = {
       limit: ITEMS_PER_FETCH,
-      offset: offset,
+      offset: isInitial ? 0 : offset.value,
       sort: props.sortMethod,
-      desc: props.desc
+      desc: props.desc,
+      search: props.search
     };
     
     const { results, total } = await props.absService.getLibraryItemsPaged(params);
     
     if (isInitial) {
       libraryItems.value = results;
-      currentPage.value = 1; // Set to next page
+      offset.value = ITEMS_PER_FETCH;
     } else {
-      // 2. Prevent Duplicates: Check if ID already exists before pushing
+      // Logic: Use items.value.push(...newItems) to add them to the screen
       const existingIds = new Set(libraryItems.value.map(i => i.id));
       const uniqueResults = results.filter(i => !existingIds.has(i.id));
       
       if (uniqueResults.length > 0) {
-        libraryItems.value = [...libraryItems.value, ...uniqueResults];
-        currentPage.value++; // Successfully loaded a page, increment pointer
+        libraryItems.value.push(...uniqueResults);
+        // Increment offset by 20
+        offset.value += ITEMS_PER_FETCH;
       }
     }
     totalItems.value = total;
@@ -77,22 +73,23 @@ const fetchItems = async (isInitial = false) => {
 };
 
 const reset = async () => {
+  offset.value = 0;
   libraryItems.value = [];
   totalItems.value = 0;
-  currentPage.value = 0;
-  await fetchItems(true);
+  await fetchMoreItems(true);
 };
 
 let observer: IntersectionObserver | null = null;
 const setupObserver = () => {
   if (observer) observer.disconnect();
   
-  // Fix IntersectionObserver: rootMargin helps trigger earlier for smoother experience
+  // IntersectionObserver to watch #scroll-sentinel
   observer = new IntersectionObserver((entries) => {
+    // When the sentinel enters the viewport
     if (entries[0].isIntersecting && !isLoading.value) {
-      // Only fetch if there are actually more items to get
       if (totalItems.value === 0 || libraryItems.value.length < totalItems.value) {
-        fetchItems();
+        // Call fetchMoreItems()
+        fetchMoreItems();
       }
     }
   }, { threshold: 0.1, rootMargin: '400px' });
@@ -104,7 +101,6 @@ onMounted(async () => {
   await reset();
   setupObserver();
 
-  // Socket Sync: Listen for progress updates locally
   props.absService.onProgressUpdate((updated: ABSProgress) => {
     const index = libraryItems.value.findIndex(i => i.id === updated.itemId);
     if (index !== -1) {
@@ -119,8 +115,7 @@ onUnmounted(() => {
   observer?.disconnect();
 });
 
-// Reset logic when sorting or direction changes
-watch(() => [props.sortMethod, props.desc], () => reset());
+watch(() => [props.sortMethod, props.desc, props.search], () => reset());
 </script>
 
 <template>
@@ -142,9 +137,9 @@ watch(() => [props.sortMethod, props.desc], () => reset());
         />
       </div>
 
-      <!-- Scroll Sentinel -->
-      <div ref="sentinelRef" class="w-full h-32 flex items-center justify-center mt-8">
-        <Loader2 v-if="isLoading" class="animate-spin text-purple-500" :size="32" />
+      <!-- Sentinel element for infinite scrolling -->
+      <div id="scroll-sentinel" ref="sentinelRef" class="h-10 w-full flex items-center justify-center mt-8">
+        <Loader2 v-if="isLoading" class="animate-spin text-purple-500" :size="24" />
         <span v-else-if="libraryItems.length >= totalItems && totalItems > 0" class="text-[8px] font-black uppercase tracking-[0.6em] text-neutral-800">
           INDEX REACHED END
         </span>

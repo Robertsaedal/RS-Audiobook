@@ -10,40 +10,32 @@ export interface LibraryQueryParams {
   search?: string;
 }
 
+// Strictly enforced Base URL as requested to prevent relative path interception
+const SERVER_URL = 'https://api.robertsaedal.xyz';
+const BASE_API_URL = `${SERVER_URL}/api`;
+const HARDCODED_LIBRARY_ID = 'a5706742-ccbf-452a-8b7d-822988dd5f63';
+
 export class ABSService {
   private serverUrl: string;
   private token: string;
   private userId: string | null = null;
-  private libraryId: string | null = null;
+  private libraryId: string = HARDCODED_LIBRARY_ID;
   private socket: Socket | null = null;
 
   constructor(serverUrl: string, token: string, userId?: string) {
-    this.serverUrl = ABSService.normalizeUrl(serverUrl);
-    // Strip any existing "Bearer " prefix to prevent double-prefixing
-    this.token = token.replace(/^Bearer\s+/i, '');
+    this.serverUrl = SERVER_URL;
+    // Strip any existing "Bearer " prefix and trim
+    this.token = typeof token === 'string' ? token.replace(/^Bearer\s+/i, '').trim() : '';
     this.userId = userId || null;
     this.initSocket();
   }
 
   static normalizeUrl(url: string): string {
-    let clean = url.trim().replace(/\/+$/, '');
-    clean = clean.replace(/\/api\/?$/, '');
-    
-    if (clean && !clean.startsWith('http')) {
-      const protocol = window.location.protocol === 'https:' ? 'https://' : 'http://';
-      clean = `${protocol}${clean}`;
-    }
-    return clean;
-  }
-
-  static cleanUrl(base: string, path: string): string {
-    const sanitizedBase = base.replace(/\/+$/, '');
-    const sanitizedPath = path.startsWith('/') ? path : `/${path}`;
-    return `${sanitizedBase}${sanitizedPath}`;
+    return SERVER_URL;
   }
 
   private initSocket() {
-    this.socket = io(this.serverUrl, {
+    this.socket = io(SERVER_URL, {
       auth: { token: this.token },
       path: '/socket.io',
       transports: ['websocket'],
@@ -59,12 +51,15 @@ export class ABSService {
       const controller = new AbortController();
       const id = setTimeout(() => controller.abort(), timeout);
       try {
-        const response = await fetch(url, { ...options, signal: controller.signal });
+        // Ensure the URL is absolute and correctly formatted
+        const absoluteUrl = url.startsWith('http') ? url : `${BASE_API_URL}${url.startsWith('/') ? url : `/${url}`}`;
+        
+        const response = await fetch(absoluteUrl, { ...options, signal: controller.signal });
         clearTimeout(id);
         
         const contentType = response.headers.get("content-type");
         if (contentType && contentType.includes("text/html") && !url.includes('/login')) {
-          throw new TypeError("Authorization check failed: Server returned HTML (Login redirect).");
+          throw new TypeError("Authorization check failed: Server returned HTML (possible redirect).");
         }
 
         if (response.ok || (response.status >= 400 && response.status < 500)) return response;
@@ -79,8 +74,7 @@ export class ABSService {
   }
 
   static async login(serverUrl: string, username: string, password: string): Promise<any> {
-    const baseUrl = this.normalizeUrl(serverUrl);
-    const loginUrl = this.cleanUrl(baseUrl, '/login');
+    const loginUrl = `${SERVER_URL}/login`;
     const response = await this.fetchWithRetry(loginUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
@@ -95,12 +89,12 @@ export class ABSService {
   }
 
   static async authorize(serverUrl: string, token: string): Promise<any> {
-    const baseUrl = this.normalizeUrl(serverUrl);
-    const authUrl = this.cleanUrl(baseUrl, '/api/authorize');
+    const authUrl = `${BASE_API_URL}/authorize`;
+    const cleanToken = token.replace(/^Bearer\s+/i, '').trim();
     const response = await this.fetchWithRetry(authUrl, {
       method: 'POST',
       headers: { 
-        'Authorization': `Bearer ${token.replace(/^Bearer\s+/i, '')}`,
+        'Authorization': `Bearer ${cleanToken}`,
         'Content-Type': 'application/json',
         'Accept': 'application/json' 
       },
@@ -115,8 +109,9 @@ export class ABSService {
   }
 
   private async fetchApi(endpoint: string, options: RequestInit = {}) {
-    const path = endpoint.startsWith('/api/') ? endpoint : `/api${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
-    const url = ABSService.cleanUrl(this.serverUrl, path);
+    // Force absolute path logic
+    const path = endpoint.startsWith('/api/') ? endpoint.substring(4) : endpoint;
+    const url = `${BASE_API_URL}${path.startsWith('/') ? path : `/${path}`}`;
     
     try {
       const response = await ABSService.fetchWithRetry(url, {
@@ -145,28 +140,20 @@ export class ABSService {
   }
 
   async ensureLibraryId(): Promise<string> {
-    if (this.libraryId) return this.libraryId;
-    const data = await this.fetchApi('/libraries');
-    const libraries = data?.libraries || data || [];
-    const audioLibrary = libraries.find((l: any) => l.mediaType === 'audiobook') || libraries[0];
-    this.libraryId = audioLibrary?.id;
-    return this.libraryId!;
+    return HARDCODED_LIBRARY_ID;
   }
 
   async getLibraryItemsPaged(params: LibraryQueryParams): Promise<{ results: ABSLibraryItem[], total: number }> {
-    const libId = await this.ensureLibraryId();
-    if (!libId) return { results: [], total: 0 };
-    
     const query = new URLSearchParams();
     if (params.limit) query.append('limit', params.limit.toString());
-    if (params.offset) query.append('offset', params.offset.toString());
+    if (params.offset !== undefined) query.append('offset', params.offset.toString());
     if (params.sort) query.append('sort', params.sort);
     if (params.desc !== undefined) query.append('desc', params.desc.toString());
     if (params.filter) query.append('filter', params.filter);
     if (params.search) query.append('search', params.search);
     query.append('include', 'progress');
 
-    const data = await this.fetchApi(`/libraries/${libId}/items?${query.toString()}`);
+    const data = await this.fetchApi(`/libraries/${HARDCODED_LIBRARY_ID}/items?${query.toString()}`);
     return {
       results: data?.results || (Array.isArray(data) ? data : []),
       total: typeof data?.total === 'number' ? data.total : (Array.isArray(data) ? data.length : 0)
@@ -174,18 +161,15 @@ export class ABSService {
   }
 
   async getLibrarySeriesPaged(params: LibraryQueryParams): Promise<{ results: ABSSeries[], total: number }> {
-    const libId = await this.ensureLibraryId();
-    if (!libId) return { results: [], total: 0 };
-
     const query = new URLSearchParams();
     if (params.limit) query.append('limit', params.limit.toString());
-    if (params.offset) query.append('offset', params.offset.toString());
+    if (params.offset !== undefined) query.append('offset', params.offset.toString());
     const sort = params.sort === 'addedAt' ? 'addedDate' : params.sort;
     if (sort) query.append('sort', sort);
     if (params.desc !== undefined) query.append('desc', params.desc.toString());
     query.append('include', 'books'); 
 
-    const data = await this.fetchApi(`/libraries/${libId}/series?${query.toString()}`);
+    const data = await this.fetchApi(`/libraries/${HARDCODED_LIBRARY_ID}/series?${query.toString()}`);
     
     let results = [];
     if (data?.results) results = data.results;
@@ -204,7 +188,6 @@ export class ABSService {
     if (!this.userId) return [];
     const data = await this.fetchApi(`/users/${this.userId}/listening-sessions`);
     const sessions = data?.sessions || data || [];
-    // Extract library items from unique sessions
     const items: ABSLibraryItem[] = [];
     const seen = new Set();
     for (const session of sessions) {
@@ -216,23 +199,13 @@ export class ABSService {
     return items;
   }
 
-  async getShelves(): Promise<any[]> {
-    const libId = await this.ensureLibraryId();
-    if (!libId) return [];
-    const data = await this.fetchApi(`/libraries/${libId}/shelves`);
-    return Array.isArray(data) ? data : (data?.shelves || []);
-  }
-
   async scanLibrary(): Promise<boolean> {
-    const libId = await this.ensureLibraryId();
-    if (!libId) return false;
-    const data = await this.fetchApi(`/libraries/${libId}/scan`, { method: 'POST' });
+    const data = await this.fetchApi(`/libraries/${HARDCODED_LIBRARY_ID}/scan`, { method: 'POST' });
     return data === 'OK' || !!data;
   }
 
   async getSeriesItems(seriesId: string): Promise<ABSLibraryItem[]> {
-    const libId = await this.ensureLibraryId();
-    const data = await this.fetchApi(`/libraries/${libId}/series/${seriesId}?include=progress`);
+    const data = await this.fetchApi(`/libraries/${HARDCODED_LIBRARY_ID}/series/${seriesId}?include=progress`);
     return data?.books || data?.results || [];
   }
 
@@ -283,7 +256,7 @@ export class ABSService {
 
   getCoverUrl(itemId: string): string {
     if (!itemId) return '';
-    return ABSService.cleanUrl(this.serverUrl, `/api/items/${itemId}/cover?token=${this.token}`);
+    return `${BASE_API_URL}/items/${itemId}/cover?token=${this.token}`;
   }
 
   onProgressUpdate(callback: (progress: ABSProgress) => void) {

@@ -63,6 +63,7 @@ export interface ABSSeries {
   updatedDate: number;
   books: ABSLibraryItem[];
   numBooks: number;
+  total?: number;
 }
 
 export interface ABSProgress {

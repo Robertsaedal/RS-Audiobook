@@ -51,12 +51,33 @@ const totalProgressPercent = computed(() => {
   return Math.min(100, (state.currentTime / state.duration) * 100);
 });
 
+// Revert logic: Use chapterProgressPercent for the width of the purple bar
 const chapterProgressPercent = computed(() => {
   if (!currentChapter.value) return 0;
   const chapterDur = currentChapter.value.end - currentChapter.value.start;
   if (chapterDur <= 0) return 0;
   const elapsed = state.currentTime - currentChapter.value.start;
   return Math.max(0, Math.min(100, (elapsed / chapterDur) * 100));
+});
+
+// Sleep Timer: Calculate total time until zzz based on chapters
+const sleepTimeRemaining = computed(() => {
+  if (state.sleepChapters <= 0 || currentChapterIndex.value === -1) return 0;
+  
+  // 1. Time remaining in current chapter
+  let totalTime = Math.max(0, (currentChapter.value?.end || 0) - state.currentTime);
+  
+  // 2. Add durations of X-1 subsequent chapters
+  const nextChaptersCount = state.sleepChapters - 1;
+  for (let i = 1; i <= nextChaptersCount; i++) {
+    const nextIdx = currentChapterIndex.value + i;
+    const ch = chapters.value[nextIdx];
+    if (ch) {
+      totalTime += (ch.end - ch.start);
+    }
+  }
+  
+  return totalTime;
 });
 
 const secondsToTimestamp = (s: number) => {
@@ -118,7 +139,6 @@ const handleSeriesClick = () => {
 
 const metadata = computed(() => activeItem.value?.media?.metadata || {});
 
-// Refined Series & Book Tag Formatting
 const formattedSeriesInfo = computed(() => {
   if (!metadata.value.seriesName) return null;
   const seq = metadata.value.sequence || '1';
@@ -197,13 +217,7 @@ const infoRows = computed(() => {
             class="h-2.5 w-full bg-neutral-900/60 rounded-full relative cursor-pointer overflow-hidden group shadow-[inset_0_2px_4px_rgba(0,0,0,0.5)] border border-white/5" 
             @click="handleGlobalProgressClick"
           >
-            <!-- Background: Thin Total Progress Bar (Subtle Purple) -->
-            <div 
-              class="absolute top-[35%] bottom-[35%] left-0 bg-purple-900/40 transition-all duration-300 z-0" 
-              :style="{ width: totalProgressPercent + '%' }"
-            />
-
-            <!-- Chapter Markers -->
+            <!-- Background track with visible chapter markers -->
             <div 
               v-for="ch in chapters" 
               :key="ch.start"
@@ -211,10 +225,10 @@ const infoRows = computed(() => {
               :style="{ left: (ch.start / state.duration) * 100 + '%' }"
             />
             
-            <!-- Foreground: Main Chapter Progress Bar (Bright Purple) -->
+            <!-- Purple Progress Bar Fill (chapter-based reset logic) -->
             <div 
-              class="absolute top-[15%] bottom-[15%] left-0 bg-purple-500 shadow-[0_0_20px_rgba(168,85,247,0.9)] transition-all duration-150 z-10 rounded-r-full" 
-              :style="{ width: totalProgressPercent + '%' }"
+              class="absolute top-0 bottom-0 left-0 bg-purple-500 shadow-[0_0_20px_rgba(168,85,247,0.9)] transition-all duration-150 z-10 rounded-r-full" 
+              :style="{ width: chapterProgressPercent + '%' }"
             />
           </div>
           
@@ -262,7 +276,9 @@ const infoRows = computed(() => {
             <div class="flex items-center justify-between w-full px-2">
               <button @click="adjustSleepTimer(-1)" class="p-1 text-neutral-600 hover:text-white"><Minus :size="14" /></button>
               <div class="flex flex-col items-center">
-                 <span v-if="state.sleepChapters > 0" class="text-[9px] font-black text-purple-500 tracking-tighter">{{ state.sleepChapters }} Ch. left</span>
+                 <span v-if="state.sleepChapters > 0" class="text-[9px] font-black text-purple-500 tracking-tighter">
+                   {{ secondsToTimestamp(sleepTimeRemaining) }} until zzz
+                 </span>
                  <span v-else class="text-xs font-black font-mono text-neutral-600 uppercase">OFF</span>
               </div>
               <button @click="adjustSleepTimer(1)" class="p-1 text-neutral-600 hover:text-white"><Plus :size="14" /></button>
