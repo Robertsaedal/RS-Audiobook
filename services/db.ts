@@ -14,7 +14,7 @@ export class AppDatabase extends Dexie {
 
   constructor() {
     super('RSAudioDatabase');
-    this.version(1).stores({
+    (this as any).version(1).stores({
       downloads: 'itemId, downloadedAt'
     });
   }

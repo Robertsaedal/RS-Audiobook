@@ -23,40 +23,36 @@ const isDownloaded = ref(false);
 const localCover = ref<string | null>(null);
 
 const progress = computed(() => {
-  // Support both standard userProgress and userMediaProgress (common in shelves)
   const p = props.item.userProgress || (props.item as any).userMediaProgress;
   
   if (!p) return 0;
   
-  // If progress is explicit (0-1)
-  if (p.progress !== undefined && p.progress !== null) {
-    return p.progress * 100;
+  // Calculate raw progress value
+  let rawVal = p.progress;
+  if (rawVal === undefined || rawVal === null) {
+    const current = p.currentTime || 0;
+    const total = props.item.media.duration || p.duration || 1;
+    rawVal = current / total;
   }
   
-  // Fallback calculation: currentTime / duration
-  const current = p.currentTime || 0;
-  const total = props.item.media.duration || p.duration || 1;
-  return Math.min(100, (current / total) * 100);
+  // Normalize: If 0-1 (decimal), convert to 0-100. If > 1, assume it's already percentage.
+  const displayProgress = (rawVal > 0 && rawVal <= 1) ? rawVal * 100 : rawVal;
+  
+  // Cap at 100 to prevent overflow
+  return Math.min(100, displayProgress);
 });
 
 const isFinished = computed(() => {
   const p = props.item.userProgress || (props.item as any).userMediaProgress;
-  return p?.isFinished || progress.value >= 99;
+  // Strict check for isFinished boolean as requested
+  return p?.isFinished === true;
 });
 
 const displaySequence = computed(() => {
-  // 1. Try explicit fallback first (e.g. from Series view)
-  if (props.fallbackSequence !== undefined && props.fallbackSequence !== null && props.fallbackSequence !== '') {
-    return props.fallbackSequence;
-  }
-  
-  const meta = props.item?.media?.metadata;
-  // 2. Try metadata seriesSequence
-  if (meta?.seriesSequence !== undefined && meta?.seriesSequence !== null) {
-    return meta.seriesSequence;
-  }
-  // 3. Try metadata sequence
-  return meta?.sequence || null;
+  const meta = props.item.media?.metadata;
+  // Priority: Metadata Series Sequence -> Item Sequence -> Fallback Prop
+  // Returns raw value to support decimals (e.g. 1.5)
+  return meta?.seriesSequence || meta?.sequence || props.fallbackSequence || null;
 });
 
 const handleImageLoad = () => {
@@ -97,7 +93,7 @@ onMounted(async () => {
       />
       
       <!-- Book Sequence Badge (Top Right Pill) - High Z-index -->
-      <div v-if="displaySequence !== null" class="absolute top-2 right-2 bg-purple-600/95 backdrop-blur-md px-2 py-0.5 rounded-md flex items-center justify-center text-[10px] font-black text-white border border-white/20 shadow-xl z-[60] tracking-tight">
+      <div v-if="displaySequence !== null && displaySequence !== ''" class="absolute top-2 right-2 bg-purple-600/95 backdrop-blur-md px-2 py-0.5 rounded-md flex items-center justify-center text-[10px] font-black text-white border border-white/20 shadow-xl z-[60] tracking-tight">
         #{{ displaySequence }}
       </div>
       
@@ -167,7 +163,6 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-/* Ensure line-clamp works properly */
 .line-clamp-2 {
   display: -webkit-box;
   -webkit-line-clamp: 2;

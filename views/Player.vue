@@ -161,7 +161,8 @@ const adjustSleepTimer = (count: number) => {
   setSleepChapters(state.sleepChapters + count);
 };
 
-const handleSeriesClick = () => {
+const handleSeriesClick = (e: Event) => {
+  e.stopPropagation(); // Explicitly prevent propagation
   if (metadata.value.seriesId) {
     emit('select-series', metadata.value.seriesId);
     showInfo.value = false;
@@ -287,7 +288,7 @@ const infoRows = computed(() => {
             <!-- Series Link (Visible and Clickable) - Moved/Styled as requested -->
             <button 
               v-if="metadata.seriesName" 
-              @click.stop="handleSeriesClick"
+              @click="handleSeriesClick($event)"
               class="text-purple-400 font-semibold block mt-2 hover:text-purple-300 transition-colors text-sm uppercase tracking-widest truncate max-w-full mx-auto px-4 py-1.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/5"
             >
               {{ metadata.seriesName }} {{ metadata.seriesSequence ? `#${metadata.seriesSequence}` : '' }}
@@ -418,7 +419,7 @@ const infoRows = computed(() => {
           <div class="grid grid-cols-1 md:grid-cols-2 gap-8 border-t border-white/5 pt-12">
             <div v-for="row in infoRows" :key="row.label" class="flex flex-col gap-2">
               <div class="flex items-center gap-2 text-neutral-500"><component :is="row.icon" :size="12" /><span class="text-[9px] font-black uppercase tracking-[0.4em]">{{ row.label }}</span></div>
-              <template v-if="row.isClickable"><button @click="handleSeriesClick" class="text-left text-sm font-bold text-white hover:text-purple-400 transition-colors cursor-pointer w-fit py-1 px-3 bg-purple-600/10 border border-purple-500/20 rounded-full active:scale-95">{{ row.value }}</button></template>
+              <template v-if="row.isClickable"><button @click="handleSeriesClick($event)" class="text-left text-sm font-bold text-white hover:text-purple-400 transition-colors cursor-pointer w-fit py-1 px-3 bg-purple-600/10 border border-purple-500/20 rounded-full active:scale-95">{{ row.value }}</button></template>
               <template v-else><span class="text-sm font-bold text-white">{{ row.value }}</span></template>
             </div>
           </div>
