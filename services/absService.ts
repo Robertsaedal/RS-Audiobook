@@ -147,7 +147,11 @@ export class ABSService {
     const query = new URLSearchParams();
     if (params.limit) query.append('limit', params.limit.toString());
     if (params.offset !== undefined) query.append('offset', params.offset.toString());
-    if (params.sort) query.append('sort', params.sort);
+    
+    // Normalize sort key: ABS expects addedDate for items
+    const sort = params.sort === 'addedAt' ? 'addedDate' : params.sort;
+    if (sort) query.append('sort', sort);
+    
     if (params.desc !== undefined) query.append('desc', params.desc.toString());
     if (params.filter) query.append('filter', params.filter);
     if (params.search) query.append('search', params.search);
@@ -164,8 +168,11 @@ export class ABSService {
     const query = new URLSearchParams();
     if (params.limit) query.append('limit', params.limit.toString());
     if (params.offset !== undefined) query.append('offset', params.offset.toString());
+    
+    // Normalize sort key: ABS expects addedDate for series
     const sort = params.sort === 'addedAt' ? 'addedDate' : params.sort;
     if (sort) query.append('sort', sort);
+    
     if (params.desc !== undefined) query.append('desc', params.desc.toString());
     query.append('include', 'books'); 
 

@@ -9,6 +9,7 @@ import SeriesView from './SeriesView.vue';
 import RequestPortal from '../components/RequestPortal.vue';
 import BookCard from '../components/BookCard.vue';
 import SeriesCard from '../components/SeriesCard.vue';
+import { PackageOpen } from 'lucide-vue-next';
 
 const props = defineProps<{
   auth: AuthState,
@@ -90,15 +91,15 @@ const fetchDashboardData = async () => {
       .sort((a, b) => (b.userProgress?.lastUpdate || 0) - (a.userProgress?.lastUpdate || 0))
       .slice(0, 15);
 
-    // Recently Added
+    // Recently Added - use normalized key for ABS API reliability
     const { results: added } = await absService.value.getLibraryItemsPaged({ 
-      limit: 20, sort: 'addedAt', desc: 1 
+      limit: 20, sort: 'addedDate', desc: 1 
     });
     recentlyAdded.value = added;
 
     // Recent Series
     const { results: series } = await absService.value.getLibrarySeriesPaged({ 
-      limit: 12, sort: 'addedAt', desc: 1 
+      limit: 12, sort: 'addedDate', desc: 1 
     });
     recentSeries.value = series;
   } catch (e) {
@@ -152,17 +153,25 @@ const handleScan = async () => {
   }
 };
 
+// Use trimmed search to prevent whitespace-only from triggering search mode
+const trimmedSearch = computed(() => searchTerm.value.trim());
+
 const filteredReading = computed(() => {
   const list = currentlyReading.value;
-  if (!searchTerm.value) return list;
-  const term = searchTerm.value.toLowerCase();
+  if (!trimmedSearch.value) return list;
+  const term = trimmedSearch.value.toLowerCase();
   return list.filter(i => i.media.metadata.title.toLowerCase().includes(term) || i.media.metadata.authorName.toLowerCase().includes(term));
 });
 
 const filteredAdded = computed(() => {
-  if (!searchTerm.value) return recentlyAdded.value;
-  const term = searchTerm.value.toLowerCase();
+  if (!trimmedSearch.value) return recentlyAdded.value;
+  const term = trimmedSearch.value.toLowerCase();
   return recentlyAdded.value.filter(i => i.media.metadata.title.toLowerCase().includes(term) || i.media.metadata.authorName.toLowerCase().includes(term));
+});
+
+// Check if all shelves are actually empty
+const isHomeEmpty = computed(() => {
+  return filteredReading.value.length === 0 && filteredAdded.value.length === 0 && recentSeries.value.length === 0;
 });
 </script>
 
@@ -189,65 +198,76 @@ const filteredAdded = computed(() => {
         <!-- Home View: Dashboard Shelves -->
         <div v-if="activeTab === 'HOME'" class="h-full bg-[#0d0d0d] overflow-y-auto custom-scrollbar -mx-4 md:-mx-8 px-4 md:px-8 pt-4 pb-40">
           
-          <!-- Continue Listening Shelf -->
-          <section v-if="filteredReading.length > 0 && absService" class="shelf-row">
-            <div class="shelf-tag">
-              <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Continue Listening</span>
-            </div>
-            <div class="flex gap-8 overflow-x-auto no-scrollbar pb-10 pl-2">
-              <div v-for="item in filteredReading" :key="item.id" class="w-32 md:w-40 shrink-0">
-                <BookCard 
-                  :item="item" 
-                  :coverUrl="absService.getCoverUrl(item.id)" 
-                  show-metadata
-                  @click="emit('select-item', item)" 
-                />
+          <template v-if="!isHomeEmpty || trimmedSearch">
+            <!-- Continue Listening Shelf -->
+            <section v-if="filteredReading.length > 0 && absService" class="shelf-row">
+              <div class="shelf-tag">
+                <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Continue Listening</span>
               </div>
-            </div>
-          </section>
-
-          <!-- Recently Added Shelf -->
-          <section v-if="filteredAdded.length > 0 && absService" class="shelf-row">
-            <div class="shelf-tag">
-              <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Recently Added</span>
-            </div>
-            <div class="flex gap-8 overflow-x-auto no-scrollbar pb-10 pl-2">
-              <div v-for="item in filteredAdded" :key="item.id" class="w-32 md:w-40 shrink-0">
-                <BookCard 
-                  :item="item" 
-                  :coverUrl="absService.getCoverUrl(item.id)" 
-                  show-metadata
-                  @click="emit('select-item', item)" 
-                />
+              <div class="flex gap-8 overflow-x-auto no-scrollbar pb-10 pl-2">
+                <div v-for="item in filteredReading" :key="item.id" class="w-32 md:w-40 shrink-0">
+                  <BookCard 
+                    :item="item" 
+                    :coverUrl="absService.getCoverUrl(item.id)" 
+                    show-metadata
+                    @click="emit('select-item', item)" 
+                  />
+                </div>
               </div>
-            </div>
-          </section>
+            </section>
 
-          <!-- Series Collection -->
-          <section v-if="recentSeries.length > 0 && !searchTerm && absService" class="shelf-row">
-            <div class="shelf-tag">
-              <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Series Stacks</span>
-            </div>
-            <div class="flex gap-12 md:gap-16 overflow-x-auto no-scrollbar pb-6 pl-4">
-              <div v-for="series in recentSeries" :key="series.id" class="w-44 md:w-56 shrink-0">
-                <SeriesCard 
-                  :series="series" 
-                  :coverUrl="absService.getCoverUrl(series.books?.[0]?.id || '')"
-                  :bookCovers="series.books?.slice(0, 3).map(b => absService.getCoverUrl(b.id)) || []"
-                  @click="selectedSeries = series"
-                />
+            <!-- Recently Added Shelf -->
+            <section v-if="filteredAdded.length > 0 && absService" class="shelf-row">
+              <div class="shelf-tag">
+                <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Recently Added</span>
               </div>
-            </div>
-          </section>
+              <div class="flex gap-8 overflow-x-auto no-scrollbar pb-10 pl-2">
+                <div v-for="item in filteredAdded" :key="item.id" class="w-32 md:w-40 shrink-0">
+                  <BookCard 
+                    :item="item" 
+                    :coverUrl="absService.getCoverUrl(item.id)" 
+                    show-metadata
+                    @click="emit('select-item', item)" 
+                  />
+                </div>
+              </div>
+            </section>
 
-          <div v-if="searchTerm && filteredReading.length === 0 && filteredAdded.length === 0" class="flex flex-col items-center justify-center py-40 text-center opacity-40">
-            <h3 class="text-xl font-black uppercase tracking-tighter text-neutral-500">No matching artifacts</h3>
+            <!-- Series Collection -->
+            <section v-if="recentSeries.length > 0 && !trimmedSearch && absService" class="shelf-row">
+              <div class="shelf-tag">
+                <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Series Stacks</span>
+              </div>
+              <div class="flex gap-12 md:gap-16 overflow-x-auto no-scrollbar pb-6 pl-4">
+                <div v-for="series in recentSeries" :key="series.id" class="w-44 md:w-56 shrink-0">
+                  <SeriesCard 
+                    :series="series" 
+                    :coverUrl="absService.getCoverUrl(series.books?.[0]?.id || '')"
+                    :bookCovers="series.books?.slice(0, 3).map(b => absService.getCoverUrl(b.id)) || []"
+                    @click="selectedSeries = series"
+                  />
+                </div>
+              </div>
+            </section>
+
+            <!-- Search Results Feedback -->
+            <div v-if="trimmedSearch && filteredReading.length === 0 && filteredAdded.length === 0" class="flex flex-col items-center justify-center py-40 text-center opacity-40">
+              <h3 class="text-xl font-black uppercase tracking-tighter text-neutral-500">No matching artifacts</h3>
+              <p class="text-[10px] font-black uppercase tracking-[0.4em] mt-2">Adjust frequency or search term</p>
+            </div>
+          </template>
+
+          <!-- True Empty State: Shown when archive returns nothing and no search is active -->
+          <div v-else class="flex flex-col items-center justify-center py-40 text-center opacity-40">
+            <PackageOpen :size="64" class="text-neutral-800 mb-6" />
+            <h3 class="text-xl font-black uppercase tracking-tighter text-neutral-500">Archive Void</h3>
+            <p class="text-[10px] font-black uppercase tracking-[0.4em] mt-2">No records detected in current frequency</p>
           </div>
         </div>
 
         <!-- Library View -->
         <div v-else-if="activeTab === 'LIBRARY' && absService" class="h-full flex flex-col overflow-hidden">
-          <Bookshelf :absService="absService" :sortMethod="sortMethod" :desc="desc" :search="searchTerm" @select-item="emit('select-item', $event)" />
+          <Bookshelf :absService="absService" :sortMethod="sortMethod" :desc="desc" :search="trimmedSearch" @select-item="emit('select-item', $event)" />
         </div>
 
         <!-- Series View -->

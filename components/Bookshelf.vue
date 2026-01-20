@@ -23,7 +23,7 @@ const isLoading = ref(false);
 const scrollContainerRef = ref<HTMLElement | null>(null);
 const sentinelRef = ref<HTMLElement | null>(null);
 
-// Increased batch size to ensure scrollbars appear on large screens
+// Batch size optimized for modern displays
 const ITEMS_PER_FETCH = 60;
 
 /**
@@ -37,7 +37,7 @@ const fetchMoreItems = async (isInitial = false) => {
 
   isLoading.value = true;
   try {
-    // Reliable offset logic based on actual rendered items
+    // Offset is self-correcting based on actual items rendered
     const fetchOffset = isInitial ? 0 : libraryItems.value.length;
     
     const params: LibraryQueryParams = {
@@ -53,7 +53,7 @@ const fetchMoreItems = async (isInitial = false) => {
     if (isInitial) {
       libraryItems.value = results;
     } else {
-      // Robust deduplication using ID map
+      // Map-based deduplication
       const existingIds = new Set(libraryItems.value.map(i => i.id));
       const uniqueResults = results.filter(i => !existingIds.has(i.id));
       if (uniqueResults.length > 0) {
@@ -62,56 +62,58 @@ const fetchMoreItems = async (isInitial = false) => {
     }
     totalItems.value = total;
 
-    // Container Height Check: If new content didn't fill the screen, fetch more immediately
+    // Wait for DOM to update then check if we need to fill more screen space
     await nextTick();
     if (libraryItems.value.length < totalItems.value && scrollContainerRef.value) {
       const container = scrollContainerRef.value;
-      // If scroll height is equal to or less than client height, no scrollbar exists
+      // If there is no scrollbar (scrollHeight <= clientHeight), fetch the next page immediately
       if (container.scrollHeight <= container.clientHeight + 50) {
-        isLoading.value = false; // Reset to allow recursive call
+        isLoading.value = false; // Allow immediate recursion
         await fetchMoreItems(false);
       }
     }
   } catch (e) {
-    console.error("Failed to fetch library items", e);
+    console.error("Archive fetch error:", e);
   } finally {
     isLoading.value = false;
   }
 };
 
-const reset = async () => {
-  libraryItems.value = [];
-  totalItems.value = 0;
-  if (scrollContainerRef.value) {
-    scrollContainerRef.value.scrollTop = 0;
-  }
-  await fetchMoreItems(true);
-  await nextTick();
-  setupObserver();
-};
-
 let observer: IntersectionObserver | null = null;
 const setupObserver = () => {
   if (observer) observer.disconnect();
-  
-  // Explicitly use scrollContainerRef.value as root
-  if (!scrollContainerRef.value) return;
+  if (!scrollContainerRef.value || !sentinelRef.value) return;
 
   observer = new IntersectionObserver((entries) => {
+    // Trigger when sentinel enters the viewport + margin
     if (entries[0].isIntersecting && !isLoading.value) {
       if (totalItems.value === 0 || libraryItems.value.length < totalItems.value) {
         fetchMoreItems();
       }
     }
   }, { 
-    threshold: 0, // Immediate trigger
-    rootMargin: '400px', // Balanced margin for stability
+    threshold: 0, // Trigger as soon as the first pixel of the margin enters
+    rootMargin: '600px', // Fetch well before hitting bottom
     root: scrollContainerRef.value 
   });
   
-  if (sentinelRef.value) {
-    observer.observe(sentinelRef.value);
+  observer.observe(sentinelRef.value);
+};
+
+const reset = async () => {
+  // Clean up existing observer before reset
+  if (observer) observer.disconnect();
+  
+  libraryItems.value = [];
+  totalItems.value = 0;
+  
+  if (scrollContainerRef.value) {
+    scrollContainerRef.value.scrollTop = 0;
   }
+  
+  await fetchMoreItems(true);
+  await nextTick();
+  setupObserver();
 };
 
 onMounted(async () => {
@@ -131,13 +133,13 @@ onUnmounted(() => {
   observer?.disconnect();
 });
 
-// Re-setup observer on search or sort change to ensure it doesn't get "stuck"
+// Re-initialize logic when filtering/sorting changes
 watch(() => [props.sortMethod, props.desc, props.search], () => reset());
 </script>
 
 <template>
   <div class="flex-1 h-full min-h-0 flex flex-col overflow-hidden">
-    <!-- Main scroll container -->
+    <!-- Explicitly anchored scroll container -->
     <div ref="scrollContainerRef" class="flex-1 overflow-y-auto custom-scrollbar px-2 pb-40 relative">
       
       <!-- Empty State -->
@@ -158,14 +160,14 @@ watch(() => [props.sortMethod, props.desc, props.search], () => reset());
         />
       </div>
 
-      <!-- Sentinel - Sibling to grid, within scroll container -->
-      <div ref="sentinelRef" class="h-64 w-full flex items-center justify-center mt-12 mb-20">
+      <!-- Detection Sentinel: Fixed height ensures visibility for IntersectionObserver -->
+      <div ref="sentinelRef" class="h-20 w-full flex items-center justify-center mt-12 mb-20">
         <div v-if="isLoading" class="flex flex-col items-center gap-4">
           <Loader2 class="animate-spin text-purple-500" :size="32" />
-          <p class="text-[8px] font-black uppercase tracking-[0.4em] text-neutral-700">Deciphering Archive Index...</p>
+          <p class="text-[8px] font-black uppercase tracking-[0.4em] text-neutral-700">Accessing Index...</p>
         </div>
-        <span v-else-if="libraryItems.length >= totalItems && totalItems > 0" class="text-[8px] font-black uppercase tracking-[0.6em] text-neutral-800">
-          INDEX REACHED END
+        <span v-else-if="libraryItems.length >= totalItems && totalItems > 0" class="text-[8px] font-black uppercase tracking-[0.6em] text-neutral-800/20">
+          INDEX TERMINUS REACHED
         </span>
       </div>
     </div>
