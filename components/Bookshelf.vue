@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
+import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { ABSLibraryItem, ABSProgress } from '../types';
 import { ABSService, LibraryQueryParams } from '../services/absService';
 import BookCard from './BookCard.vue';
@@ -19,21 +19,27 @@ const emit = defineEmits<{
 
 const libraryItems = ref<ABSLibraryItem[]>([]);
 const totalItems = ref(0);
-const offset = ref(0);
 const isLoading = ref(false);
 const scrollContainerRef = ref<HTMLElement | null>(null);
 const sentinelRef = ref<HTMLElement | null>(null);
 
-const ITEMS_PER_FETCH = 20;
+// Increased batch size to ensure scrollbars appear on large screens
+const ITEMS_PER_FETCH = 60;
 
+/**
+ * Paged fetch function with self-correcting offset and recursive screen-fill logic
+ */
 const fetchMoreItems = async (isInitial = false) => {
-  if (isLoading.value) return;
-  // If not initial, check if we've reached the end
-  if (!isInitial && totalItems.value > 0 && libraryItems.value.length >= totalItems.value) return;
+  // Loading guard: stop if already loading or if we've reached the end
+  if (isLoading.value || (!isInitial && totalItems.value > 0 && libraryItems.value.length >= totalItems.value)) {
+    return;
+  }
 
   isLoading.value = true;
   try {
-    const fetchOffset = isInitial ? 0 : offset.value;
+    // Reliable offset logic based on actual rendered items
+    const fetchOffset = isInitial ? 0 : libraryItems.value.length;
+    
     const params: LibraryQueryParams = {
       limit: ITEMS_PER_FETCH,
       offset: fetchOffset,
@@ -46,20 +52,26 @@ const fetchMoreItems = async (isInitial = false) => {
     
     if (isInitial) {
       libraryItems.value = results;
-      offset.value = results.length;
     } else {
+      // Robust deduplication using ID map
       const existingIds = new Set(libraryItems.value.map(i => i.id));
       const uniqueResults = results.filter(i => !existingIds.has(i.id));
-      
       if (uniqueResults.length > 0) {
         libraryItems.value.push(...uniqueResults);
-        offset.value += uniqueResults.length;
-      } else if (results.length > 0) {
-        // Increment offset even if no unique results to bypass potential duplicates
-        offset.value += results.length;
       }
     }
     totalItems.value = total;
+
+    // Container Height Check: If new content didn't fill the screen, fetch more immediately
+    await nextTick();
+    if (libraryItems.value.length < totalItems.value && scrollContainerRef.value) {
+      const container = scrollContainerRef.value;
+      // If scroll height is equal to or less than client height, no scrollbar exists
+      if (container.scrollHeight <= container.clientHeight + 50) {
+        isLoading.value = false; // Reset to allow recursive call
+        await fetchMoreItems(false);
+      }
+    }
   } catch (e) {
     console.error("Failed to fetch library items", e);
   } finally {
@@ -68,36 +80,42 @@ const fetchMoreItems = async (isInitial = false) => {
 };
 
 const reset = async () => {
-  offset.value = 0;
   libraryItems.value = [];
   totalItems.value = 0;
-  if (scrollContainerRef.value) scrollContainerRef.value.scrollTop = 0;
+  if (scrollContainerRef.value) {
+    scrollContainerRef.value.scrollTop = 0;
+  }
   await fetchMoreItems(true);
+  await nextTick();
+  setupObserver();
 };
 
 let observer: IntersectionObserver | null = null;
 const setupObserver = () => {
   if (observer) observer.disconnect();
   
+  // Explicitly use scrollContainerRef.value as root
+  if (!scrollContainerRef.value) return;
+
   observer = new IntersectionObserver((entries) => {
     if (entries[0].isIntersecting && !isLoading.value) {
-      // Check if we actually have more to load
       if (totalItems.value === 0 || libraryItems.value.length < totalItems.value) {
         fetchMoreItems();
       }
     }
   }, { 
-    threshold: 0.1, 
-    rootMargin: '600px', // Pre-fetch 600px before reaching bottom
-    root: null // Default to viewport but within constrained h-full hierarchy
+    threshold: 0, // Immediate trigger
+    rootMargin: '400px', // Balanced margin for stability
+    root: scrollContainerRef.value 
   });
   
-  if (sentinelRef.value) observer.observe(sentinelRef.value);
+  if (sentinelRef.value) {
+    observer.observe(sentinelRef.value);
+  }
 };
 
 onMounted(async () => {
   await reset();
-  setupObserver();
 
   props.absService.onProgressUpdate((updated: ABSProgress) => {
     const index = libraryItems.value.findIndex(i => i.id === updated.itemId);
@@ -113,18 +131,22 @@ onUnmounted(() => {
   observer?.disconnect();
 });
 
+// Re-setup observer on search or sort change to ensure it doesn't get "stuck"
 watch(() => [props.sortMethod, props.desc, props.search], () => reset());
 </script>
 
 <template>
-  <!-- h-full and flex-1 are key here -->
-  <div class="flex-1 h-full flex flex-col overflow-hidden">
+  <div class="flex-1 h-full min-h-0 flex flex-col overflow-hidden">
+    <!-- Main scroll container -->
     <div ref="scrollContainerRef" class="flex-1 overflow-y-auto custom-scrollbar px-2 pb-40 relative">
+      
+      <!-- Empty State -->
       <div v-if="libraryItems.length === 0 && !isLoading" class="flex flex-col items-center justify-center py-40 text-center opacity-40">
         <PackageOpen :size="64" class="text-neutral-800 mb-6" />
         <h3 class="text-xl font-black uppercase tracking-tighter">No artifacts found</h3>
       </div>
 
+      <!-- Bookshelf Grid -->
       <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-x-6 gap-y-12">
         <BookCard 
           v-for="item in libraryItems" 
@@ -136,8 +158,8 @@ watch(() => [props.sortMethod, props.desc, props.search], () => reset());
         />
       </div>
 
-      <!-- Sentinel for infinite scroll -->
-      <div ref="sentinelRef" class="h-32 w-full flex items-center justify-center mt-12 mb-20">
+      <!-- Sentinel - Sibling to grid, within scroll container -->
+      <div ref="sentinelRef" class="h-64 w-full flex items-center justify-center mt-12 mb-20">
         <div v-if="isLoading" class="flex flex-col items-center gap-4">
           <Loader2 class="animate-spin text-purple-500" :size="32" />
           <p class="text-[8px] font-black uppercase tracking-[0.4em] text-neutral-700">Deciphering Archive Index...</p>

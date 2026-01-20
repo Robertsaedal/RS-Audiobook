@@ -22,9 +22,7 @@ const emit = defineEmits<{
   (e: 'clear-initial-series'): void
 }>();
 
-// Reactive service instance
 const absService = ref<ABSService | null>(null);
-
 const activeTab = ref<LibraryTab>('HOME');
 const searchTerm = ref('');
 const sortMethod = ref('addedAt'); 
@@ -50,44 +48,55 @@ const initService = () => {
 
 const setupListeners = () => {
   if (!absService.value) return;
-
-  absService.value.onProgressUpdate((updated: ABSProgress) => {
-    // Refresh dashboard if a book makes progress or finishes
-    fetchDashboardData();
-  });
-
+  absService.value.onProgressUpdate(() => fetchDashboardData());
   absService.value.onLibraryUpdate(() => fetchDashboardData());
 };
 
 const fetchDashboardData = async () => {
   if (!absService.value) return;
   try {
-    // 1. Fetch official listening sessions (most accurate recent)
+    // 1. Fetch official listening sessions
     const sessions = await absService.value.getListeningSessions();
     
-    // 2. Fetch in-progress items via library filter (robust fallback)
+    // 2. Fetch recent in-progress items via library filter
     const { results: inProgress } = await absService.value.getLibraryItemsPaged({ 
-      limit: 20, sort: 'lastUpdate', desc: 1, filter: 'progress' 
+      limit: 24, sort: 'lastUpdate', desc: 1, filter: 'progress' 
     });
 
-    // Merge and deduplicate sessions + inProgress items
+    // Merge and deduplicate
     const combinedMap = new Map<string, ABSLibraryItem>();
-    sessions.forEach(item => combinedMap.set(item.id, item));
-    inProgress.forEach(item => {
-      if (!combinedMap.has(item.id)) {
+    
+    // Add sessions first
+    sessions.forEach(item => {
+      // Check if it has any progress or is the active item
+      if (item.userProgress && !item.userProgress.isFinished) {
+        combinedMap.set(item.id, item);
+      } else if (!item.userProgress) {
+        // Fallback: items from getListeningSessions are by definition items you listened to
         combinedMap.set(item.id, item);
       }
     });
 
+    // Supplement with in-progress items from library
+    inProgress.forEach(item => {
+      if (!combinedMap.has(item.id)) {
+        if (item.userProgress && !item.userProgress.isFinished && item.userProgress.progress > 0) {
+          combinedMap.set(item.id, item);
+        }
+      }
+    });
+
     currentlyReading.value = Array.from(combinedMap.values())
-      .filter(i => i.userProgress && !i.userProgress.isFinished && i.userProgress.progress > 0)
+      .sort((a, b) => (b.userProgress?.lastUpdate || 0) - (a.userProgress?.lastUpdate || 0))
       .slice(0, 15);
 
+    // Recently Added
     const { results: added } = await absService.value.getLibraryItemsPaged({ 
       limit: 20, sort: 'addedAt', desc: 1 
     });
     recentlyAdded.value = added;
 
+    // Recent Series
     const { results: series } = await absService.value.getLibrarySeriesPaged({ 
       limit: 12, sort: 'addedAt', desc: 1 
     });
@@ -96,6 +105,14 @@ const fetchDashboardData = async () => {
     console.error("Dashboard hydration failed", e);
   }
 };
+
+onMounted(() => {
+  initService();
+  fetchDashboardData();
+  if (props.initialSeriesId) {
+    handleJumpToSeries(props.initialSeriesId);
+  }
+});
 
 const handleJumpToSeries = async (seriesId: string) => {
   if (!absService.value) return;
@@ -108,16 +125,10 @@ const handleJumpToSeries = async (seriesId: string) => {
   emit('clear-initial-series');
 };
 
-// Watch for auth changes to re-initialize
-watch(() => props.auth.user?.token, (newToken) => {
-  if (newToken) {
-    initService();
-    fetchDashboardData();
-    if (props.initialSeriesId) {
-      handleJumpToSeries(props.initialSeriesId);
-    }
-  }
-}, { immediate: true });
+watch(() => props.auth.user?.token, () => {
+  initService();
+  fetchDashboardData();
+});
 
 onUnmounted(() => {
   absService.value?.disconnect();
@@ -166,7 +177,7 @@ const filteredAdded = computed(() => {
     @logout="emit('logout')"
     @scan="handleScan"
   >
-    <div class="flex-1 min-h-0 flex flex-col h-full">
+    <div class="flex-1 min-h-0 h-full flex flex-col">
       <SeriesView 
         v-if="selectedSeries && absService"
         :series="selectedSeries" :absService="absService"
@@ -175,7 +186,7 @@ const filteredAdded = computed(() => {
       />
 
       <template v-else>
-        <!-- Home Tab -->
+        <!-- Home View: Dashboard Shelves -->
         <div v-if="activeTab === 'HOME'" class="h-full bg-[#0d0d0d] overflow-y-auto custom-scrollbar -mx-4 md:-mx-8 px-4 md:px-8 pt-4 pb-40">
           
           <!-- Continue Listening Shelf -->
@@ -212,10 +223,10 @@ const filteredAdded = computed(() => {
             </div>
           </section>
 
-          <!-- Series Shelf -->
+          <!-- Series Collection -->
           <section v-if="recentSeries.length > 0 && !searchTerm && absService" class="shelf-row">
             <div class="shelf-tag">
-              <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Archives by Stacks</span>
+              <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Series Stacks</span>
             </div>
             <div class="flex gap-12 md:gap-16 overflow-x-auto no-scrollbar pb-6 pl-4">
               <div v-for="series in recentSeries" :key="series.id" class="w-44 md:w-56 shrink-0">
@@ -234,18 +245,18 @@ const filteredAdded = computed(() => {
           </div>
         </div>
 
-        <!-- Library Tab -->
-        <div v-else-if="activeTab === 'LIBRARY' && absService" class="h-full flex flex-col">
+        <!-- Library View -->
+        <div v-else-if="activeTab === 'LIBRARY' && absService" class="h-full flex flex-col overflow-hidden">
           <Bookshelf :absService="absService" :sortMethod="sortMethod" :desc="desc" :search="searchTerm" @select-item="emit('select-item', $event)" />
         </div>
 
-        <!-- Series Tab -->
-        <div v-else-if="activeTab === 'SERIES' && absService" class="h-full flex flex-col">
+        <!-- Series View -->
+        <div v-else-if="activeTab === 'SERIES' && absService" class="h-full flex flex-col overflow-hidden">
           <SeriesShelf :absService="absService" :sortMethod="sortMethod" :desc="desc" @select-series="selectedSeries = $event" />
         </div>
 
-        <!-- Request Tab -->
-        <div v-else-if="activeTab === 'REQUEST'" class="h-full flex flex-col">
+        <!-- Request Portal -->
+        <div v-else-if="activeTab === 'REQUEST'" class="h-full flex flex-col overflow-hidden">
           <RequestPortal />
         </div>
       </template>

@@ -50,10 +50,8 @@ const fetchMoreSeries = async (isInitial = false) => {
       
       if (uniqueResults.length > 0) {
         seriesItems.value.push(...uniqueResults);
-        offset.value += uniqueResults.length;
-      } else if (results.length > 0) {
-        offset.value += results.length;
       }
+      offset.value += ITEMS_PER_FETCH;
     }
     totalSeries.value = total;
   } catch (e) {
@@ -83,8 +81,8 @@ const setupObserver = () => {
     }
   }, { 
     threshold: 0.1, 
-    rootMargin: '600px',
-    root: null
+    rootMargin: '800px',
+    root: scrollContainerRef.value
   });
   
   if (sentinelRef.value) observer.observe(sentinelRef.value);
@@ -124,7 +122,7 @@ watch(() => [props.sortMethod, props.desc], () => reset());
         />
       </div>
 
-      <div ref="sentinelRef" class="h-32 w-full flex items-center justify-center mt-12 mb-20">
+      <div ref="sentinelRef" class="h-40 w-full flex items-center justify-center mt-12 mb-20">
         <div v-if="isLoading" class="flex flex-col items-center gap-4">
           <Loader2 class="animate-spin text-purple-500" :size="32" />
           <p class="text-[8px] font-black uppercase tracking-[0.4em] text-neutral-700">Categorizing Artifact Stacks...</p>
