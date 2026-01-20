@@ -148,19 +148,25 @@ export class ABSService {
     if (params.limit) query.append('limit', params.limit.toString());
     if (params.offset !== undefined) query.append('offset', params.offset.toString());
     
-    // Sort logic: use params.sort directly to support specific keys like addedAt and updatedAt
-    if (params.sort) query.append('sort', params.sort);
+    // Sort logic mapping
+    let sortKey = params.sort;
+    if (sortKey === 'addedAt') sortKey = 'addedAt';
+    if (sortKey) query.append('sort', sortKey);
     
     if (params.desc !== undefined) query.append('desc', params.desc.toString());
     if (params.filter) query.append('filter', params.filter);
     if (params.search) query.append('search', params.search);
-    query.append('include', 'progress');
+    
+    // Include progress and metadata to ensure server has context for sorting/filtering
+    query.append('include', 'progress,metadata');
 
     const data = await this.fetchApi(`/libraries/${HARDCODED_LIBRARY_ID}/items?${query.toString()}`);
-    return {
-      results: data?.results || (Array.isArray(data) ? data : []),
-      total: typeof data?.total === 'number' ? data.total : (Array.isArray(data) ? data.length : 0)
-    };
+    
+    // Support multiple ABS response formats (results or items array)
+    const results = data?.results || data?.items || (Array.isArray(data) ? data : []);
+    const total = typeof data?.total === 'number' ? data.total : results.length;
+
+    return { results, total };
   }
 
   async getLibrarySeriesPaged(params: LibraryQueryParams): Promise<{ results: ABSSeries[], total: number }> {
@@ -168,7 +174,7 @@ export class ABSService {
     if (params.limit) query.append('limit', params.limit.toString());
     if (params.offset !== undefined) query.append('offset', params.offset.toString());
     
-    // Series sorting fallback
+    // Series sorting fallback: API often expects 'addedDate' for series added sorting
     const sort = params.sort === 'addedAt' ? 'addedDate' : params.sort;
     if (sort) query.append('sort', sort);
     
@@ -180,6 +186,7 @@ export class ABSService {
     let results = [];
     if (data?.results) results = data.results;
     else if (data?.series) results = data.series;
+    else if (data?.items) results = data.items;
     else if (Array.isArray(data)) results = data;
 
     let total = 0;
@@ -212,7 +219,7 @@ export class ABSService {
 
   async getSeriesItems(seriesId: string): Promise<ABSLibraryItem[]> {
     const data = await this.fetchApi(`/libraries/${HARDCODED_LIBRARY_ID}/series/${seriesId}?include=progress`);
-    return data?.books || data?.results || [];
+    return data?.books || data?.results || data?.items || [];
   }
 
   async getProgress(itemId: string): Promise<ABSProgress | null> {
