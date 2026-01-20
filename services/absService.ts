@@ -150,8 +150,12 @@ export class ABSService {
     return { results, total };
   }
 
-  async getPersonalizedShelves(): Promise<any> {
-    return this.fetchApi(`/libraries/${HARDCODED_LIBRARY_ID}/personalized?_cb=${Date.now()}`);
+  async getPersonalizedShelves(params?: { limit?: number }): Promise<any> {
+    const query = new URLSearchParams();
+    if (params?.limit) query.append('limit', params.limit.toString());
+    query.append('include', 'progress');
+    query.append('_cb', Date.now().toString());
+    return this.fetchApi(`/libraries/${HARDCODED_LIBRARY_ID}/personalized?${query.toString()}`);
   }
 
   async getItemsInProgress(): Promise<ABSLibraryItem[]> {
@@ -185,6 +189,21 @@ export class ABSService {
     const total = data?.total ?? data?.totalSeries ?? data?.count ?? results.length;
     
     return { results, total };
+  }
+
+  async quickSearch(query: string): Promise<{ books: ABSLibraryItem[], series: ABSSeries[] }> {
+    const q = new URLSearchParams();
+    q.append('q', query);
+    q.append('limit', '10');
+    const data = await this.fetchApi(`/libraries/${HARDCODED_LIBRARY_ID}/search?${q.toString()}`);
+    
+    const books = (data?.book || []).map((b: any) => b.libraryItem);
+    const series = (data?.series || []).map((s: any) => ({
+      ...s.series,
+      books: s.books || []
+    }));
+    
+    return { books, series };
   }
 
   async getListeningSessions(): Promise<ABSLibraryItem[]> {

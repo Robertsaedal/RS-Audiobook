@@ -9,7 +9,7 @@ import SeriesView from './SeriesView.vue';
 import RequestPortal from '../components/RequestPortal.vue';
 import BookCard from '../components/BookCard.vue';
 import SeriesCard from '../components/SeriesCard.vue';
-import { PackageOpen } from 'lucide-vue-next';
+import { PackageOpen, Loader2 } from 'lucide-vue-next';
 
 const props = defineProps<{
   auth: AuthState,
@@ -35,6 +35,11 @@ const currentlyReading = ref<ABSLibraryItem[]>([]);
 const continueSeries = ref<ABSLibraryItem[]>([]);
 const recentlyAdded = ref<ABSLibraryItem[]>([]);
 const recentSeries = ref<ABSSeries[]>([]);
+
+// Search State
+const searchResults = ref<{ books: ABSLibraryItem[], series: ABSSeries[] }>({ books: [], series: [] });
+const isGlobalSearching = ref(false);
+let debounceTimeout: any = null;
 
 const initService = () => {
   if (absService.value) {
@@ -90,6 +95,7 @@ const handleProgressUpdate = (progress: ABSProgress) => {
   }
 
   // If item not found in "Continue Listening" and it's active, refetch dashboard to add it
+  // This helps if the server promotes a new item to the personalized shelf
   if (!found && !progress.isFinished && !progress.hideFromContinueListening) {
     fetchDashboardData();
   }
@@ -98,61 +104,35 @@ const handleProgressUpdate = (progress: ABSProgress) => {
 const fetchDashboardData = async () => {
   if (!absService.value) return;
   try {
-    // Official Strategy: Use personalized shelves + in-progress items
-    const [personalized, inProgress] = await Promise.all([
-      absService.value.getPersonalizedShelves(),
-      absService.value.getItemsInProgress()
-    ]);
-
-    // Deduplicate and filter Finished items from "Continue Listening"
-    const combinedMap = new Map<string, ABSLibraryItem>();
+    // Official Strategy: Use server personalized shelves endpoint exclusively
+    const shelves = await absService.value.getPersonalizedShelves({ limit: 12 });
     
-    // 1. High priority: Items currently in progress
-    inProgress.forEach(item => {
-      if (item.userProgress && !item.userProgress.isFinished && !item.userProgress.hideFromContinueListening) {
-        combinedMap.set(item.id, item);
+    if (!shelves || !Array.isArray(shelves)) return;
+
+    // Reset buckets
+    currentlyReading.value = [];
+    continueSeries.value = [];
+    recentlyAdded.value = [];
+    recentSeries.value = [];
+
+    shelves.forEach((shelf: any) => {
+      switch (shelf.id) {
+        case 'continue-listening':
+          currentlyReading.value = shelf.entities;
+          break;
+        case 'continue-series':
+          continueSeries.value = shelf.entities;
+          break;
+        case 'recently-added':
+        case 'newest-episodes': // Fallback for podcasts if recently-added missing
+          recentlyAdded.value = shelf.entities;
+          break;
+        case 'recent-series':
+          recentSeries.value = shelf.entities;
+          break;
       }
     });
 
-    // 2. Secondary: Items from personalized shelves (Continue Listening)
-    if (personalized && Array.isArray(personalized)) {
-      // Continue Listening Shelf
-      const continueShelf = personalized.find(s => s.id === 'continue-listening');
-      if (continueShelf && continueShelf.entities) {
-        continueShelf.entities.forEach((entity: any) => {
-          const item = entity.libraryItem || entity;
-          if (item?.id && !combinedMap.has(item.id)) {
-            if (item.userProgress && !item.userProgress.isFinished && !item.userProgress.hideFromContinueListening) {
-              combinedMap.set(item.id, item);
-            }
-          }
-        });
-      }
-
-      // Continue Series Shelf (Next in series)
-      const seriesShelf = personalized.find(s => s.id === 'continue-series');
-      if (seriesShelf && seriesShelf.entities) {
-        continueSeries.value = seriesShelf.entities.map((e: any) => e.libraryItem || e);
-      } else {
-        continueSeries.value = [];
-      }
-    }
-
-    currentlyReading.value = Array.from(combinedMap.values())
-      .sort((a, b) => (b.userProgress?.lastUpdate || 0) - (a.userProgress?.lastUpdate || 0))
-      .slice(0, 20);
-
-    // Recently Added - Ensure descending addedAt
-    const { results: added } = await absService.value.getLibraryItemsPaged({ 
-      limit: 20, sort: 'addedAt', desc: 1 
-    });
-    recentlyAdded.value = added;
-
-    // Recent Series
-    const { results: series } = await absService.value.getLibrarySeriesPaged({ 
-      limit: 12, sort: 'addedDate', desc: 1 
-    });
-    recentSeries.value = series;
   } catch (e) {
     console.error("Dashboard hydration failed", e);
   }
@@ -189,6 +169,7 @@ onUnmounted(() => {
 const handleTabChange = (tab: LibraryTab) => {
   activeTab.value = tab;
   selectedSeries.value = null;
+  searchTerm.value = ''; // Clear search when switching tabs
   if (tab === 'HOME') fetchDashboardData();
 };
 
@@ -206,40 +187,31 @@ const handleScan = async () => {
 
 const trimmedSearch = computed(() => searchTerm.value.trim());
 
-const filteredReading = computed(() => {
-  const list = currentlyReading.value;
-  if (!trimmedSearch.value) return list;
-  const term = trimmedSearch.value.toLowerCase();
-  return list.filter(i => 
-    i.media.metadata.title.toLowerCase().includes(term) || 
-    i.media.metadata.authorName.toLowerCase().includes(term) ||
-    (i.media.metadata.seriesName && i.media.metadata.seriesName.toLowerCase().includes(term))
-  );
-});
+// Global Search Logic
+const performGlobalSearch = async () => {
+  if (!trimmedSearch.value || trimmedSearch.value.length < 2 || !absService.value) return;
+  isGlobalSearching.value = true;
+  try {
+    const results = await absService.value.quickSearch(trimmedSearch.value);
+    if (results) searchResults.value = results;
+  } catch (e) {
+    console.error("Search failed", e);
+  } finally {
+    isGlobalSearching.value = false;
+  }
+};
 
-const filteredNextUp = computed(() => {
-  const list = continueSeries.value;
-  if (!trimmedSearch.value) return list;
-  const term = trimmedSearch.value.toLowerCase();
-  return list.filter(i => 
-    i.media.metadata.title.toLowerCase().includes(term) || 
-    i.media.metadata.authorName.toLowerCase().includes(term) ||
-    (i.media.metadata.seriesName && i.media.metadata.seriesName.toLowerCase().includes(term))
-  );
-});
-
-const filteredAdded = computed(() => {
-  if (!trimmedSearch.value) return recentlyAdded.value;
-  const term = trimmedSearch.value.toLowerCase();
-  return recentlyAdded.value.filter(i => 
-    i.media.metadata.title.toLowerCase().includes(term) || 
-    i.media.metadata.authorName.toLowerCase().includes(term) ||
-    (i.media.metadata.seriesName && i.media.metadata.seriesName.toLowerCase().includes(term))
-  );
+watch(trimmedSearch, () => {
+  if (debounceTimeout) clearTimeout(debounceTimeout);
+  if (!trimmedSearch.value) {
+    searchResults.value = { books: [], series: [] };
+    return;
+  }
+  debounceTimeout = setTimeout(performGlobalSearch, 300);
 });
 
 const isHomeEmpty = computed(() => {
-  return filteredReading.value.length === 0 && filteredAdded.value.length === 0 && recentSeries.value.length === 0 && filteredNextUp.value.length === 0;
+  return currentlyReading.value.length === 0 && recentlyAdded.value.length === 0 && recentSeries.value.length === 0 && continueSeries.value.length === 0;
 });
 </script>
 
@@ -263,63 +235,26 @@ const isHomeEmpty = computed(() => {
       />
 
       <template v-else>
-        <div v-if="activeTab === 'HOME'" class="h-full bg-[#0d0d0d] overflow-y-auto custom-scrollbar -mx-4 md:-mx-8 px-4 md:px-8 pt-4 pb-40">
-          
-          <template v-if="!isHomeEmpty || trimmedSearch">
-            <section v-if="filteredReading.length > 0 && absService" class="shelf-row">
-              <div class="shelf-tag">
-                <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Continue Listening</span>
-              </div>
-              <div class="flex gap-8 overflow-x-auto no-scrollbar pb-10 pl-2">
-                <div v-for="item in filteredReading" :key="item.id" class="w-32 md:w-40 shrink-0">
-                  <BookCard 
-                    :item="item" 
-                    :coverUrl="absService.getCoverUrl(item.id)" 
-                    show-metadata
-                    @click="emit('select-item', item)" 
-                  />
-                </div>
-              </div>
-            </section>
+        <!-- Global Search Results View -->
+        <div v-if="trimmedSearch" class="h-full bg-[#0d0d0d] overflow-y-auto custom-scrollbar px-4 md:px-8 pt-8 pb-40">
+          <div class="mb-8 flex items-center gap-4">
+            <h2 class="text-xl font-black uppercase tracking-tighter text-white">Search Results</h2>
+            <Loader2 v-if="isGlobalSearching" class="animate-spin text-purple-500" :size="20" />
+          </div>
 
-            <section v-if="filteredNextUp.length > 0 && absService" class="shelf-row">
-              <div class="shelf-tag">
-                <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Next in Series</span>
-              </div>
-              <div class="flex gap-8 overflow-x-auto no-scrollbar pb-10 pl-2">
-                <div v-for="item in filteredNextUp" :key="item.id" class="w-32 md:w-40 shrink-0">
-                  <BookCard 
-                    :item="item" 
-                    :coverUrl="absService.getCoverUrl(item.id)" 
-                    show-metadata
-                    @click="emit('select-item', item)" 
-                  />
-                </div>
-              </div>
-            </section>
+          <div v-if="!isGlobalSearching && searchResults.books.length === 0 && searchResults.series.length === 0" class="flex flex-col items-center justify-center py-20 text-center opacity-40">
+            <h3 class="text-lg font-black uppercase tracking-tighter text-neutral-500">No Matches Found</h3>
+            <p class="text-[9px] font-black uppercase tracking-[0.4em] mt-2">Adjust search terms</p>
+          </div>
 
-            <section v-if="filteredAdded.length > 0 && absService" class="shelf-row">
+          <template v-else>
+            <!-- Series Results -->
+            <section v-if="searchResults.series.length > 0 && absService" class="shelf-row border-t-0">
               <div class="shelf-tag">
-                <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Recently Added</span>
+                <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Series Found</span>
               </div>
-              <div class="flex gap-8 overflow-x-auto no-scrollbar pb-10 pl-2">
-                <div v-for="item in filteredAdded" :key="item.id" class="w-32 md:w-40 shrink-0">
-                  <BookCard 
-                    :item="item" 
-                    :coverUrl="absService.getCoverUrl(item.id)" 
-                    show-metadata
-                    @click="emit('select-item', item)" 
-                  />
-                </div>
-              </div>
-            </section>
-
-            <section v-if="recentSeries.length > 0 && !trimmedSearch && absService" class="shelf-row">
-              <div class="shelf-tag">
-                <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Series Stacks</span>
-              </div>
-              <div class="flex gap-12 md:gap-16 overflow-x-auto no-scrollbar pb-6 pl-4">
-                <div v-for="series in recentSeries" :key="series.id" class="w-44 md:w-56 shrink-0">
+              <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-8">
+                <div v-for="series in searchResults.series" :key="series.id">
                   <SeriesCard 
                     :series="series" 
                     :coverUrl="absService.getCoverUrl(series.books?.[0]?.id || '')"
@@ -330,30 +265,113 @@ const isHomeEmpty = computed(() => {
               </div>
             </section>
 
-            <div v-if="trimmedSearch && filteredReading.length === 0 && filteredAdded.length === 0 && filteredNextUp.length === 0" class="flex flex-col items-center justify-center py-40 text-center opacity-40">
-              <h3 class="text-xl font-black uppercase tracking-tighter text-neutral-500">No matching artifacts</h3>
-              <p class="text-[10px] font-black uppercase tracking-[0.4em] mt-2">Adjust frequency or search term</p>
-            </div>
+            <!-- Book Results -->
+            <section v-if="searchResults.books.length > 0 && absService" class="shelf-row">
+              <div class="shelf-tag">
+                <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Books Found</span>
+              </div>
+              <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
+                <BookCard 
+                  v-for="item in searchResults.books" 
+                  :key="item.id" 
+                  :item="item" 
+                  :coverUrl="absService.getCoverUrl(item.id)" 
+                  show-metadata
+                  @click="emit('select-item', item)" 
+                />
+              </div>
+            </section>
           </template>
+        </div>
 
-          <div v-else class="flex flex-col items-center justify-center py-40 text-center opacity-40">
-            <PackageOpen :size="64" class="text-neutral-800 mb-6" />
-            <h3 class="text-xl font-black uppercase tracking-tighter text-neutral-500">Archive Void</h3>
-            <p class="text-[10px] font-black uppercase tracking-[0.4em] mt-2">No records detected in current frequency</p>
+        <!-- Standard Tab Views (Only visible when NOT searching) -->
+        <template v-else>
+          <div v-if="activeTab === 'HOME'" class="h-full bg-[#0d0d0d] overflow-y-auto custom-scrollbar -mx-4 md:-mx-8 px-4 md:px-8 pt-4 pb-40">
+            <template v-if="!isHomeEmpty">
+              <section v-if="currentlyReading.length > 0 && absService" class="shelf-row">
+                <div class="shelf-tag">
+                  <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Continue Listening</span>
+                </div>
+                <div class="flex gap-8 overflow-x-auto no-scrollbar pb-10 pl-2">
+                  <div v-for="item in currentlyReading" :key="item.id" class="w-32 md:w-40 shrink-0">
+                    <BookCard 
+                      :item="item" 
+                      :coverUrl="absService.getCoverUrl(item.id)" 
+                      show-metadata
+                      @click="emit('select-item', item)" 
+                    />
+                  </div>
+                </div>
+              </section>
+
+              <section v-if="continueSeries.length > 0 && absService" class="shelf-row">
+                <div class="shelf-tag">
+                  <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Next in Series</span>
+                </div>
+                <div class="flex gap-8 overflow-x-auto no-scrollbar pb-10 pl-2">
+                  <div v-for="item in continueSeries" :key="item.id" class="w-32 md:w-40 shrink-0">
+                    <BookCard 
+                      :item="item" 
+                      :coverUrl="absService.getCoverUrl(item.id)" 
+                      show-metadata
+                      @click="emit('select-item', item)" 
+                    />
+                  </div>
+                </div>
+              </section>
+
+              <section v-if="recentlyAdded.length > 0 && absService" class="shelf-row">
+                <div class="shelf-tag">
+                  <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Recently Added</span>
+                </div>
+                <div class="flex gap-8 overflow-x-auto no-scrollbar pb-10 pl-2">
+                  <div v-for="item in recentlyAdded" :key="item.id" class="w-32 md:w-40 shrink-0">
+                    <BookCard 
+                      :item="item" 
+                      :coverUrl="absService.getCoverUrl(item.id)" 
+                      show-metadata
+                      @click="emit('select-item', item)" 
+                    />
+                  </div>
+                </div>
+              </section>
+
+              <section v-if="recentSeries.length > 0 && absService" class="shelf-row">
+                <div class="shelf-tag">
+                  <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Series Stacks</span>
+                </div>
+                <div class="flex gap-12 md:gap-16 overflow-x-auto no-scrollbar pb-6 pl-4">
+                  <div v-for="series in recentSeries" :key="series.id" class="w-44 md:w-56 shrink-0">
+                    <SeriesCard 
+                      :series="series" 
+                      :coverUrl="absService.getCoverUrl(series.books?.[0]?.id || '')"
+                      :bookCovers="series.books?.slice(0, 3).map(b => absService.getCoverUrl(b.id)) || []"
+                      @click="selectedSeries = series"
+                    />
+                  </div>
+                </div>
+              </section>
+            </template>
+
+            <div v-else class="flex flex-col items-center justify-center py-40 text-center opacity-40">
+              <PackageOpen :size="64" class="text-neutral-800 mb-6" />
+              <h3 class="text-xl font-black uppercase tracking-tighter text-neutral-500">Archive Void</h3>
+              <p class="text-[10px] font-black uppercase tracking-[0.4em] mt-2">No records detected in current frequency</p>
+            </div>
           </div>
-        </div>
 
-        <div v-else-if="activeTab === 'LIBRARY' && absService" class="h-full flex flex-col overflow-hidden">
-          <Bookshelf :absService="absService" :sortMethod="sortMethod" :desc="desc" :search="trimmedSearch" @select-item="emit('select-item', $event)" />
-        </div>
+          <div v-else-if="activeTab === 'LIBRARY' && absService" class="h-full flex flex-col overflow-hidden">
+            <Bookshelf :absService="absService" :sortMethod="sortMethod" :desc="desc" :search="''" @select-item="emit('select-item', $event)" />
+          </div>
 
-        <div v-else-if="activeTab === 'SERIES' && absService" class="h-full flex flex-col overflow-hidden">
-          <SeriesShelf :absService="absService" :sortMethod="sortMethod" :desc="desc" :search="trimmedSearch" @select-series="selectedSeries = $event" />
-        </div>
+          <div v-else-if="activeTab === 'SERIES' && absService" class="h-full flex flex-col overflow-hidden">
+            <SeriesShelf :absService="absService" :sortMethod="sortMethod" :desc="desc" :search="''" @select-series="selectedSeries = $event" />
+          </div>
 
-        <div v-else-if="activeTab === 'REQUEST'" class="h-full flex flex-col overflow-hidden">
-          <RequestPortal />
-        </div>
+          <div v-else-if="activeTab === 'REQUEST'" class="h-full flex flex-col overflow-hidden">
+            <RequestPortal />
+          </div>
+        </template>
       </template>
     </div>
   </LibraryLayout>
