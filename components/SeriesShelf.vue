@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
+import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { ABSSeries } from '../types';
 import { ABSService, LibraryQueryParams } from '../services/absService';
 import SeriesCard from './SeriesCard.vue';
-import { PackageOpen, Loader2 } from 'lucide-vue-next';
+import { PackageOpen, Loader2, AlertTriangle, RotateCw, FastForward, Plus } from 'lucide-vue-next';
 
 const props = defineProps<{
   absService: ABSService,
@@ -18,20 +18,34 @@ const emit = defineEmits<{
 
 const seriesItems = ref<ABSSeries[]>([]);
 const totalSeries = ref(0);
-const offset = ref(0);
+const internalOffset = ref(0);
 const isLoading = ref(false);
+const hasMore = ref(true);
+const duplicateWallDetected = ref(false);
 const scrollContainerRef = ref<HTMLElement | null>(null);
 const sentinelRef = ref<HTMLElement | null>(null);
 
+// Chunking Guard: Prevents duplicate requests for the same segment
+const requestedOffsets = new Set<number>();
+
 const ITEMS_PER_FETCH = 20;
 
+/**
+ * Core fetch function with explicit offset guards and duplicate detection.
+ */
 const fetchMoreSeries = async (isInitial = false) => {
+  const fetchOffset = isInitial ? 0 : internalOffset.value;
+  
+  // Guard: Don't request if already loading, already finished, or already requested this chunk
   if (isLoading.value) return;
-  if (!isInitial && totalSeries.value > 0 && seriesItems.value.length >= totalSeries.value) return;
+  if (!isInitial && !hasMore.value) return;
+  if (requestedOffsets.has(fetchOffset) && !isInitial) return;
 
   isLoading.value = true;
+  duplicateWallDetected.value = false;
+  requestedOffsets.add(fetchOffset);
+
   try {
-    const fetchOffset = isInitial ? 0 : offset.value;
     const params: LibraryQueryParams = {
       limit: ITEMS_PER_FETCH,
       offset: fetchOffset,
@@ -39,58 +53,102 @@ const fetchMoreSeries = async (isInitial = false) => {
       desc: props.desc
     };
     
+    console.log(`📡 [SeriesShelf] Querying Page: Offset ${params.offset}, Sort ${params.sort}`);
+
     const { results, total } = await props.absService.getLibrarySeriesPaged(params);
     
+    totalSeries.value = total;
+
+    if (results.length === 0) {
+      console.log("⏹️ [SeriesShelf] No series returned. Stream complete.");
+      hasMore.value = false;
+      return;
+    }
+
+    // Increment offset by requested limit to bypass caching loops
+    internalOffset.value = fetchOffset + ITEMS_PER_FETCH;
+
     if (isInitial) {
       seriesItems.value = results;
-      offset.value = results.length;
     } else {
+      // Deduplicate strictly by ID
       const existingIds = new Set(seriesItems.value.map(s => s.id));
       const uniqueResults = results.filter(s => !existingIds.has(s.id));
       
       if (uniqueResults.length > 0) {
         seriesItems.value.push(...uniqueResults);
+        console.log(`✅ [SeriesShelf] Integrated ${uniqueResults.length} new stacks.`);
+      } else {
+        console.warn("⚠️ [SeriesShelf] Pagination loop detected. Server returned only existing records for this offset.");
+        duplicateWallDetected.value = true;
       }
-      offset.value += ITEMS_PER_FETCH;
     }
-    totalSeries.value = total;
+    
+    // Check if we've theoretically hit the end
+    if (seriesItems.value.length >= totalSeries.value || internalOffset.value >= totalSeries.value) {
+      console.log(`🏁 [SeriesShelf] Reached terminus: ${seriesItems.value.length} of ${totalSeries.value}`);
+      hasMore.value = false;
+    }
+
+    // Auto-fill viewport
+    await nextTick();
+    const sentinel = sentinelRef.value;
+    if (sentinel && hasMore.value && !isLoading.value && !duplicateWallDetected.value) {
+      const rect = sentinel.getBoundingClientRect();
+      if (rect.top < window.innerHeight + 1000) {
+        setTimeout(() => fetchMoreSeries(false), 100);
+      }
+    }
   } catch (e) {
-    console.error("Failed to fetch series items", e);
+    console.error("❌ [SeriesShelf] Nexus transmission failure:", e);
+    hasMore.value = false; 
   } finally {
     isLoading.value = false;
   }
 };
 
-const reset = async () => {
-  offset.value = 0;
-  seriesItems.value = [];
-  totalSeries.value = 0;
-  if (scrollContainerRef.value) scrollContainerRef.value.scrollTop = 0;
-  await fetchMoreSeries(true);
-};
-
 let observer: IntersectionObserver | null = null;
 const setupObserver = () => {
   if (observer) observer.disconnect();
-  
+  if (!sentinelRef.value) return;
+
   observer = new IntersectionObserver((entries) => {
-    if (entries[0].isIntersecting && !isLoading.value) {
-      if (totalSeries.value === 0 || seriesItems.value.length < totalSeries.value) {
-        fetchMoreSeries();
-      }
+    if (entries[0].isIntersecting && !isLoading.value && hasMore.value) {
+      fetchMoreSeries();
     }
   }, { 
-    threshold: 0.1, 
-    rootMargin: '800px',
-    root: scrollContainerRef.value
+    threshold: 0, 
+    rootMargin: '1000px',
+    root: null
   });
   
-  if (sentinelRef.value) observer.observe(sentinelRef.value);
+  observer.observe(sentinelRef.value);
+};
+
+const reset = async () => {
+  if (observer) observer.disconnect();
+  console.log("♻️ [SeriesShelf] Resetting index...");
+  
+  requestedOffsets.clear();
+  isLoading.value = false;
+  hasMore.value = true;
+  duplicateWallDetected.value = false;
+  totalSeries.value = 0;
+  internalOffset.value = 0;
+  seriesItems.value = [];
+  
+  if (scrollContainerRef.value) {
+    scrollContainerRef.value.scrollTop = 0;
+  }
+  
+  await nextTick();
+  await fetchMoreSeries(true);
+  await nextTick();
+  setupObserver();
 };
 
 onMounted(async () => {
   await reset();
-  setupObserver();
   props.absService.onLibraryUpdate(() => reset());
 });
 
@@ -104,6 +162,7 @@ watch(() => [props.sortMethod, props.desc], () => reset());
 <template>
   <div class="flex-1 h-full flex flex-col overflow-hidden">
     <div ref="scrollContainerRef" class="flex-1 overflow-y-auto custom-scrollbar px-2 pb-40 relative">
+      
       <div v-if="seriesItems.length === 0 && !isLoading" class="flex flex-col items-center justify-center py-40 text-center opacity-40">
         <PackageOpen :size="64" class="text-neutral-800 mb-6" />
         <h3 class="text-xl font-black uppercase tracking-tighter">No Stacks Established</h3>
@@ -122,13 +181,46 @@ watch(() => [props.sortMethod, props.desc], () => reset());
         />
       </div>
 
-      <div ref="sentinelRef" class="h-40 w-full flex items-center justify-center mt-12 mb-20">
+      <div ref="sentinelRef" class="h-40 w-full flex flex-col items-center justify-center mt-12 mb-20 gap-6">
         <div v-if="isLoading" class="flex flex-col items-center gap-4">
           <Loader2 class="animate-spin text-purple-500" :size="32" />
           <p class="text-[8px] font-black uppercase tracking-[0.4em] text-neutral-700">Categorizing Artifact Stacks...</p>
         </div>
-        <span v-else-if="seriesItems.length >= totalSeries && totalSeries > 0" class="text-[8px] font-black uppercase tracking-[0.6em] text-neutral-800">
-          ARCHIVE END REACHED
+
+        <div v-else-if="duplicateWallDetected && hasMore" class="flex flex-col items-center gap-4 animate-fade-in">
+           <div class="flex items-center gap-3 px-4 py-2 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-500">
+             <AlertTriangle :size="14" />
+             <span class="text-[9px] font-black uppercase tracking-widest">Cache Wall Detected</span>
+           </div>
+           <div class="flex items-center gap-4">
+              <button 
+                @click="reset()"
+                class="flex items-center gap-3 px-6 py-3 bg-neutral-900/60 border border-white/5 rounded-full text-[9px] font-black uppercase tracking-[0.4em] text-neutral-400 hover:text-purple-400 hover:border-purple-500/20 transition-all active:scale-95"
+              >
+                <RotateCw :size="14" />
+                <span>Force Re-Sync</span>
+              </button>
+              <button 
+                @click="fetchMoreSeries()"
+                class="flex items-center gap-3 px-6 py-3 bg-neutral-900/60 border border-white/5 rounded-full text-[9px] font-black uppercase tracking-[0.4em] text-neutral-400 hover:text-purple-400 hover:border-purple-500/20 transition-all active:scale-95"
+              >
+                <FastForward :size="14" />
+                <span>Jump Segment</span>
+              </button>
+           </div>
+        </div>
+
+        <button 
+          v-else-if="!isLoading && hasMore && totalSeries > 0"
+          @click="fetchMoreSeries()"
+          class="flex items-center gap-3 px-6 py-3 bg-neutral-900/60 border border-white/5 rounded-full text-[9px] font-black uppercase tracking-[0.4em] text-neutral-500 hover:text-purple-400 hover:border-purple-500/20 transition-all active:scale-95"
+        >
+          <Plus :size="14" />
+          <span>Load More Series</span>
+        </button>
+
+        <span v-else-if="!isLoading && !hasMore && seriesItems.length > 0" class="text-[8px] font-black uppercase tracking-[0.6em] text-neutral-800/20">
+          ARCHIVE END REACHED ({{ seriesItems.length }} OF {{ totalSeries }})
         </span>
       </div>
     </div>
