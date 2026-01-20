@@ -20,30 +20,42 @@ const emit = defineEmits<{
 const libraryItems = ref<ABSLibraryItem[]>([]);
 const totalItems = ref(0);
 const isLoading = ref(false);
+const hasMore = ref(true);
 const scrollContainerRef = ref<HTMLElement | null>(null);
 const sentinelRef = ref<HTMLElement | null>(null);
 
-// Batch size optimized for modern displays and reliability
+// Batch size optimized for reliability
 const ITEMS_PER_FETCH = 60;
 
 /**
- * Paged fetch function with self-correcting offset and recursive screen-fill logic
+ * Maps human-readable or generic sort keys to ABS specific API keys
+ */
+const getMappedSortKey = (method: string) => {
+  switch (method) {
+    case 'Title': return 'media.metadata.title';
+    case 'Author': return 'media.metadata.authorName';
+    case 'Added': return 'addedAt';
+    default: return method;
+  }
+};
+
+/**
+ * Paged fetch function with strict loading guards and recursive safety
  */
 const fetchMoreItems = async (isInitial = false) => {
-  // Loading guard: stop if already loading or if we've reached the end
-  if (isLoading.value || (!isInitial && totalItems.value > 0 && libraryItems.value.length >= totalItems.value)) {
+  // Prevent parallel fetches or fetching after the end
+  if (isLoading.value || (!isInitial && !hasMore.value)) {
     return;
   }
 
   isLoading.value = true;
   try {
-    // Offset is self-correcting based on actual items rendered
     const fetchOffset = isInitial ? 0 : libraryItems.value.length;
     
     const params: LibraryQueryParams = {
       limit: ITEMS_PER_FETCH,
       offset: fetchOffset,
-      sort: props.sortMethod,
+      sort: getMappedSortKey(props.sortMethod),
       desc: props.desc,
       search: props.search
     };
@@ -53,26 +65,38 @@ const fetchMoreItems = async (isInitial = false) => {
     if (isInitial) {
       libraryItems.value = results;
     } else {
-      // Map-based deduplication
+      // Dedup check using ID comparison
       const existingIds = new Set(libraryItems.value.map(i => i.id));
       const uniqueResults = results.filter(i => !existingIds.has(i.id));
-      if (uniqueResults.length > 0) {
+      
+      // If we got results but none are unique, we might be looping; stop further fetches
+      if (results.length > 0 && uniqueResults.length === 0) {
+        console.warn("Infinite loop detected: No unique items returned in paged fetch.");
+        hasMore.value = false;
+        totalItems.value = libraryItems.value.length;
+      } else if (uniqueResults.length > 0) {
         libraryItems.value.push(...uniqueResults);
+      } else if (results.length === 0) {
+        hasMore.value = false;
       }
     }
+    
     totalItems.value = total;
+    if (libraryItems.value.length >= total) {
+      hasMore.value = false;
+    }
 
     // Wait for DOM to update then check if we need to fill more screen space
     await nextTick();
     
-    // Safety check: if the sentinel is still visible/near the viewport, trigger another fetch immediately
     const sentinel = sentinelRef.value;
-    if (sentinel && libraryItems.value.length < totalItems.value) {
+    if (sentinel && hasMore.value) {
       const rect = sentinel.getBoundingClientRect();
-      // If the sentinel is still near the viewport, force next fetch recursively
+      // If the sentinel is still inside or near the viewport, trigger another fetch immediately
+      // but ensure we yield back to the event loop so isLoading state can be respected.
       if (rect.top < window.innerHeight + 1000) {
-        console.log("Sentinel still visible/near, force-fetching next page...");
-        isLoading.value = false; // Temporarily reset to allow recursion bypass
+        console.log("Sentinel still visible, scheduling screen-fill fetch...");
+        isLoading.value = false; // Must reset to allow next fetch to trigger
         await fetchMoreItems(false);
       }
     }
@@ -88,16 +112,14 @@ const setupObserver = () => {
   if (observer) observer.disconnect();
   if (!sentinelRef.value) return;
 
-  // root: null defaults to the browser viewport for absolute reliability across nested layouts
+  // Use null root for viewport detection (most reliable across layouts)
   observer = new IntersectionObserver((entries) => {
-    if (entries[0].isIntersecting && !isLoading.value) {
-      if (totalItems.value === 0 || libraryItems.value.length < totalItems.value) {
-        fetchMoreItems();
-      }
+    if (entries[0].isIntersecting && !isLoading.value && hasMore.value) {
+      fetchMoreItems();
     }
   }, { 
-    threshold: 0, // Trigger as soon as the first pixel enters the root area
-    rootMargin: '800px', // Fetch well before hitting bottom
+    threshold: 0, 
+    rootMargin: '800px',
     root: null 
   });
   
@@ -105,11 +127,12 @@ const setupObserver = () => {
 };
 
 const reset = async () => {
-  // Prevent observer collisions during reset
   if (observer) observer.disconnect();
   
   libraryItems.value = [];
   totalItems.value = 0;
+  hasMore.value = true;
+  isLoading.value = false;
   
   if (scrollContainerRef.value) {
     scrollContainerRef.value.scrollTop = 0;
@@ -137,13 +160,12 @@ onUnmounted(() => {
   observer?.disconnect();
 });
 
-// Re-initialize logic when filtering/sorting changes
-watch(() => [props.sortMethod, props.desc, props.search], () => reset());
+// Deep watch props to trigger reset on sort/desc/search changes
+watch(() => [props.sortMethod, props.desc, props.search], () => reset(), { deep: true });
 </script>
 
 <template>
   <div class="flex-1 h-full min-h-0 flex flex-col overflow-hidden">
-    <!-- Main scroll container -->
     <div ref="scrollContainerRef" class="flex-1 overflow-y-auto custom-scrollbar px-2 pb-40 relative">
       
       <!-- Empty State -->
@@ -164,16 +186,17 @@ watch(() => [props.sortMethod, props.desc, props.search], () => reset());
         />
       </div>
 
-      <!-- Detection Sentinel: Direct sibling to grid, within scroll container -->
+      <!-- Detection Sentinel -->
       <div ref="sentinelRef" class="h-24 w-full flex flex-col items-center justify-center mt-12 mb-24 gap-6">
-        <div v-if="isLoading" class="flex flex-col items-center gap-4">
+        <!-- Show loader only if we actually have more to fetch -->
+        <div v-if="isLoading && hasMore" class="flex flex-col items-center gap-4">
           <Loader2 class="animate-spin text-purple-500" :size="32" />
           <p class="text-[8px] font-black uppercase tracking-[0.4em] text-neutral-700">Accessing Index...</p>
         </div>
         
         <!-- Manual Fetch Fallback -->
         <button 
-          v-if="!isLoading && libraryItems.length < totalItems && totalItems > 0"
+          v-if="!isLoading && hasMore && totalItems > 0"
           @click="fetchMoreItems()"
           class="flex items-center gap-3 px-6 py-3 bg-neutral-900/60 border border-white/5 rounded-full text-[9px] font-black uppercase tracking-[0.4em] text-neutral-500 hover:text-purple-400 hover:border-purple-500/20 transition-all active:scale-95"
         >
@@ -181,7 +204,8 @@ watch(() => [props.sortMethod, props.desc, props.search], () => reset());
           <span>Load More (Manual)</span>
         </button>
 
-        <span v-else-if="!isLoading && libraryItems.length >= totalItems && totalItems > 0" class="text-[8px] font-black uppercase tracking-[0.6em] text-neutral-800/20">
+        <!-- End of Index State -->
+        <span v-else-if="!isLoading && !hasMore && totalItems > 0" class="text-[8px] font-black uppercase tracking-[0.6em] text-neutral-800/20">
           INDEX TERMINUS REACHED
         </span>
       </div>
