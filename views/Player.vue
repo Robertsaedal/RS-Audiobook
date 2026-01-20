@@ -2,10 +2,11 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { AuthState, ABSLibraryItem } from '../types';
 import { usePlayer } from '../composables/usePlayer';
+import { ABSService } from '../services/absService';
 import ChapterEditor from '../components/ChapterEditor.vue';
 import { 
   ChevronDown, Play, Pause, Info, X, SkipBack, SkipForward,
-  RotateCcw, RotateCw, ChevronRight, Gauge, Moon, Plus, Minus, Database, Mic, Clock, User, Book, Layers
+  RotateCcw, RotateCw, ChevronRight, Gauge, Moon, Plus, Minus, Mic, Clock, Layers, Download
 } from 'lucide-vue-next';
 
 const props = defineProps<{
@@ -20,6 +21,7 @@ const emit = defineEmits<{
 }>();
 
 const { state, load, play, pause, seek, setPlaybackRate, setSleepChapters, destroy } = usePlayer();
+const absService = computed(() => new ABSService(props.auth.serverUrl, props.auth.user?.token || ''));
 
 const showChapters = ref(false);
 const showInfo = ref(false);
@@ -55,9 +57,11 @@ const chapterProgressPercent = computed(() => {
   return Math.max(0, Math.min(100, (elapsed / chapterDur) * 100));
 });
 
+// Effective time remaining considers playback speed
 const chapterTimeRemaining = computed(() => {
   if (!currentChapter.value) return 0;
-  return Math.max(0, currentChapter.value.end - state.currentTime);
+  const rawRemaining = Math.max(0, currentChapter.value.end - state.currentTime);
+  return rawRemaining / state.playbackRate;
 });
 
 const bookProgressPercent = computed(() => {
@@ -65,7 +69,7 @@ const bookProgressPercent = computed(() => {
   return (state.currentTime / state.duration) * 100;
 });
 
-// Sleep Timer: Calculate total time until zzz based on chapters
+// Sleep Timer: Calculate total time until zzz based on chapters and speed
 const sleepTimeRemaining = computed(() => {
   if (state.sleepChapters <= 0 || currentChapterIndex.value === -1) return 0;
   
@@ -82,7 +86,7 @@ const sleepTimeRemaining = computed(() => {
     }
   }
   
-  return totalTime;
+  return totalTime / state.playbackRate;
 });
 
 const secondsToTimestamp = (s: number) => {
@@ -145,13 +149,14 @@ const handleSeriesClick = () => {
   }
 };
 
-const metadata = computed(() => activeItem.value?.media?.metadata || {});
+const handleDownload = () => {
+  if (activeItem.value?.id) {
+    const url = absService.value.getDownloadUrl(activeItem.value.id);
+    window.open(url, '_blank');
+  }
+};
 
-const formattedSeriesInfo = computed(() => {
-  if (!metadata.value.seriesName) return null;
-  const seq = metadata.value.sequence || '1';
-  return `${metadata.value.seriesName} • Book ${seq}`;
-});
+const metadata = computed(() => activeItem.value?.media?.metadata || {});
 
 const infoRows = computed(() => {
   return [
@@ -177,7 +182,8 @@ const infoRows = computed(() => {
     </Transition>
 
     <template v-if="!state.isLoading">
-      <header class="px-8 py-8 flex justify-between items-center z-20 shrink-0">
+      <!-- Top Navigation Header -->
+      <header class="px-8 py-6 md:py-8 flex justify-between items-center z-20 shrink-0">
         <button @click="emit('back')" class="p-2 text-neutral-600 hover:text-white transition-colors active:scale-90">
           <ChevronDown :size="24" stroke-width="1.5" />
         </button>
@@ -188,110 +194,139 @@ const infoRows = computed(() => {
             <ChevronRight :size="12" class="text-neutral-700" />
           </div>
         </button>
-        <button @click="showInfo = true" class="p-2 text-neutral-600 hover:text-white transition-colors">
-          <Info :size="22" stroke-width="1.5" />
-        </button>
+        <div class="flex items-center gap-2">
+          <button @click="handleDownload" class="p-2 text-neutral-600 hover:text-purple-400 transition-colors">
+            <Download :size="22" stroke-width="1.5" />
+          </button>
+          <button @click="showInfo = true" class="p-2 text-neutral-600 hover:text-white transition-colors">
+            <Info :size="22" stroke-width="1.5" />
+          </button>
+        </div>
       </header>
 
-      <div class="flex-1 flex flex-col items-center justify-center px-8 relative gap-8">
-        <div @click="showInfo = true" class="relative w-full max-w-[280px] aspect-square group cursor-pointer">
-          <div class="absolute -inset-10 bg-purple-600/5 blur-[100px] rounded-full opacity-50" />
-          <div class="relative z-10 w-full h-full rounded-[40px] overflow-hidden border border-white/10 shadow-[0_30px_60px_-15px_rgba(0,0,0,0.8)] transition-transform duration-700 group-hover:scale-[1.02]">
-            <img :src="coverUrl" class="w-full h-full object-cover" />
+      <!-- Main Split Layout -->
+      <!-- Flex Col for Mobile, Row for Desktop/Landscape -->
+      <div class="flex-1 w-full h-full flex flex-col lg:flex-row overflow-hidden relative z-10">
+        
+        <!-- Left Column: Visuals & Metadata (40% Desktop) -->
+        <div class="flex-1 lg:flex-none lg:w-[40%] flex flex-col items-center justify-center px-8 pb-4 lg:pb-0 relative z-10 min-h-0">
+          <!-- Book Cover - Formatted as a Book (2:3 aspect) -->
+          <div @click="showInfo = true" class="relative w-full max-w-[260px] md:max-w-[340px] aspect-[2/3] group cursor-pointer perspective-1000 shrink-0 mb-8 lg:mb-12">
+            <div class="absolute -inset-10 bg-purple-600/5 blur-[100px] rounded-full opacity-50" />
+            
+            <div class="relative z-10 w-full h-full rounded-r-2xl rounded-l-sm overflow-hidden border-t border-r border-b border-white/10 shadow-[20px_20px_60px_-15px_rgba(0,0,0,0.8)] transition-transform duration-700 group-hover:scale-[1.02] group-hover:-translate-y-2 book-spine">
+               <!-- Spine Highlight -->
+               <div class="absolute left-0 top-0 bottom-0 w-1.5 bg-gradient-to-r from-white/20 to-transparent z-20" />
+               <div class="absolute left-1.5 top-0 bottom-0 w-px bg-black/40 z-20" />
+
+               <img :src="coverUrl" class="w-full h-full object-cover" />
+            </div>
+          </div>
+
+          <div class="text-center space-y-3 w-full max-w-md px-4 z-10">
+            <div class="space-y-1">
+              <button 
+                v-if="metadata.seriesName && metadata.seriesId" 
+                @click="handleSeriesClick"
+                class="text-[9px] font-black uppercase tracking-[0.4em] text-purple-500/80 hover:text-purple-400 transition-colors truncate w-full"
+              >
+                {{ metadata.seriesName }}
+              </button>
+              <h1 class="text-xl md:text-2xl font-black uppercase tracking-tight text-white leading-tight line-clamp-2" :title="metadata.title">
+                {{ metadata.title }}
+              </h1>
+              <p class="text-[10px] font-black uppercase tracking-[0.3em] text-neutral-600 truncate">
+                {{ metadata.authorName }}
+              </p>
+            </div>
           </div>
         </div>
-        <div class="text-center space-y-3 w-full max-w-md px-4 z-10">
-          <div class="space-y-1">
-            <p v-if="formattedSeriesInfo" class="text-[9px] font-black uppercase tracking-[0.4em] text-purple-500/80">
-              {{ formattedSeriesInfo }}
-            </p>
-            <h1 class="text-xl md:text-2xl font-black uppercase tracking-tight text-white leading-tight line-clamp-2">{{ metadata.title }}</h1>
-            <p class="text-[10px] font-black uppercase tracking-[0.3em] text-neutral-600">{{ metadata.authorName }}</p>
+
+        <!-- Right Column: Controls (60% Desktop) -->
+        <div class="shrink-0 lg:flex-1 lg:w-[60%] lg:h-full flex flex-col justify-end lg:justify-center px-8 pb-12 lg:pb-0 lg:px-24 space-y-10 lg:space-y-16 w-full max-w-xl lg:max-w-3xl mx-auto lg:mx-0 z-20">
+          
+          <!-- Progress Area -->
+          <div class="space-y-4">
+            <div class="flex justify-between items-end mb-1">
+               <div class="flex flex-col">
+                 <span class="text-[8px] font-black text-neutral-600 uppercase tracking-widest">Chapter Elapsed</span>
+                 <span class="text-lg font-black font-mono-timer tabular-nums tracking-tighter text-white">{{ secondsToTimestamp(state.currentTime - (currentChapter?.start || 0)) }}</span>
+               </div>
+               <div class="flex flex-col items-end">
+                 <span class="text-[8px] font-black text-neutral-600 uppercase tracking-widest">Chapter Remaining</span>
+                 <span class="text-lg font-black font-mono-timer tabular-nums tracking-tighter text-purple-500">-{{ secondsToTimestamp(chapterTimeRemaining) }}</span>
+               </div>
+            </div>
+
+            <!-- Interactive Chapter Progress Bar -->
+            <div 
+              class="h-3 w-full bg-neutral-900 rounded-full relative overflow-hidden shadow-inner border border-white/5 cursor-pointer"
+              @click="handleChapterProgressClick"
+            >
+              <div 
+                class="h-full bg-purple-600 shadow-[0_0_20px_rgba(168,85,247,0.6)] transition-all duration-300 rounded-r-full" 
+                :style="{ width: chapterProgressPercent + '%' }"
+              />
+            </div>
+
+            <!-- Secondary Global Progress Bar (Thin, Non-Interactive) -->
+            <div 
+              class="h-1 w-full bg-neutral-900/40 rounded-full relative overflow-hidden border border-white/5 pointer-events-none" 
+            >
+              <div 
+                class="h-full bg-neutral-600/50 transition-all duration-150" 
+                :style="{ width: bookProgressPercent + '%' }"
+              />
+            </div>
+            
+            <div class="flex justify-center items-center text-[7px] font-black uppercase tracking-[0.4em] text-neutral-700">
+              <div class="flex items-center gap-2">
+                 <Clock :size="8" />
+                 <span>Book Progress: {{ secondsToTimestamp(state.currentTime) }} / {{ secondsToTimestamp(state.duration) }}</span>
+              </div>
+            </div>
           </div>
+
+          <!-- Controls -->
+          <div class="flex items-center justify-center gap-4 md:gap-8">
+            <button @click="skipToPrevChapter" class="p-3 text-neutral-700 hover:text-purple-400 transition-colors active:scale-90"><SkipBack :size="20" /></button>
+            <button @click="seek(state.currentTime - 10)" class="p-3 text-neutral-700 hover:text-white transition-colors active:scale-90"><RotateCcw :size="24" /></button>
+            <button @click="togglePlay" class="w-20 h-20 rounded-full bg-purple-600/10 flex items-center justify-center border border-purple-500/20 shadow-[0_0_50px_rgba(157,80,187,0.1)] active:scale-95 transition-all group relative">
+              <Pause v-if="state.isPlaying" :size="32" class="text-purple-500 fill-current" />
+              <Play v-else :size="32" class="text-purple-500 fill-current translate-x-1" />
+            </button>
+            <button @click="seek(state.currentTime + 30)" class="p-3 text-neutral-700 hover:text-white transition-colors active:scale-90"><RotateCw :size="24" /></button>
+            <button @click="skipToNextChapter" class="p-3 text-neutral-700 hover:text-purple-400 transition-colors active:scale-90"><SkipForward :size="20" /></button>
+          </div>
+
+          <!-- Speed & Sleep -->
+          <div class="grid grid-cols-2 gap-4">
+            <div class="bg-neutral-900/40 border border-white/5 rounded-[24px] p-5 flex flex-col items-center gap-4 hover:border-white/10 transition-colors">
+              <div class="flex items-center gap-2 text-[8px] font-black uppercase tracking-[0.4em] text-neutral-700"><Gauge :size="12" /><span>Speed</span></div>
+              <div class="flex items-center justify-between w-full px-2">
+                <button @click="setPlaybackRate(Math.max(0.5, state.playbackRate - 0.1))" class="p-1 text-neutral-600 hover:text-white"><Minus :size="14" /></button>
+                <span class="text-xs font-black font-mono text-purple-500">{{ state.playbackRate.toFixed(1) }}x</span>
+                <button @click="setPlaybackRate(Math.min(2.5, state.playbackRate + 0.1))" class="p-1 text-neutral-600 hover:text-white"><Plus :size="14" /></button>
+              </div>
+            </div>
+            <div class="bg-neutral-900/40 border border-white/5 rounded-[24px] p-5 flex flex-col items-center gap-4 hover:border-white/10 transition-colors">
+              <div class="flex items-center gap-2 text-[8px] font-black uppercase tracking-[0.4em] text-neutral-700"><Moon :size="12" /><span>Sleep Timer</span></div>
+              <div class="flex items-center justify-between w-full px-2">
+                <button @click="adjustSleepTimer(-1)" class="p-1 text-neutral-600 hover:text-white"><Minus :size="14" /></button>
+                <div class="flex flex-col items-center min-w-[60px]">
+                   <span v-if="state.sleepChapters > 0" class="text-[10px] font-black text-purple-500 tracking-tighter text-center leading-none">
+                     {{ state.sleepChapters }} ch selected
+                   </span>
+                   <span v-if="state.sleepChapters > 0" class="text-[8px] font-black text-neutral-600 mt-1">{{ secondsToTimestamp(sleepTimeRemaining) }} until zzz</span>
+                   <span v-else class="text-xs font-black font-mono text-neutral-600 uppercase">OFF</span>
+                </div>
+                <button @click="adjustSleepTimer(1)" class="p-1 text-neutral-600 hover:text-white"><Plus :size="14" /></button>
+              </div>
+            </div>
+          </div>
+
         </div>
       </div>
-
-      <footer class="px-10 pb-12 space-y-10 max-w-xl mx-auto w-full z-20">
-        <!-- Overhauled Progress: Current Chapter Focused -->
-        <div class="space-y-4">
-          <div class="flex justify-between items-end mb-1">
-             <div class="flex flex-col">
-               <span class="text-[8px] font-black text-neutral-600 uppercase tracking-widest">Chapter Elapsed</span>
-               <span class="text-lg font-black font-mono-timer tabular-nums tracking-tighter text-white">{{ secondsToTimestamp(state.currentTime - (currentChapter?.start || 0)) }}</span>
-             </div>
-             <div class="flex flex-col items-end">
-               <span class="text-[8px] font-black text-neutral-600 uppercase tracking-widest">Chapter Remaining</span>
-               <span class="text-lg font-black font-mono-timer tabular-nums tracking-tighter text-purple-500">-{{ secondsToTimestamp(chapterTimeRemaining) }}</span>
-             </div>
-          </div>
-
-          <!-- Interactive Chapter Progress Bar -->
-          <div 
-            class="h-3 w-full bg-neutral-900 rounded-full relative overflow-hidden shadow-inner border border-white/5 cursor-pointer"
-            @click="handleChapterProgressClick"
-          >
-            <div 
-              class="h-full bg-purple-600 shadow-[0_0_20px_rgba(168,85,247,0.6)] transition-all duration-300 rounded-r-full" 
-              :style="{ width: chapterProgressPercent + '%' }"
-            />
-          </div>
-
-          <!-- Secondary Global Progress Bar (Thin, Non-Interactive) -->
-          <div 
-            class="h-1 w-full bg-neutral-900/40 rounded-full relative overflow-hidden border border-white/5 pointer-events-none" 
-          >
-            <div 
-              class="h-full bg-neutral-600/50 transition-all duration-150" 
-              :style="{ width: bookProgressPercent + '%' }"
-            />
-          </div>
-          
-          <div class="flex justify-center items-center text-[7px] font-black uppercase tracking-[0.4em] text-neutral-700">
-            <div class="flex items-center gap-2">
-               <Clock :size="8" />
-               <span>Book Progress: {{ secondsToTimestamp(state.currentTime) }} / {{ secondsToTimestamp(state.duration) }}</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Controls -->
-        <div class="flex items-center justify-center gap-4 md:gap-8">
-          <button @click="skipToPrevChapter" class="p-3 text-neutral-700 hover:text-purple-400 transition-colors active:scale-90"><SkipBack :size="20" /></button>
-          <button @click="seek(state.currentTime - 10)" class="p-3 text-neutral-700 hover:text-white transition-colors active:scale-90"><RotateCcw :size="24" /></button>
-          <button @click="togglePlay" class="w-20 h-20 rounded-full bg-purple-600/10 flex items-center justify-center border border-purple-500/20 shadow-[0_0_50px_rgba(157,80,187,0.1)] active:scale-95 transition-all group relative">
-            <Pause v-if="state.isPlaying" :size="32" class="text-purple-500 fill-current" />
-            <Play v-else :size="32" class="text-purple-500 fill-current translate-x-1" />
-          </button>
-          <button @click="seek(state.currentTime + 30)" class="p-3 text-neutral-700 hover:text-white transition-colors active:scale-90"><RotateCw :size="24" /></button>
-          <button @click="skipToNextChapter" class="p-3 text-neutral-700 hover:text-purple-400 transition-colors active:scale-90"><SkipForward :size="20" /></button>
-        </div>
-
-        <!-- Speed & Sleep -->
-        <div class="grid grid-cols-2 gap-4">
-          <div class="bg-neutral-900/40 border border-white/5 rounded-[24px] p-5 flex flex-col items-center gap-4">
-            <div class="flex items-center gap-2 text-[8px] font-black uppercase tracking-[0.4em] text-neutral-700"><Gauge :size="12" /><span>Speed</span></div>
-            <div class="flex items-center justify-between w-full px-2">
-              <button @click="setPlaybackRate(Math.max(0.5, state.playbackRate - 0.1))" class="p-1 text-neutral-600 hover:text-white"><Minus :size="14" /></button>
-              <span class="text-xs font-black font-mono text-purple-500">{{ state.playbackRate.toFixed(1) }}x</span>
-              <button @click="setPlaybackRate(Math.min(2.5, state.playbackRate + 0.1))" class="p-1 text-neutral-600 hover:text-white"><Plus :size="14" /></button>
-            </div>
-          </div>
-          <div class="bg-neutral-900/40 border border-white/5 rounded-[24px] p-5 flex flex-col items-center gap-4">
-            <div class="flex items-center gap-2 text-[8px] font-black uppercase tracking-[0.4em] text-neutral-700"><Moon :size="12" /><span>Sleep Timer</span></div>
-            <div class="flex items-center justify-between w-full px-2">
-              <button @click="adjustSleepTimer(-1)" class="p-1 text-neutral-600 hover:text-white"><Minus :size="14" /></button>
-              <div class="flex flex-col items-center min-w-[60px]">
-                 <span v-if="state.sleepChapters > 0" class="text-[10px] font-black text-purple-500 tracking-tighter text-center leading-none">
-                   {{ state.sleepChapters }} ch selected
-                 </span>
-                 <span v-if="state.sleepChapters > 0" class="text-[8px] font-black text-neutral-600 mt-1">{{ secondsToTimestamp(sleepTimeRemaining) }} until zzz</span>
-                 <span v-else class="text-xs font-black font-mono text-neutral-600 uppercase">OFF</span>
-              </div>
-              <button @click="adjustSleepTimer(1)" class="p-1 text-neutral-600 hover:text-white"><Plus :size="14" /></button>
-            </div>
-          </div>
-        </div>
-      </footer>
     </template>
 
     <ChapterEditor 
@@ -315,7 +350,7 @@ const infoRows = computed(() => {
         </header>
         <div class="flex-1 overflow-y-auto p-10 space-y-12 max-w-2xl mx-auto w-full no-scrollbar pb-32">
           <div class="space-y-4">
-            <div class="flex items-center gap-2 text-neutral-700"><Book :size="14" /><span class="text-[9px] font-black uppercase tracking-[0.4em]">Artifact Summary</span></div>
+            <div class="flex items-center gap-2 text-neutral-700"><Layers :size="14" /><span class="text-[9px] font-black uppercase tracking-[0.4em]">Artifact Summary</span></div>
             <h3 class="text-3xl font-black uppercase tracking-tighter text-white leading-tight">{{ metadata.title }}</h3>
             <p class="text-neutral-500 text-sm leading-relaxed">{{ metadata.description || 'No summary retrieved from repository.' }}</p>
           </div>
@@ -337,6 +372,16 @@ const infoRows = computed(() => {
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 .slide-up-enter-active, .slide-up-leave-active { transition: transform 0.6s cubic-bezier(0.22, 1, 0.36, 1); }
 .slide-up-enter-from, .slide-up-leave-to { transform: translateY(100%); }
+
+.perspective-1000 {
+  perspective: 1000px;
+}
+.book-spine {
+  border-left: 2px solid rgba(255,255,255,0.1);
+  box-shadow: 
+    inset 10px 0 20px rgba(0,0,0,0.5),
+    10px 10px 30px rgba(0,0,0,0.5);
+}
 
 .shadow-aether-glow {
   text-shadow: 0 0 10px rgba(168, 85, 247, 0.6);

@@ -261,6 +261,11 @@ export class ABSService {
     return `${BASE_API_URL}/items/${itemId}/cover?token=${this.token}`;
   }
 
+  getDownloadUrl(itemId: string): string {
+    if (!itemId) return '';
+    return `${BASE_API_URL}/items/${itemId}/download?token=${this.token}`;
+  }
+
   onProgressUpdate(callback: (progress: ABSProgress) => void) {
     this.socket?.on('user_item_progress_updated', (data) => {
       if (data && data.itemId) callback(data);

@@ -19,6 +19,11 @@ const imageReady = ref(false);
 
 const progress = computed(() => {
   if (!props.item?.userProgress) return 0;
+  // If progress is directly provided by server, use it (0-1), otherwise calculate
+  if (props.item.userProgress.progress !== undefined) {
+    return props.item.userProgress.progress * 100;
+  }
+  
   const current = props.item.userProgress.currentTime || 0;
   const total = props.item.media.duration || props.item.userProgress.duration || 1;
   return Math.min(100, (current / total) * 100);
@@ -32,11 +37,9 @@ const displaySequence = computed(() => {
   
   if (raw === undefined || raw === null || raw === '') return null;
   
-  const num = parseFloat(String(raw));
-  if (isNaN(num)) return raw;
-  
-  // Logic: If whole number (e.g. 1.0), show #1. If decimal (e.g. 1.5), show #1.5.
-  return num % 1 === 0 ? Math.floor(num) : num;
+  // Return raw value if it's a string that looks like a number but might be "1.5" or "0.5"
+  // We want to avoid aggressive rounding if the metadata explicitly has decimals
+  return raw;
 });
 
 const handleImageLoad = () => {
@@ -83,7 +86,13 @@ const handleImageLoad = () => {
           :style="{ width: progress + '%' }" 
         />
       </div>
+      <!-- Finished Indicator -->
       <div v-if="isFinished" class="absolute bottom-0 left-0 h-1.5 w-full bg-green-500 z-30 shadow-[0_0_10px_rgba(34,197,94,0.3)]" />
+      
+      <!-- Percentage Text Overlay (Visible when in progress) -->
+      <div v-if="progress > 0 && !isFinished" class="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/70 backdrop-blur-sm px-2 py-0.5 rounded text-[8px] font-black text-white uppercase tracking-widest z-30 opacity-0 group-hover:opacity-100 transition-opacity">
+        {{ Math.round(progress) }}%
+      </div>
     </div>
     
     <!-- Permanent Metadata Display -->
