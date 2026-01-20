@@ -1,10 +1,12 @@
+
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { AuthState, ABSLibraryItem } from '../types';
 import { usePlayer } from '../composables/usePlayer';
+import ChapterEditor from '../components/ChapterEditor.vue';
 import { 
   ChevronDown, Play, Pause, Info, X, SkipBack, SkipForward,
-  RotateCcw, RotateCw, ChevronRight, Gauge, Moon, Plus, Minus, Database, Mic, Clock, User, Book, Layers
+  RotateCcw, RotateCw, ChevronRight, Gauge, Moon, Plus, Minus, Database, Mic, Clock, User, Book, Layers, Edit3
 } from 'lucide-vue-next';
 
 const props = defineProps<{
@@ -14,13 +16,15 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'back'): void,
-  (e: 'select-series', seriesId: string): void
+  (e: 'select-series', seriesId: string): void,
+  (e: 'item-updated', updatedItem: ABSLibraryItem): void
 }>();
 
 const { state, load, play, pause, seek, setPlaybackRate, destroy } = usePlayer();
 
 const showChapters = ref(false);
 const showInfo = ref(false);
+const showChapterEditor = ref(false);
 
 const coverUrl = computed(() => {
   const baseUrl = props.auth.serverUrl.replace(/\/api\/?$/, '').replace(/\/+$/, '');
@@ -113,6 +117,10 @@ const handleSeriesClick = () => {
     emit('select-series', metadata.value.seriesId);
     showInfo.value = false;
   }
+};
+
+const onChaptersSaved = (updatedItem: ABSLibraryItem) => {
+  emit('item-updated', updatedItem);
 };
 
 const metadata = computed(() => props.item?.media?.metadata || {});
@@ -228,6 +236,33 @@ const infoRows = computed(() => {
       </footer>
     </template>
 
+    <!-- Index Overlay -->
+    <Transition name="slide-up">
+      <div v-if="showChapters" class="fixed inset-0 bg-black/95 backdrop-blur-3xl z-[150] flex flex-col">
+        <header class="p-10 flex justify-between items-center bg-transparent shrink-0">
+          <div class="space-y-1">
+            <h2 class="text-xl font-black uppercase tracking-tighter text-white">ARCHIVE INDEX</h2>
+            <p class="text-[8px] font-black uppercase tracking-[0.5em] text-purple-700">Captured Volume Segments</p>
+          </div>
+          <div class="flex items-center gap-4">
+            <button @click="showChapterEditor = true" class="p-4 bg-purple-600/10 border border-purple-500/20 rounded-full text-purple-400 hover:text-white transition-all active:scale-90">
+              <Edit3 :size="20"/>
+            </button>
+            <button @click="showChapters = false" class="p-4 bg-neutral-900/50 rounded-full text-neutral-500 hover:text-white border border-white/5 transition-all"><X :size="20"/></button>
+          </div>
+        </header>
+        <div class="flex-1 overflow-y-auto p-8 no-scrollbar max-w-2xl mx-auto w-full pb-32">
+          <button v-for="(ch, i) in chapters" :key="i" @click="handleChapterClick(ch.start)" class="w-full flex items-center justify-between p-6 rounded-[24px] mb-3 transition-all border border-transparent group text-left" :class="currentChapterIndex === i ? 'bg-purple-600/10 border-purple-500/20' : 'hover:bg-white/5'">
+            <div class="flex flex-col gap-1">
+              <span class="text-xs font-black uppercase tracking-tight" :class="currentChapterIndex === i ? 'text-white' : 'text-neutral-500'">{{ ch.title }}</span>
+              <span class="text-[9px] font-mono text-neutral-700 tabular-nums">{{ secondsToTimestamp(ch.start) }}</span>
+            </div>
+          </button>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- Info Overlay -->
     <Transition name="slide-up">
       <div v-if="showInfo" class="fixed inset-0 bg-black/95 backdrop-blur-3xl z-[160] flex flex-col">
         <header class="p-10 flex justify-between items-center bg-transparent shrink-0">
@@ -254,25 +289,13 @@ const infoRows = computed(() => {
       </div>
     </Transition>
 
-    <Transition name="slide-up">
-      <div v-if="showChapters" class="fixed inset-0 bg-black/95 backdrop-blur-3xl z-[150] flex flex-col">
-        <header class="p-10 flex justify-between items-center bg-transparent shrink-0">
-          <div class="space-y-1">
-            <h2 class="text-xl font-black uppercase tracking-tighter text-white">ARCHIVE INDEX</h2>
-            <p class="text-[8px] font-black uppercase tracking-[0.5em] text-purple-700">Captured Volume Segments</p>
-          </div>
-          <button @click="showChapters = false" class="p-4 bg-neutral-900/50 rounded-full text-neutral-500 hover:text-white border border-white/5 transition-all"><X :size="20"/></button>
-        </header>
-        <div class="flex-1 overflow-y-auto p-8 no-scrollbar max-w-2xl mx-auto w-full pb-32">
-          <button v-for="(ch, i) in chapters" :key="i" @click="handleChapterClick(ch.start)" class="w-full flex items-center justify-between p-6 rounded-[24px] mb-3 transition-all border border-transparent group text-left" :class="currentChapterIndex === i ? 'bg-purple-600/10 border-purple-500/20' : 'hover:bg-white/5'">
-            <div class="flex flex-col gap-1">
-              <span class="text-xs font-black uppercase tracking-tight" :class="currentChapterIndex === i ? 'text-white' : 'text-neutral-500'">{{ ch.title }}</span>
-              <span class="text-[9px] font-mono text-neutral-700 tabular-nums">{{ secondsToTimestamp(ch.start) }}</span>
-            </div>
-          </button>
-        </div>
-      </div>
-    </Transition>
+    <ChapterEditor 
+      v-if="showChapterEditor" 
+      :item="item" 
+      :auth="auth" 
+      @close="showChapterEditor = false"
+      @saved="onChaptersSaved"
+    />
   </div>
 </template>
 

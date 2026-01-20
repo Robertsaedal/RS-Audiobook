@@ -1,3 +1,4 @@
+
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
 import { AuthState, ABSLibraryItem } from './types';
@@ -52,13 +53,16 @@ const openPlayer = (item: ABSLibraryItem) => {
   selectedItem.value = item;
   currentView.value = 'player';
   isStreaming.value = true;
-  // Push state to trap mobile back button
   history.pushState({ player: true }, '', '#player');
 };
 
 const handleSelectSeriesFromPlayer = (seriesId: string) => {
   initialSeriesId.value = seriesId;
   closePlayer(true);
+};
+
+const handleItemUpdated = (updatedItem: ABSLibraryItem) => {
+  selectedItem.value = updatedItem;
 };
 
 const closePlayer = (shouldPopState = true) => {
@@ -95,6 +99,7 @@ const closePlayer = (shouldPopState = true) => {
           :item="selectedItem" 
           @back="closePlayer" 
           @select-series="handleSelectSeriesFromPlayer"
+          @item-updated="handleItemUpdated"
         />
       </Transition>
     </template>
