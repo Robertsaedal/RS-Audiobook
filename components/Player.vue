@@ -111,18 +111,24 @@ const handleChapterProgressClick = (e: MouseEvent) => {
 const handleSeriesClick = () => {
   if (metadata.value.seriesId) {
     emit('select-series', metadata.value.seriesId);
+    showInfo.value = false;
   }
 };
 
 const metadata = computed(() => props.item?.media?.metadata || {});
 
-const infoRows = computed(() => [
-  { label: 'Narrator', value: metadata.value.narratorName || 'Unknown Narrator', icon: Mic },
-  { label: 'Series', value: metadata.value.seriesName || 'Standalone', icon: Layers, isClickable: !!metadata.value.seriesId },
-  { label: 'Duration', value: secondsToTimestamp(state.duration), icon: Clock },
-  { label: 'Publisher', value: metadata.value.publisher || 'Unknown', icon: Database },
-  { label: 'Year', value: metadata.value.publishedYear || 'Unknown', icon: Clock }
-]);
+const infoRows = computed(() => {
+  // Correctly handle narrator with fallbacks, removing any hardcoded "System Default"
+  const narratorValue = metadata.value.narratorName || (props.item.media as any).narrator || 'Unknown Narrator';
+
+  return [
+    { label: 'Narrator', value: narratorValue, icon: Mic },
+    { label: 'Series', value: metadata.value.seriesName || 'Standalone', icon: Layers, isClickable: !!metadata.value.seriesId },
+    { label: 'Duration', value: secondsToTimestamp(state.duration), icon: Clock },
+    { label: 'Publisher', value: metadata.value.publisher || 'Unknown', icon: Database },
+    { label: 'Year', value: metadata.value.publishedYear || 'Unknown', icon: Clock }
+  ];
+});
 </script>
 
 <template>

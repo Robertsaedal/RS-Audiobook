@@ -1,4 +1,3 @@
-
 import { ref, reactive, onUnmounted } from 'vue';
 import { AuthState, ABSLibraryItem, ABSAudioTrack, PlayMethod } from '../types';
 import { ABSService } from '../services/absService';
@@ -46,15 +45,16 @@ export function usePlayer() {
     audioEl = new Audio();
     audioEl.id = 'archive-player-core';
     audioEl.crossOrigin = 'anonymous';
-
+    
+    // Fix: Removed non-standard 'type' property assignment on HTMLAudioElement
     audioEl.addEventListener('play', () => state.isPlaying = true);
     audioEl.addEventListener('pause', () => state.isPlaying = false);
     audioEl.addEventListener('timeupdate', onTimeUpdate);
     audioEl.addEventListener('progress', onProgress);
     audioEl.addEventListener('ended', onEnded);
     audioEl.addEventListener('error', (e) => {
-      console.error("Audio error", e);
-      state.error = "Archive link severed or data corrupted.";
+      console.error("Audio stream error:", audioEl?.error);
+      state.error = "Archive link severed or data corrupted. (Source Error)";
     });
 
     return audioEl;
@@ -71,14 +71,12 @@ export function usePlayer() {
     if (state.sleepChapters <= 0 || !activeItem?.media?.chapters) return;
     const chapters = activeItem.media.chapters;
     
-    // Find current chapter index
     const currentIdx = chapters.findIndex((ch, i) => 
       state.currentTime >= ch.start && (i === chapters.length - 1 || state.currentTime < (chapters[i+1]?.start || ch.end))
     );
 
     if (currentIdx === -1) return;
 
-    // We stop at the end of (currentIdx + state.sleepChapters - 1)
     const targetIdx = currentIdx + (state.sleepChapters - 1);
     const targetChapter = chapters[Math.min(targetIdx, chapters.length - 1)];
     
@@ -104,15 +102,36 @@ export function usePlayer() {
     }
   };
 
+  /**
+   * REBIND LOGIC: Explicitly resets the audio element to clear state before new source
+   */
+  const resetAudioSource = () => {
+    if (!audioEl) return;
+    audioEl.pause();
+    audioEl.src = '';
+    try {
+      audioEl.load();
+    } catch (e) {
+      // Ignore load errors on empty source
+    }
+  };
+
   const loadTrack = (idx: number, offset = 0) => {
-    if (!audioEl || !tracks[idx]) return;
+    if (!audioEl || !tracks[idx] || !activeItem) return;
+    
+    resetAudioSource();
+
     const track = tracks[idx];
     const rawUrl = ABSService.normalizeUrl(absService?.getCoverUrl('').split('/api/')[0] || '');
     
-    // Ensure we don't duplicate /api
-    const contentPath = track.contentUrl.startsWith('/api') ? track.contentUrl : `/api${track.contentUrl}`;
-    const token = localStorage.getItem('rs_auth') ? JSON.parse(localStorage.getItem('rs_auth')!).user.token : '';
-    const url = `${rawUrl}${contentPath}${contentPath.includes('?') ? '&' : '?'}token=${token}`;
+    // Always pull fresh token to avoid expiry issues
+    const authString = localStorage.getItem('rs_auth');
+    const token = authString ? JSON.parse(authString).user.token : '';
+
+    // Fix: Robust URL construction using Item ID and File ID instead of Inode
+    // Fallback to libraryItemId if specific file ID is missing
+    const fileId = activeItem.media.audioFiles[idx]?.id || activeItem.id;
+    const url = `${rawUrl}/api/items/${activeItem.id}/file/${fileId}?token=${token}`;
     
     audioEl.src = url;
     audioEl.load();
@@ -148,6 +167,7 @@ export function usePlayer() {
     absService = new ABSService(auth.serverUrl, auth.user?.token || '');
     
     const audio = initAudio();
+    resetAudioSource(); // Clear any previous item's state
 
     try {
       const deviceInfo = {
@@ -159,7 +179,7 @@ export function usePlayer() {
       const mimeTypes = ['audio/flac', 'audio/mpeg', 'audio/mp4', 'audio/ogg', 'audio/aac'].filter(t => audio.canPlayType(t));
       const session = await absService.startPlaybackSession(item.id, deviceInfo, mimeTypes);
       
-      if (!session) throw new Error("Portal creation failed.");
+      if (!session) throw new Error("Portal creation failed. Server unreachable.");
 
       state.sessionId = session.id;
       tracks = session.audioTracks;
@@ -188,7 +208,7 @@ export function usePlayer() {
           });
           hls.on(Hls.Events.MANIFEST_PARSED, () => {
             state.isLoading = false;
-            audio.play().catch(() => {});
+            audio.play().catch(e => console.warn("Autoplay prevented:", e));
           });
           hls.on(Hls.Events.ERROR, (event, data) => {
             if (data.fatal) {
@@ -197,19 +217,20 @@ export function usePlayer() {
             }
           });
         } else {
+          // Fallback for Safari/Mobile HLS
           const rawBase = ABSService.normalizeUrl(auth.serverUrl);
           const contentPath = tracks[0].contentUrl.startsWith('/api') ? tracks[0].contentUrl : `/api${tracks[0].contentUrl}`;
           audio.src = `${rawBase}${contentPath}${contentPath.includes('?') ? '&' : '?'}token=${auth.user?.token}`;
           audio.currentTime = startAt;
           state.isLoading = false;
-          audio.play().catch(() => {});
+          audio.play().catch(e => console.warn("Autoplay prevented:", e));
         }
       } else {
         const trackIdx = tracks.findIndex(t => startAt >= t.startOffset && startAt < t.startOffset + t.duration);
         currentTrackIdx = trackIdx !== -1 ? trackIdx : 0;
         loadTrack(currentTrackIdx, startAt - (tracks[currentTrackIdx]?.startOffset || 0));
         state.isLoading = false;
-        audio.play().catch(() => {});
+        audio.play().catch(e => console.warn("Autoplay prevented:", e));
       }
 
       startHeartbeat();
@@ -274,7 +295,9 @@ export function usePlayer() {
     if (audioEl) {
       audioEl.pause();
       audioEl.src = '';
-      audioEl.load();
+      try {
+        audioEl.load();
+      } catch (e) {}
     }
     state.sessionId = null;
     state.isPlaying = false;
