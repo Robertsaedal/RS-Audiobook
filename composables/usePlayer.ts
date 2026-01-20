@@ -1,6 +1,7 @@
 import { reactive, onUnmounted } from 'vue';
 import { AuthState, ABSLibraryItem, ABSAudioTrack, PlayMethod } from '../types';
 import { ABSService } from '../services/absService';
+import { OfflineManager } from '../services/offlineManager';
 import Hls from 'hls.js';
 
 interface PlayerState {
@@ -15,6 +16,7 @@ interface PlayerState {
   isHls: boolean;
   sleepChapters: number; // Remaining chapters to play before stop
   activeItem: ABSLibraryItem | null;
+  isOffline: boolean;
 }
 
 const state = reactive<PlayerState>({
@@ -28,7 +30,8 @@ const state = reactive<PlayerState>({
   sessionId: null,
   isHls: false,
   sleepChapters: 0,
-  activeItem: null
+  activeItem: null,
+  isOffline: false
 });
 
 let audioEl: HTMLAudioElement | null = null;
@@ -46,6 +49,9 @@ let playWhenReady = false;
 
 let absService: ABSService | null = null;
 let activeAuth: AuthState | null = null;
+
+// Track object URLs to revoke them on destroy
+let activeObjectUrl: string | null = null;
 
 export function usePlayer() {
   const initialize = () => {
@@ -85,7 +91,7 @@ export function usePlayer() {
   };
 
   const onEvtEnded = async () => {
-    if (!state.isHls && currentTrackIndex < audioTracks.length - 1) {
+    if (!state.isHls && !state.isOffline && currentTrackIndex < audioTracks.length - 1) {
       currentTrackIndex++;
       startTime = audioTracks[currentTrackIndex].startOffset;
       loadCurrentTrack();
@@ -112,7 +118,9 @@ export function usePlayer() {
 
   const onEvtTimeupdate = () => {
     if (!audioEl || !state.activeItem) return;
-    const currentTrackOffset = audioTracks[currentTrackIndex]?.startOffset || 0;
+    
+    // For offline or single-blob playback, track offset is 0.
+    const currentTrackOffset = state.isOffline ? 0 : (audioTracks[currentTrackIndex]?.startOffset || 0);
     const newTime = currentTrackOffset + audioEl.currentTime;
 
     // Detect chapter completion
@@ -240,6 +248,7 @@ export function usePlayer() {
     state.error = null;
     state.activeItem = item;
     state.sleepChapters = 0; // Reset sleep timer on new book load
+    state.isOffline = false;
     lastChapterIndex = -1;
     activeAuth = auth;
     absService = new ABSService(auth.serverUrl, auth.user?.token || '');
@@ -247,6 +256,31 @@ export function usePlayer() {
     initialize();
 
     try {
+      // 1. Check Offline Storage First
+      if (await OfflineManager.isDownloaded(item.id)) {
+        console.log('📦 Loading from Local Offline Storage');
+        const offlineBook = await OfflineManager.getBook(item.id);
+        if (offlineBook) {
+          state.isOffline = true;
+          state.isHls = false;
+          state.sessionId = null; // No session for offline play
+          state.activeItem = offlineBook.metadata;
+          state.duration = offlineBook.metadata.media.duration;
+          
+          if (activeObjectUrl) URL.revokeObjectURL(activeObjectUrl);
+          activeObjectUrl = URL.createObjectURL(offlineBook.blob);
+          
+          audioEl!.src = activeObjectUrl;
+          trackStartTime = startAt !== undefined ? startAt : (item.userProgress?.currentTime || 0);
+          startTime = trackStartTime;
+          playWhenReady = true;
+          
+          audioEl!.load();
+          return;
+        }
+      }
+
+      // 2. Online Streaming (Fallback or Default)
       const deviceInfo = {
         clientName: 'R.S Audio Premium',
         deviceId: localStorage.getItem('absDeviceId') || Math.random().toString(36).substring(7)
@@ -306,7 +340,9 @@ export function usePlayer() {
     const target = Math.max(0, Math.min(time, state.duration));
     playWhenReady = state.isPlaying;
 
-    if (state.isHls) {
+    if (state.isOffline) {
+      audioEl.currentTime = target;
+    } else if (state.isHls) {
       const offsetTime = target - (audioTracks[currentTrackIndex]?.startOffset || 0);
       audioEl.currentTime = Math.max(0, offsetTime);
     } else {
@@ -344,13 +380,17 @@ export function usePlayer() {
     }
     if (!ranges.length) return 0;
     const buff = ranges.find((b) => b.start < audioEl!.currentTime && b.end > audioEl!.currentTime);
-    if (buff) return buff.end + (audioTracks[currentTrackIndex]?.startOffset || 0);
+    if (buff) return buff.end + (state.isOffline ? 0 : (audioTracks[currentTrackIndex]?.startOffset || 0));
     const last = ranges[ranges.length - 1];
-    return last.end + (audioTracks[currentTrackIndex]?.startOffset || 0);
+    return last.end + (state.isOffline ? 0 : (audioTracks[currentTrackIndex]?.startOffset || 0));
   };
 
   const destroy = () => {
     stopHeartbeat();
+    if (activeObjectUrl) {
+      URL.revokeObjectURL(activeObjectUrl);
+      activeObjectUrl = null;
+    }
     if (state.sessionId) {
       absService?.closeSession(state.sessionId, {
         timeListened: Math.floor(listeningTimeSinceSync),
@@ -367,6 +407,7 @@ export function usePlayer() {
     state.isPlaying = false;
     state.activeItem = null;
     state.sleepChapters = 0;
+    state.isOffline = false;
     activeAuth = null;
   };
 

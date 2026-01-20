@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { ABSLibraryItem } from '../types';
-import { Play } from 'lucide-vue-next';
+import { Play, CheckCircle, Check } from 'lucide-vue-next';
+import { OfflineManager } from '../services/offlineManager';
 
 const props = defineProps<{
   item: ABSLibraryItem,
@@ -12,10 +13,13 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (e: 'click', item: ABSLibraryItem): void
+  (e: 'click', item: ABSLibraryItem): void,
+  (e: 'finish', item: ABSLibraryItem): void
 }>();
 
 const imageReady = ref(false);
+const isDownloaded = ref(false);
+const localCover = ref<string | null>(null);
 
 const progress = computed(() => {
   if (!props.item?.userProgress) return 0;
@@ -45,6 +49,18 @@ const displaySequence = computed(() => {
 const handleImageLoad = () => {
   imageReady.value = true;
 };
+
+const handleMarkFinished = (e: Event) => {
+  e.stopPropagation();
+  emit('finish', props.item);
+};
+
+onMounted(async () => {
+  if (await OfflineManager.isDownloaded(props.item.id)) {
+    isDownloaded.value = true;
+    localCover.value = await OfflineManager.getCoverUrl(props.item.id);
+  }
+});
 </script>
 
 <template>
@@ -60,7 +76,7 @@ const handleImageLoad = () => {
       <div v-if="!imageReady" class="absolute inset-0 z-10 animate-shimmer" />
 
       <img 
-        :src="coverUrl" 
+        :src="localCover || coverUrl" 
         @load="handleImageLoad"
         class="w-full h-full object-cover transition-opacity duration-700" 
         :class="{ 'opacity-0': !imageReady, 'opacity-100': imageReady }"
@@ -71,26 +87,46 @@ const handleImageLoad = () => {
       <div v-if="displaySequence !== null" class="absolute top-2.5 right-2.5 bg-purple-600/90 backdrop-blur-md px-2.5 py-1 rounded-full flex items-center justify-center text-[10px] font-black text-white border border-white/20 shadow-xl z-30 tracking-tight">
         #{{ displaySequence }}
       </div>
+      
+      <!-- Downloaded Badge (Top Left) -->
+      <div v-if="isDownloaded" class="absolute top-2.5 left-2.5 z-30 text-purple-400 bg-black/60 rounded-full backdrop-blur-sm p-0.5 border border-white/10">
+        <CheckCircle :size="14" fill="currentColor" class="text-white" />
+      </div>
+
+      <!-- Mark Finished Button (Top Left - Hover or if in progress) -->
+      <div 
+        v-if="!isFinished && progress > 0" 
+        class="absolute top-2.5 left-2.5 z-40 opacity-0 group-hover:opacity-100 transition-opacity"
+        :class="{ 'left-8': isDownloaded }"
+      >
+        <button 
+          @click="handleMarkFinished"
+          class="p-1.5 bg-black/60 hover:bg-green-600 rounded-full backdrop-blur-sm border border-white/20 hover:border-green-400 text-white transition-all shadow-lg active:scale-90"
+          title="Mark as Finished"
+        >
+          <Check :size="14" />
+        </button>
+      </div>
 
       <!-- Play Overlay -->
-      <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex items-center justify-center">
+      <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex items-center justify-center pointer-events-none">
         <div class="w-14 h-14 rounded-full bg-purple-600 text-white flex items-center justify-center shadow-[0_0_30px_rgba(168,85,247,0.5)] transform scale-90 group-hover:scale-100 transition-transform">
           <Play :size="24" fill="currentColor" class="translate-x-0.5" />
         </div>
       </div>
 
       <!-- High-Contrast Progress Bar (Bottom Edge) -->
-      <div v-if="progress > 0 && !isFinished" class="absolute bottom-0 left-0 h-1.5 w-full bg-black/60 z-30">
+      <div v-if="progress > 0 && !isFinished" class="absolute bottom-0 left-0 h-1 w-full bg-black/60 z-30">
         <div 
           class="h-full bg-purple-500 shadow-[0_0_12px_rgba(168,85,247,0.8)] transition-all duration-300" 
           :style="{ width: progress + '%' }" 
         />
       </div>
       <!-- Finished Indicator -->
-      <div v-if="isFinished" class="absolute bottom-0 left-0 h-1.5 w-full bg-green-500 z-30 shadow-[0_0_10px_rgba(34,197,94,0.3)]" />
+      <div v-if="isFinished" class="absolute bottom-0 left-0 h-1 w-full bg-green-500 z-30 shadow-[0_0_10px_rgba(34,197,94,0.3)]" />
       
-      <!-- Percentage Text Overlay (Visible when in progress) -->
-      <div v-if="progress > 0 && !isFinished" class="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/70 backdrop-blur-sm px-2 py-0.5 rounded text-[8px] font-black text-white uppercase tracking-widest z-30 opacity-0 group-hover:opacity-100 transition-opacity">
+      <!-- Percentage Text Overlay (Visible on hover when in progress) -->
+      <div v-if="progress > 0 && !isFinished" class="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/70 backdrop-blur-sm px-2 py-0.5 rounded text-[8px] font-black text-white uppercase tracking-widest z-30 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
         {{ Math.round(progress) }}%
       </div>
     </div>

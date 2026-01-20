@@ -3,10 +3,11 @@ import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { AuthState, ABSLibraryItem } from '../types';
 import { usePlayer } from '../composables/usePlayer';
 import { ABSService } from '../services/absService';
+import { OfflineManager } from '../services/offlineManager';
 import ChapterEditor from '../components/ChapterEditor.vue';
 import { 
   ChevronDown, Play, Pause, Info, X, SkipBack, SkipForward,
-  RotateCcw, RotateCw, ChevronRight, Gauge, Moon, Plus, Minus, Mic, Clock, Layers, Download
+  RotateCcw, RotateCw, ChevronRight, Gauge, Moon, Plus, Minus, Mic, Clock, Layers, Download, CheckCircle, Loader2
 } from 'lucide-vue-next';
 
 const props = defineProps<{
@@ -25,6 +26,9 @@ const absService = computed(() => new ABSService(props.auth.serverUrl, props.aut
 
 const showChapters = ref(false);
 const showInfo = ref(false);
+const isDownloaded = ref(false);
+const isDownloading = ref(false);
+const downloadProgress = ref(0);
 
 const activeItem = computed(() => state.activeItem || props.item);
 
@@ -95,9 +99,16 @@ const secondsToTimestamp = (s: number) => {
   return `${h > 0 ? h + ':' : ''}${m.toString().padStart(h > 0 ? 2 : 1, '0')}:${sec.toString().padStart(2, '0')}`;
 };
 
-onMounted(() => {
+onMounted(async () => {
   load(props.item, props.auth);
+  checkDownloadStatus();
 });
+
+const checkDownloadStatus = async () => {
+  if (activeItem.value?.id) {
+    isDownloaded.value = await OfflineManager.isDownloaded(activeItem.value.id);
+  }
+};
 
 onUnmounted(() => {
   destroy();
@@ -149,10 +160,29 @@ const handleSeriesClick = () => {
   }
 };
 
-const handleDownload = () => {
-  if (activeItem.value?.id) {
-    const url = absService.value.getDownloadUrl(activeItem.value.id);
-    window.open(url, '_blank');
+const handleToggleDownload = async () => {
+  if (isDownloading.value) return;
+  
+  if (isDownloaded.value) {
+    if (confirm("Remove download from local storage?")) {
+      await OfflineManager.removeBook(activeItem.value.id);
+      isDownloaded.value = false;
+    }
+  } else {
+    isDownloading.value = true;
+    downloadProgress.value = 0;
+    try {
+      await OfflineManager.saveBook(absService.value, activeItem.value, (pct) => {
+        downloadProgress.value = pct;
+      });
+      isDownloaded.value = true;
+    } catch (e) {
+      console.error("Download failed", e);
+      alert("Failed to download artifact.");
+    } finally {
+      isDownloading.value = false;
+      downloadProgress.value = 0;
+    }
   }
 };
 
@@ -195,9 +225,18 @@ const infoRows = computed(() => {
           </div>
         </button>
         <div class="flex items-center gap-2">
-          <button @click="handleDownload" class="p-2 text-neutral-600 hover:text-purple-400 transition-colors">
-            <Download :size="22" stroke-width="1.5" />
+          <!-- Download Button with Progress -->
+          <button @click="handleToggleDownload" class="p-2 relative transition-colors group" :class="isDownloaded ? 'text-purple-500' : 'text-neutral-600 hover:text-purple-400'">
+            <div v-if="isDownloading" class="absolute inset-0 flex items-center justify-center">
+               <svg class="w-full h-full -rotate-90" viewBox="0 0 36 36">
+                 <path class="text-neutral-800" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" stroke-width="4" />
+                 <path class="text-purple-500 transition-all duration-200" :stroke-dasharray="downloadProgress + ', 100'" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" stroke-width="4" />
+               </svg>
+            </div>
+            <CheckCircle v-else-if="isDownloaded" :size="22" stroke-width="1.5" />
+            <Download v-else :size="22" stroke-width="1.5" />
           </button>
+
           <button @click="showInfo = true" class="p-2 text-neutral-600 hover:text-white transition-colors">
             <Info :size="22" stroke-width="1.5" />
           </button>
@@ -225,19 +264,22 @@ const infoRows = computed(() => {
 
           <div class="text-center space-y-3 w-full max-w-md px-4 z-10">
             <div class="space-y-1">
-              <button 
-                v-if="metadata.seriesName && metadata.seriesId" 
-                @click="handleSeriesClick"
-                class="text-[9px] font-black uppercase tracking-[0.4em] text-purple-500/80 hover:text-purple-400 transition-colors truncate w-full"
-              >
-                {{ metadata.seriesName }}
-              </button>
               <h1 class="text-xl md:text-2xl font-black uppercase tracking-tight text-white leading-tight line-clamp-2" :title="metadata.title">
                 {{ metadata.title }}
               </h1>
               <p class="text-[10px] font-black uppercase tracking-[0.3em] text-neutral-600 truncate">
                 {{ metadata.authorName }}
               </p>
+              
+              <!-- Series Link -->
+              <button 
+                v-if="metadata.seriesName && metadata.seriesId" 
+                @click="handleSeriesClick"
+                class="inline-flex items-center gap-2 mt-2 px-4 py-1.5 rounded-full bg-purple-900/20 border border-purple-500/20 text-[9px] font-black uppercase tracking-[0.2em] text-purple-400 hover:bg-purple-900/40 hover:text-purple-200 transition-all active:scale-95"
+              >
+                <Layers :size="10" />
+                <span class="truncate max-w-[200px]">{{ metadata.seriesName }}</span>
+              </button>
             </div>
           </div>
         </div>

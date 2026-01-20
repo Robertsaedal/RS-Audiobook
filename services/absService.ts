@@ -243,6 +243,21 @@ export class ABSService {
     });
   }
 
+  async updateProgress(itemId: string, payload: { isFinished: boolean }): Promise<void> {
+    await this.fetchApi(`/me/progress/${itemId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    });
+  }
+
+  async getUserStatsForYear(year: number): Promise<{ 
+    totalTime: number; 
+    items: { id: string; title: string; author?: string }[]; 
+    days: Record<string, number>;
+  }> {
+    return this.fetchApi(`/me/stats/year/${year}?_cb=${Date.now()}`);
+  }
+
   async startPlaybackSession(itemId: string, deviceInfo: any, supportedMimeTypes: string[], forceTranscode = false): Promise<ABSPlaybackSession | null> {
     const payload = { deviceInfo, supportedMimeTypes, mediaPlayer: 'html5', forceTranscode, forceDirectPlay: false };
     return this.fetchApi(`/items/${itemId}/play`, { method: 'POST', body: JSON.stringify(payload) });
@@ -264,6 +279,35 @@ export class ABSService {
   getDownloadUrl(itemId: string): string {
     if (!itemId) return '';
     return `${BASE_API_URL}/items/${itemId}/download?token=${this.token}`;
+  }
+
+  async downloadFile(url: string, onProgress?: (percentage: number) => void): Promise<Blob> {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', url, true);
+      xhr.responseType = 'blob';
+      if (this.token && !url.includes('token=')) {
+        xhr.setRequestHeader('Authorization', `Bearer ${this.token}`);
+      }
+
+      xhr.onprogress = (event) => {
+        if (event.lengthComputable && onProgress) {
+          const percent = (event.loaded / event.total) * 100;
+          onProgress(percent);
+        }
+      };
+
+      xhr.onload = () => {
+        if (xhr.status === 200) {
+          resolve(xhr.response);
+        } else {
+          reject(new Error(`Download failed: ${xhr.statusText}`));
+        }
+      };
+
+      xhr.onerror = () => reject(new Error('Network error during download'));
+      xhr.send();
+    });
   }
 
   onProgressUpdate(callback: (progress: ABSProgress) => void) {

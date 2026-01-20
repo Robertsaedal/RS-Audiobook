@@ -2,11 +2,11 @@
 import { computed, ref } from 'vue';
 import { 
   Home, BookOpen, Layers, User, Headphones,
-  X, RotateCw, PlusSquare, Search
+  X, RotateCw, PlusSquare, Search, BarChart2
 } from 'lucide-vue-next';
 import confetti from 'https://esm.sh/canvas-confetti';
 
-export type LibraryTab = 'HOME' | 'LIBRARY' | 'SERIES' | 'REQUEST';
+export type LibraryTab = 'HOME' | 'LIBRARY' | 'SERIES' | 'REQUEST' | 'STATS';
 
 const props = defineProps<{
   activeTab: LibraryTab;
@@ -31,6 +31,7 @@ const navItems = [
   { id: 'HOME' as LibraryTab, icon: Home, label: 'Home' },
   { id: 'LIBRARY' as LibraryTab, icon: BookOpen, label: 'Library' },
   { id: 'SERIES' as LibraryTab, icon: Layers, label: 'Series' },
+  { id: 'STATS' as LibraryTab, icon: BarChart2, label: 'Stats' },
 ];
 
 const triggerSuccessSparks = (el: HTMLElement) => {

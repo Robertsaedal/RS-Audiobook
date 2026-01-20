@@ -7,6 +7,7 @@ import Bookshelf from '../components/Bookshelf.vue';
 import SeriesShelf from '../components/SeriesShelf.vue';
 import SeriesView from './SeriesView.vue';
 import RequestPortal from '../components/RequestPortal.vue';
+import StatsView from './StatsView.vue';
 import BookCard from '../components/BookCard.vue';
 import SeriesCard from '../components/SeriesCard.vue';
 import { PackageOpen, Loader2 } from 'lucide-vue-next';
@@ -97,6 +98,19 @@ const handleProgressUpdate = (progress: ABSProgress) => {
   // If item not found in "Continue Listening" and it's active, refetch dashboard to add it
   // This helps if the server promotes a new item to the personalized shelf
   if (!found && !progress.isFinished && !progress.hideFromContinueListening) {
+    fetchDashboardData();
+  }
+};
+
+const handleMarkFinished = async (item: ABSLibraryItem) => {
+  if (!absService.value) return;
+  try {
+    // Optimistic UI update
+    currentlyReading.value = currentlyReading.value.filter(i => i.id !== item.id);
+    await absService.value.updateProgress(item.id, { isFinished: true });
+  } catch (e) {
+    console.error("Failed to mark as finished", e);
+    // Revert on failure (optional, but good practice usually involves a toast error)
     fetchDashboardData();
   }
 };
@@ -298,7 +312,8 @@ const isHomeEmpty = computed(() => {
                       :item="item" 
                       :coverUrl="absService.getCoverUrl(item.id)" 
                       show-metadata
-                      @click="emit('select-item', item)" 
+                      @click="emit('select-item', item)"
+                      @finish="handleMarkFinished"
                     />
                   </div>
                 </div>
@@ -370,6 +385,10 @@ const isHomeEmpty = computed(() => {
 
           <div v-else-if="activeTab === 'REQUEST'" class="h-full flex flex-col overflow-hidden">
             <RequestPortal />
+          </div>
+
+          <div v-else-if="activeTab === 'STATS' && absService" class="h-full flex flex-col overflow-hidden">
+             <StatsView :absService="absService" />
           </div>
         </template>
       </template>

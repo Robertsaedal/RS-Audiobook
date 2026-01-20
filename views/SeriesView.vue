@@ -36,8 +36,8 @@ const totalDurationPretty = computed(() => {
 const sortedBooks = computed(() => {
   return [...localSeries.value.books].sort((a, b) => {
     // Priority: seriesSequence (numeric) -> sequence (numeric) -> 0
-    const seqA = parseFloat(String(a.media.metadata.seriesSequence || a.media.metadata.sequence || '0'));
-    const seqB = parseFloat(String(b.media.metadata.seriesSequence || b.media.metadata.sequence || '0'));
+    const seqA = parseFloat(String(a.media.metadata.seriesSequence || a.media.metadata.sequence || '9999'));
+    const seqB = parseFloat(String(b.media.metadata.seriesSequence || b.media.metadata.sequence || '9999'));
     return seqA - seqB;
   });
 });
@@ -139,12 +139,11 @@ onMounted(() => {
         </div>
         <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-x-8 gap-y-16">
           <BookCard 
-            v-for="(book, index) in sortedBooks" 
+            v-for="(book) in sortedBooks" 
             :key="book.id" 
             :item="book" 
             :coverUrl="absService.getCoverUrl(book.id)" 
             show-metadata
-            :fallbackSequence="index + 1"
             @click="emit('select-item', book)" 
           />
         </div>
