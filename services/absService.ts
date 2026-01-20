@@ -170,8 +170,8 @@ export class ABSService {
         throw new Error("Invalid response");
       } catch (e) {
         if (i === retries - 1) return []; // Fail gracefully
-        // Wait 500ms before retrying to allow protocol to reset
-        await new Promise(resolve => setTimeout(resolve, 500 * (i + 1)));
+        // Wait 500ms before retrying to allow protocol to reset or network to stabilize
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
     }
     return [];
