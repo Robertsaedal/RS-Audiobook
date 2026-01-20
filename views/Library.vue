@@ -158,9 +158,10 @@ const handleScan = async () => {
 };
 
 const filteredReading = computed(() => {
-  if (!searchTerm.value) return currentlyReading.value;
+  const list = currentlyReading.value;
+  if (!searchTerm.value) return list;
   const term = searchTerm.value.toLowerCase();
-  return currentlyReading.value.filter(i => i.media.metadata.title.toLowerCase().includes(term) || i.media.metadata.authorName.toLowerCase().includes(term));
+  return list.filter(i => i.media.metadata.title.toLowerCase().includes(term) || i.media.metadata.authorName.toLowerCase().includes(term));
 });
 
 const filteredAdded = computed(() => {
@@ -192,18 +193,12 @@ const filteredAdded = computed(() => {
       <template v-else>
         <div v-if="activeTab === 'HOME'" class="h-full bg-[#0d0d0d] overflow-y-auto custom-scrollbar -mx-4 md:-mx-8 px-4 md:px-8 pt-4 pb-40">
           
-          <ContinueListening 
-            v-if="!searchTerm && absService && currentlyReading.length > 0" 
-            :absService="absService" 
-            :items="currentlyReading"
-            @resume-book="emit('select-item', $event)"
-          />
-
-          <section v-if="filteredReading.length > 0 && searchTerm && absService" class="shelf-row">
+          <!-- Explicit Shelf for Continue Listening -->
+          <section v-if="filteredReading.length > 0 && absService" class="shelf-row">
             <div class="shelf-tag">
-              <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Currently Listening</span>
+              <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Continue Listening</span>
             </div>
-            <div class="flex gap-6 overflow-x-auto no-scrollbar pb-6 pl-2">
+            <div class="flex gap-8 overflow-x-auto no-scrollbar pb-10 pl-2">
               <div v-for="item in filteredReading" :key="item.id" class="w-32 md:w-40 shrink-0">
                 <BookCard 
                   :item="item" 

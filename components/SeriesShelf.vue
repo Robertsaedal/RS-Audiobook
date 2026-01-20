@@ -20,6 +20,7 @@ const seriesItems = ref<ABSSeries[]>([]);
 const totalSeries = ref(0);
 const offset = ref(0);
 const isLoading = ref(false);
+const scrollContainerRef = ref<HTMLElement | null>(null);
 const sentinelRef = ref<HTMLElement | null>(null);
 
 const ITEMS_PER_FETCH = 20;
@@ -30,9 +31,10 @@ const fetchMoreSeries = async (isInitial = false) => {
 
   isLoading.value = true;
   try {
+    const fetchOffset = isInitial ? 0 : offset.value;
     const params: LibraryQueryParams = {
       limit: ITEMS_PER_FETCH,
-      offset: isInitial ? 0 : offset.value,
+      offset: fetchOffset,
       sort: props.sortMethod,
       desc: props.desc
     };
@@ -48,10 +50,8 @@ const fetchMoreSeries = async (isInitial = false) => {
       
       if (uniqueResults.length > 0) {
         seriesItems.value.push(...uniqueResults);
-        offset.value += results.length;
-      } else if (results.length > 0) {
-        offset.value += results.length;
       }
+      offset.value += ITEMS_PER_FETCH;
     }
     totalSeries.value = total;
   } catch (e) {
@@ -65,6 +65,7 @@ const reset = async () => {
   offset.value = 0;
   seriesItems.value = [];
   totalSeries.value = 0;
+  if (scrollContainerRef.value) scrollContainerRef.value.scrollTop = 0;
   await fetchMoreSeries(true);
 };
 
@@ -78,7 +79,11 @@ const setupObserver = () => {
         fetchMoreSeries();
       }
     }
-  }, { threshold: 0.1, rootMargin: '600px' });
+  }, { 
+    threshold: 0.1, 
+    rootMargin: '400px',
+    root: scrollContainerRef.value
+  });
   
   if (sentinelRef.value) observer.observe(sentinelRef.value);
 };
@@ -97,8 +102,8 @@ watch(() => [props.sortMethod, props.desc], () => reset());
 </script>
 
 <template>
-  <div class="h-full flex flex-col">
-    <div class="flex-1 overflow-y-auto custom-scrollbar px-2 pb-40 relative">
+  <div class="h-full flex flex-col overflow-hidden">
+    <div ref="scrollContainerRef" class="flex-1 overflow-y-auto custom-scrollbar px-2 pb-40 relative">
       <div v-if="seriesItems.length === 0 && !isLoading" class="flex flex-col items-center justify-center py-40 text-center opacity-40">
         <PackageOpen :size="64" class="text-neutral-800 mb-6" />
         <h3 class="text-xl font-black uppercase tracking-tighter">No Stacks Established</h3>

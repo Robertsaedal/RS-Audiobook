@@ -46,7 +46,7 @@ const currentChapterIndex = computed(() => {
 
 const currentChapter = computed(() => currentChapterIndex.value !== -1 ? chapters.value[currentChapterIndex.value] : null);
 
-// Chapter specific progress
+// Chapter specific progress Math
 const chapterProgressPercent = computed(() => {
   if (!currentChapter.value) return 0;
   const chapterDur = currentChapter.value.end - currentChapter.value.start;
@@ -124,11 +124,14 @@ const handleChapterSeek = (time: number) => {
   seek(time);
 };
 
-const handleGlobalProgressClick = (e: MouseEvent) => {
+const handleChapterProgressClick = (e: MouseEvent) => {
+  if (!currentChapter.value) return;
   const el = e.currentTarget as HTMLElement;
   const rect = el.getBoundingClientRect();
   const ratio = (e.clientX - rect.left) / rect.width;
-  seek(ratio * state.duration);
+  const chapterDur = currentChapter.value.end - currentChapter.value.start;
+  const targetTime = currentChapter.value.start + (ratio * chapterDur);
+  seek(targetTime);
 };
 
 const adjustSleepTimer = (count: number) => {
@@ -222,32 +225,32 @@ const infoRows = computed(() => {
              </div>
           </div>
 
-          <!-- Main Chapter Progress Bar -->
-          <div class="h-3 w-full bg-neutral-900 rounded-full relative overflow-hidden shadow-inner border border-white/5">
+          <!-- Interactive Chapter Progress Bar -->
+          <div 
+            class="h-3 w-full bg-neutral-900 rounded-full relative overflow-hidden shadow-inner border border-white/5 cursor-pointer"
+            @click="handleChapterProgressClick"
+          >
             <div 
               class="h-full bg-purple-600 shadow-[0_0_20px_rgba(168,85,247,0.6)] transition-all duration-300 rounded-r-full" 
               :style="{ width: chapterProgressPercent + '%' }"
             />
           </div>
 
-          <!-- Secondary Global Progress Bar (Thin) -->
+          <!-- Secondary Global Progress Bar (Thin, Non-Interactive) -->
           <div 
-            class="h-1 w-full bg-neutral-900/40 rounded-full relative cursor-pointer overflow-hidden group border border-white/5" 
-            @click="handleGlobalProgressClick"
+            class="h-1 w-full bg-neutral-900/40 rounded-full relative overflow-hidden border border-white/5 pointer-events-none" 
           >
             <div 
-              class="h-full bg-neutral-600/50 group-hover:bg-purple-400/50 transition-all duration-150" 
+              class="h-full bg-neutral-600/50 transition-all duration-150" 
               :style="{ width: bookProgressPercent + '%' }"
             />
           </div>
           
-          <div class="flex justify-between items-center text-[7px] font-black uppercase tracking-[0.4em] text-neutral-700">
-            <span>Book Start</span>
+          <div class="flex justify-center items-center text-[7px] font-black uppercase tracking-[0.4em] text-neutral-700">
             <div class="flex items-center gap-2">
                <Clock :size="8" />
-               <span>Book: {{ secondsToTimestamp(state.currentTime) }} / {{ secondsToTimestamp(state.duration) }}</span>
+               <span>Book Progress: {{ secondsToTimestamp(state.currentTime) }} / {{ secondsToTimestamp(state.duration) }}</span>
             </div>
-            <span>Book End</span>
           </div>
         </div>
 

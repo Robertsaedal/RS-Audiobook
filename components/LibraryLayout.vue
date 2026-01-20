@@ -145,11 +145,12 @@ const handleRequestClick = (event: MouseEvent) => {
       class="flex-1 h-full pt-16 relative"
       :class="{ 'has-siderail': true }"
     >
+      <!-- Removed overflow-y-auto here: children manage their own scrolling -->
       <main 
-        class="h-full overflow-y-auto custom-scrollbar page-content"
+        class="h-full page-content"
         :class="{ 'streaming': isStreaming }"
       >
-        <div class="max-w-7xl mx-auto w-full px-4 md:px-8 py-8 min-h-full">
+        <div class="max-w-7xl mx-auto w-full px-4 md:px-8 py-8 h-full">
           <slot></slot>
         </div>
       </main>
