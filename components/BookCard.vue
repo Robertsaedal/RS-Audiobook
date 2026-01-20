@@ -23,36 +23,54 @@ const isDownloaded = ref(false);
 const localCover = ref<string | null>(null);
 
 const progress = computed(() => {
-  const p = props.item.userProgress || (props.item as any).userMediaProgress;
+  // Check all possible locations for user progress data
+  const p = props.item.userProgress || 
+            (props.item as any).userMediaProgress || 
+            (props.item as any).progress;
   
   if (!p) return 0;
   
-  // Calculate raw progress value
-  let rawVal = p.progress;
+  // 1. Check if progress is a direct number (some endpoints return it this way)
+  let rawVal = (typeof p === 'number') ? p : p.progress;
+  
+  // 2. If no direct progress, calculate it manually from time/duration
   if (rawVal === undefined || rawVal === null) {
     const current = p.currentTime || 0;
-    const total = props.item.media.duration || p.duration || 1;
+    const total = p.duration || props.item.media?.duration || 1;
     rawVal = current / total;
   }
   
-  // Normalize: If 0-1 (decimal), convert to 0-100. If > 1, assume it's already percentage.
-  const displayProgress = (rawVal > 0 && rawVal <= 1) ? rawVal * 100 : rawVal;
+  // 3. Normalize: Audiobookshelf sends 0.5 for 50%. 
+  // If it's between 0 and 1, multiply by 100. If it's already > 1, use it as is.
+  let displayProgress = (rawVal > 0 && rawVal <= 1) ? rawVal * 100 : rawVal;
   
-  // Cap at 100 to prevent overflow
-  return Math.min(100, displayProgress);
+  // 4. Force visual progress if we know the user started but math says 0
+  if (displayProgress === 0 && (p.currentTime > 0)) {
+    displayProgress = 1;
+  }
+
+  return Math.min(100, displayProgress || 0);
 });
 
 const isFinished = computed(() => {
   const p = props.item.userProgress || (props.item as any).userMediaProgress;
-  // Strict check for isFinished boolean as requested
-  return p?.isFinished === true;
+  // Handle both boolean true and integer 1 (common in ABS API responses)
+  return p?.isFinished === true || p?.isFinished === 1;
 });
 
 const displaySequence = computed(() => {
-  const meta = props.item.media?.metadata;
-  // Priority: Metadata Series Sequence -> Item Sequence -> Fallback Prop
-  // Returns raw value to support decimals (e.g. 1.5)
-  return meta?.seriesSequence || meta?.sequence || props.fallbackSequence || null;
+  // Priority: 
+  // 1. Explicit fallbackSequence prop (passed from SeriesView)
+  // 2. Metadata seriesSequence (e.g., 1.5)
+  // 3. Item-level sequence
+  const propSeq = props.fallbackSequence;
+  const metaSeq = props.item.media?.metadata?.seriesSequence;
+  const itemSeq = (props.item as any).sequence;
+
+  const finalSeq = propSeq ?? metaSeq ?? itemSeq ?? null;
+  
+  // Return as string to preserve decimals like 1.5
+  return (finalSeq !== null && finalSeq !== undefined) ? String(finalSeq) : null;
 });
 
 const handleImageLoad = () => {
@@ -77,12 +95,10 @@ onMounted(async () => {
     @click="emit('click', item)"
     class="flex flex-col text-left group transition-all outline-none w-full relative"
   >
-    <!-- Cover Artifact Container -->
     <div 
       class="relative w-full aspect-[2/3] bg-neutral-950 rounded-xl overflow-hidden border border-white/5 transition-all duration-500 group-hover:scale-[1.04] shadow-2xl group-hover:shadow-purple-500/10"
     >
-      <!-- Shimmer Placeholder -->
-      <div v-if="!imageReady" class="absolute inset-0 z-10 animate-shimmer" />
+      <div v-if="!imageReady" class="absolute inset-0 z-10 animate-pulse bg-neutral-900" />
 
       <img 
         :src="localCover || coverUrl" 
@@ -92,24 +108,23 @@ onMounted(async () => {
         loading="lazy" 
       />
       
-      <!-- Book Sequence Badge (Top Right Pill) - High Z-index -->
-      <div v-if="displaySequence !== null && displaySequence !== ''" class="absolute top-2 right-2 bg-purple-600/95 backdrop-blur-md px-2 py-0.5 rounded-md flex items-center justify-center text-[10px] font-black text-white border border-white/20 shadow-xl z-[60] tracking-tight">
+      <div v-if="displaySequence !== null && displaySequence !== ''" 
+        class="absolute top-2 right-2 bg-purple-600/95 backdrop-blur-md px-2 py-0.5 rounded-md flex items-center justify-center text-[10px] font-black text-white border border-white/20 shadow-xl z-[60] tracking-tight"
+      >
         #{{ displaySequence }}
       </div>
       
-      <!-- Downloaded Badge (Top Left) -->
       <div v-if="isDownloaded" class="absolute top-2 left-2 z-30 text-purple-400 bg-black/60 rounded-full backdrop-blur-sm p-0.5 border border-white/10">
         <CheckCircle :size="14" fill="currentColor" class="text-white" />
       </div>
 
-      <!-- Mark Finished Button (Top Left - Hover or if in progress) -->
       <div 
         v-if="!isFinished && (showProgress || progress > 0)" 
         class="absolute top-2 left-2 z-40 opacity-0 group-hover:opacity-100 transition-opacity"
         :class="{ 'left-8': isDownloaded }"
       >
         <button 
-          @click="handleMarkFinished"
+          @click="handleMarkFinished" 
           class="p-1.5 bg-black/60 hover:bg-green-600 rounded-full backdrop-blur-sm border border-white/20 hover:border-green-400 text-white transition-all shadow-lg active:scale-90"
           title="Mark as Finished"
         >
@@ -117,7 +132,6 @@ onMounted(async () => {
         </button>
       </div>
 
-      <!-- Finished Indicator Overlay (Prominent) -->
       <div v-if="isFinished" class="absolute inset-0 flex items-center justify-center z-40 bg-black/40">
          <div class="px-3 py-1 bg-green-600/90 backdrop-blur-md border border-green-400/30 rounded-full flex items-center gap-2 shadow-xl transform -rotate-12">
             <Check :size="12" class="text-white" stroke-width="4" />
@@ -126,22 +140,19 @@ onMounted(async () => {
       </div>
       <div v-if="isFinished" class="absolute bottom-0 left-0 h-1.5 w-full bg-green-500 z-30 shadow-[0_0_10px_rgba(34,197,94,0.5)]" />
 
-      <!-- Play Overlay -->
       <div v-if="!isFinished" class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex items-center justify-center pointer-events-none">
         <div class="w-14 h-14 rounded-full bg-purple-600 text-white flex items-center justify-center shadow-[0_0_30px_rgba(168,85,247,0.5)] transform scale-90 group-hover:scale-100 transition-transform">
           <Play :size="24" fill="currentColor" class="translate-x-0.5" />
         </div>
       </div>
 
-      <!-- Progress Bar (4px height) - Force show if showProgress is true even if calculated 0% -->
       <div v-if="(progress > 0 || showProgress) && !isFinished" class="absolute bottom-0 left-0 w-full z-30 bg-neutral-900/50">
          <div 
-          class="h-1 bg-gradient-to-r from-purple-600 to-purple-400 shadow-[0_0_8px_rgba(168,85,247,0.8)]" 
-          :style="{ width: Math.max(progress, showProgress && progress === 0 ? 2 : progress) + '%' }" 
+          class="h-1 bg-gradient-to-r from-purple-600 to-purple-400 shadow-[0_0_8px_rgba(168,85,247,0.8)] transition-all duration-300" 
+          :style="{ width: progress + '%' }" 
         />
       </div>
       
-      <!-- Percentage Text Overlay -->
       <div v-if="(progress > 0 || showProgress) && !isFinished" 
         class="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur-md px-2 py-1 rounded text-[9px] font-black text-white uppercase tracking-widest z-30 transition-opacity pointer-events-none border border-white/10"
         :class="showProgress ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'"
@@ -150,7 +161,6 @@ onMounted(async () => {
       </div>
     </div>
     
-    <!-- Permanent Metadata Display -->
     <div v-if="showMetadata" class="mt-3 px-1 flex flex-col gap-1 w-full min-h-[3em]">
       <h3 class="text-[11px] font-black text-white uppercase tracking-tight leading-[1.2] group-hover:text-purple-400 transition-colors line-clamp-2 w-full break-words" :title="item.media.metadata.title">
         {{ item.media.metadata.title }}
