@@ -43,7 +43,7 @@ export class ABSService {
     });
   }
 
-  private static async fetchWithRetry(url: string, options: RequestInit, retries = 2, timeout = 5000): Promise<Response> {
+  private static async fetchWithRetry(url: string, options: RequestInit, retries = 3, timeout = 10000): Promise<Response> {
     let lastError: Error | null = null;
     for (let i = 0; i < retries; i++) {
       const controller = new AbortController();
@@ -63,7 +63,8 @@ export class ABSService {
       } catch (e: any) {
         clearTimeout(id);
         lastError = e;
-        if (i < retries - 1) await new Promise(resolve => setTimeout(resolve, 500 * (i + 1)));
+        // Increase delay between retries to handle transient protocol errors
+        if (i < retries - 1) await new Promise(resolve => setTimeout(resolve, 800 * (i + 1)));
       }
     }
     throw lastError || new Error('FAILED_AFTER_RETRIES');
@@ -226,6 +227,16 @@ export class ABSService {
     return data === 'OK' || !!data;
   }
 
+  /**
+   * Fetches a single series by ID, including its books.
+   */
+  async getSeries(seriesId: string): Promise<ABSSeries | null> {
+    const data = await this.fetchApi(`/libraries/${HARDCODED_LIBRARY_ID}/series/${seriesId}?include=books&_cb=${Date.now()}`);
+    if (!data) return null;
+    // ABS API usually returns the series object with a 'books' array property
+    return data;
+  }
+
   async getSeriesItems(seriesId: string): Promise<ABSLibraryItem[]> {
     const data = await this.fetchApi(`/libraries/${HARDCODED_LIBRARY_ID}/series/${seriesId}?include=progress&_cb=${Date.now()}`);
     return data?.books || data?.results || data?.items || [];
@@ -250,12 +261,55 @@ export class ABSService {
     });
   }
 
+  /**
+   * Calculates user stats by fetching raw listening sessions.
+   * This provides more accurate "time listened" data than the stats endpoint.
+   */
   async getUserStatsForYear(year: number): Promise<{ 
     totalTime: number; 
     items: { id: string; title: string; author?: string }[]; 
     days: Record<string, number>;
   }> {
-    return this.fetchApi(`/me/stats/year/${year}?_cb=${Date.now()}`);
+    if (!this.userId) return { totalTime: 0, items: [], days: {} };
+
+    // Fetch all listening sessions
+    const data = await this.fetchApi(`/users/${this.userId}/listening-sessions?_cb=${Date.now()}`);
+    const sessions = data?.sessions || (Array.isArray(data) ? data : []);
+
+    const startOfYear = new Date(`${year}-01-01T00:00:00`).getTime();
+    const endOfYear = new Date(`${year}-12-31T23:59:59`).getTime();
+
+    let totalTime = 0;
+    const days: Record<string, number> = {};
+    const uniqueBooks = new Map<string, { id: string; title: string; author?: string }>();
+
+    for (const session of sessions) {
+      // Use createdAt (ms) to filter by year
+      if (session.createdAt >= startOfYear && session.createdAt <= endOfYear) {
+        // Add duration (seconds)
+        const duration = session.timeListened || 0;
+        totalTime += duration;
+
+        // Aggregate by day
+        const dateKey = new Date(session.createdAt).toISOString().split('T')[0];
+        days[dateKey] = (days[dateKey] || 0) + duration;
+
+        // Track items interacted with
+        if (session.libraryItem) {
+          uniqueBooks.set(session.libraryItem.id, {
+            id: session.libraryItem.id,
+            title: session.libraryItem.media?.metadata?.title || 'Unknown Title',
+            author: session.libraryItem.media?.metadata?.authorName
+          });
+        }
+      }
+    }
+
+    return {
+      totalTime,
+      items: Array.from(uniqueBooks.values()),
+      days
+    };
   }
 
   async startPlaybackSession(itemId: string, deviceInfo: any, supportedMimeTypes: string[], forceTranscode = false): Promise<ABSPlaybackSession | null> {

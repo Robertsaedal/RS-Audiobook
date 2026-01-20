@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { Download, X } from 'lucide-vue-next';
+import { Download, X, Share, PlusSquare } from 'lucide-vue-next';
 
 defineProps<{
-  show: boolean
+  show: boolean,
+  isIOS?: boolean
 }>();
 
 const emit = defineEmits<{
@@ -13,38 +14,44 @@ const emit = defineEmits<{
 
 <template>
   <Transition name="slide-up">
-    <div v-if="show" class="fixed bottom-20 left-4 right-4 md:left-auto md:right-8 md:bottom-8 md:w-96 bg-[#1a1a1a] border border-purple-500/30 rounded-2xl shadow-2xl p-4 z-[200] flex items-center gap-4">
-      <div class="w-12 h-12 bg-purple-600/20 rounded-xl flex items-center justify-center shrink-0">
-        <Download class="text-purple-500" :size="24" />
-      </div>
-      <div class="flex-1 min-w-0">
-        <h3 class="text-sm font-bold text-white leading-tight">Install App</h3>
-        <p class="text-[10px] text-neutral-400 mt-0.5">Install R.S Player for the best experience.</p>
-      </div>
-      <div class="flex items-center gap-2">
-        <button 
-          @click="emit('dismiss')" 
-          class="p-2 text-neutral-500 hover:text-white transition-colors"
-        >
+    <div v-if="show" class="fixed bottom-0 left-0 right-0 md:left-auto md:right-8 md:bottom-8 md:w-96 bg-purple-600 text-white shadow-[0_-10px_40px_rgba(147,51,234,0.4)] z-[200] p-6 md:rounded-3xl flex flex-col gap-4 safe-bottom border-t md:border border-white/10">
+      <div class="flex items-start justify-between gap-4">
+        <div class="flex items-center gap-4">
+          <div class="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center shrink-0 shadow-inner border border-white/10">
+            <Share v-if="isIOS" class="text-white" :size="20" />
+            <Download v-else class="text-white" :size="20" />
+          </div>
+          <div class="space-y-1">
+            <h3 class="text-sm font-black uppercase tracking-wider leading-none">Install R.S Player</h3>
+            <p v-if="isIOS" class="text-[10px] font-medium text-white/90 leading-tight max-w-[200px]">
+              Tap <span class="font-bold bg-white/20 px-1 rounded">Share</span> then <span class="font-bold bg-white/20 px-1 rounded">Add to Home Screen</span>
+            </p>
+            <p v-else class="text-[10px] font-medium text-white/90 leading-tight">
+              Install for the best audio experience.
+            </p>
+          </div>
+        </div>
+        <button @click="emit('dismiss')" class="p-2 -mr-2 -mt-2 hover:bg-white/10 rounded-full transition-colors text-white/70 hover:text-white">
           <X :size="18" />
         </button>
-        <button 
-          @click="emit('install')" 
-          class="bg-purple-600 hover:bg-purple-500 text-white text-[10px] font-bold uppercase tracking-widest px-4 py-2 rounded-lg transition-colors"
-        >
-          Install
-        </button>
       </div>
+      
+      <button 
+        v-if="!isIOS"
+        @click="emit('install')" 
+        class="w-full py-3 bg-white text-purple-600 font-black uppercase tracking-[0.2em] text-[10px] rounded-xl hover:bg-neutral-100 transition-colors shadow-lg active:scale-95"
+      >
+        Install Application
+      </button>
     </div>
   </Transition>
 </template>
 
 <style scoped>
 .slide-up-enter-active, .slide-up-leave-active {
-  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.5s cubic-bezier(0.19, 1, 0.22, 1);
 }
 .slide-up-enter-from, .slide-up-leave-to {
-  transform: translateY(100%);
-  opacity: 0;
+  transform: translateY(120%);
 }
 </style>

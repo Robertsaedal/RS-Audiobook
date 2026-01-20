@@ -86,17 +86,8 @@ const closeMobileSearch = () => {
         </div>
       </div>
 
-      <!-- Desktop Global Search & Request -->
+      <!-- Desktop Global Search -->
       <div class="hidden md:flex items-center gap-4 flex-1 max-w-2xl px-8">
-        <!-- Request Button -->
-        <button 
-          @click="handleRequestClick"
-          class="flex items-center gap-2 px-4 py-2 bg-transparent border border-purple-500/30 rounded-full text-[10px] font-black uppercase tracking-widest text-purple-400 hover:bg-purple-500/10 transition-all shrink-0 active:scale-95"
-        >
-          <PlusSquare :size="14" />
-          <span>Request</span>
-        </button>
-
         <!-- Search Bar -->
         <div class="relative group flex-1">
           <input
@@ -121,6 +112,16 @@ const closeMobileSearch = () => {
       </div>
 
       <div class="flex items-center gap-2 md:gap-4 shrink-0">
+        <!-- Request Button (Visible on Mobile as Icon, Desktop as Pill) -->
+        <button 
+          @click="handleRequestClick"
+          class="flex items-center gap-2 p-2 sm:px-4 sm:py-2 bg-transparent border border-purple-500/30 rounded-full text-[10px] font-black uppercase tracking-widest text-purple-400 hover:bg-purple-500/10 transition-all shrink-0 active:scale-95"
+          title="Request Artifact"
+        >
+          <PlusSquare :size="18" />
+          <span class="hidden sm:inline">Request</span>
+        </button>
+
         <!-- Top-Right Sync Icon -->
         <button 
           @click="emit('scan')"

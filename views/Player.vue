@@ -326,24 +326,6 @@ const infoRows = computed(() => {
             <div class="h-1 w-full bg-neutral-900/40 rounded-full relative overflow-hidden border border-white/5 pointer-events-none">
               <div class="h-full bg-neutral-600/50 transition-all duration-150" :style="{ width: bookProgressPercent + '%' }" />
             </div>
-
-            <!-- Quick Timer Buttons Row -->
-            <div class="flex items-center justify-center gap-3 pt-2">
-              <button 
-                @click="setSleepTimer(900)" 
-                class="px-3 py-1 rounded-full border border-neutral-700 text-[10px] font-bold text-neutral-400 hover:text-white hover:border-white/20 hover:bg-white/5 transition-all active:scale-95"
-                :class="{ 'bg-purple-600/20 border-purple-500/50 text-purple-300': state.sleepEndTime && (state.sleepEndTime - state.currentRealtime) <= 900000 && (state.sleepEndTime - state.currentRealtime) > 0 }"
-              >
-                15m
-              </button>
-              <button 
-                @click="setSleepTimer(1800)" 
-                class="px-3 py-1 rounded-full border border-neutral-700 text-[10px] font-bold text-neutral-400 hover:text-white hover:border-white/20 hover:bg-white/5 transition-all active:scale-95"
-                :class="{ 'bg-purple-600/20 border-purple-500/50 text-purple-300': state.sleepEndTime && (state.sleepEndTime - state.currentRealtime) > 900000 }"
-              >
-                30m
-              </button>
-            </div>
           </div>
 
           <!-- Controls -->
@@ -368,9 +350,29 @@ const infoRows = computed(() => {
                 <button @click="setPlaybackRate(Math.min(2.5, state.playbackRate + 0.1))" class="p-1 text-neutral-600 hover:text-white"><Plus :size="14" /></button>
               </div>
             </div>
-            <div class="bg-neutral-900/40 border border-white/5 rounded-[24px] p-5 flex flex-col items-center gap-4 hover:border-white/10 transition-colors">
-              <div class="flex items-center gap-2 text-[8px] font-black uppercase tracking-[0.4em] text-neutral-700"><Moon :size="12" /><span>Sleep Timer</span></div>
-              <div class="flex items-center justify-between w-full px-2">
+            
+            <div class="bg-neutral-900/40 border border-white/5 rounded-[24px] p-5 flex flex-col items-center gap-3 hover:border-white/10 transition-colors">
+              <!-- Header Row -->
+              <div class="flex items-center justify-between w-full px-1">
+                <div class="flex items-center gap-2 text-[8px] font-black uppercase tracking-[0.4em] text-neutral-700"><Moon :size="12" /><span>Sleep</span></div>
+                
+                <!-- Quick Timers moved here -->
+                <div class="flex gap-2">
+                   <button 
+                    @click="setSleepTimer(900)" 
+                    class="text-[9px] font-bold px-1.5 py-0.5 rounded border border-neutral-800 text-neutral-500 hover:text-white hover:border-neutral-600 transition-all"
+                    :class="{ 'text-purple-400 border-purple-500/30': state.sleepEndTime && (state.sleepEndTime - state.currentRealtime) <= 900000 && (state.sleepEndTime - state.currentRealtime) > 0 }"
+                   >15m</button>
+                   <button 
+                    @click="setSleepTimer(1800)" 
+                    class="text-[9px] font-bold px-1.5 py-0.5 rounded border border-neutral-800 text-neutral-500 hover:text-white hover:border-neutral-600 transition-all"
+                    :class="{ 'text-purple-400 border-purple-500/30': state.sleepEndTime && (state.sleepEndTime - state.currentRealtime) > 900000 }"
+                   >30m</button>
+                </div>
+              </div>
+
+              <!-- Main Control -->
+              <div class="flex items-center justify-between w-full px-2 mt-1">
                 <button @click="adjustSleepTimer(-1)" class="p-1 text-neutral-600 hover:text-white"><Minus :size="14" /></button>
                 <div class="flex flex-col items-center min-w-[60px]">
                    <span v-if="state.sleepChapters > 0 || state.sleepEndTime" class="text-[10px] font-black text-purple-500 tracking-tighter text-center leading-none">

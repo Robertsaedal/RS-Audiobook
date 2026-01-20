@@ -32,7 +32,7 @@
   }
 
   .shelf-row {
-    @apply relative py-12 px-4 border-t border-white/10 bg-[#0d0d0d];
+    @apply relative py-6 px-4 border-t border-white/10 bg-[#0d0d0d];
   }
 
   .shelf-row:first-of-type {
@@ -40,7 +40,7 @@
   }
 
   .shelf-tag {
-    @apply inline-flex items-center bg-[#111111] border border-white/5 rounded-full px-4 py-1.5 mb-8 shadow-xl;
+    @apply inline-flex items-center bg-[#111111] border border-white/5 rounded-full px-4 py-1.5 mb-4 shadow-xl;
     border-left: 3px solid #a855f7;
   }
 

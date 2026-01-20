@@ -15,6 +15,8 @@ const initialSeriesId = ref<string | null>(null);
 
 // PWA State
 const deferredPrompt = ref<any>(null);
+const showPwaBanner = ref(false);
+const isIOS = ref(false);
 
 const handlePopState = (event: PopStateEvent) => {
   if (currentView.value === 'player') {
@@ -33,6 +35,25 @@ onMounted(() => {
     }
   }
   isInitializing.value = false;
+
+  // Device & PWA Detection
+  const ua = window.navigator.userAgent;
+  const isIosDevice = /iPad|iPhone|iPod/.test(ua) && !(window as any).MSStream;
+  isIOS.value = isIosDevice;
+
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true;
+  const dismissed = localStorage.getItem('rs_pwa_dismissed');
+
+  if (!isStandalone && !dismissed) {
+    if (isIosDevice) {
+      // iOS doesn't support beforeinstallprompt, show immediately if not dismissed
+      setTimeout(() => {
+        showPwaBanner.value = true;
+      }, 2000);
+    }
+    // Android/Desktop handled via beforeinstallprompt
+  }
+
   window.addEventListener('popstate', handlePopState);
   window.addEventListener('beforeinstallprompt', handleInstallPrompt);
 });
@@ -44,17 +65,26 @@ onUnmounted(() => {
 
 const handleInstallPrompt = (e: Event) => {
   e.preventDefault();
-  deferredPrompt.value = e;
+  const dismissed = localStorage.getItem('rs_pwa_dismissed');
+  if (!dismissed) {
+    deferredPrompt.value = e;
+    showPwaBanner.value = true;
+  }
 };
 
 const installApp = async () => {
   if (!deferredPrompt.value) return;
   deferredPrompt.value.prompt();
   const { outcome } = await deferredPrompt.value.userChoice;
+  if (outcome === 'accepted') {
+    showPwaBanner.value = false;
+  }
   deferredPrompt.value = null;
 };
 
 const dismissInstall = () => {
+  showPwaBanner.value = false;
+  localStorage.setItem('rs_pwa_dismissed', 'true');
   deferredPrompt.value = null;
 };
 
@@ -125,7 +155,8 @@ const closePlayer = (shouldPopState = true) => {
       </Transition>
 
       <InstallPwaBanner 
-        :show="!!deferredPrompt" 
+        :show="showPwaBanner" 
+        :isIOS="isIOS"
         @install="installApp" 
         @dismiss="dismissInstall" 
       />

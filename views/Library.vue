@@ -218,13 +218,16 @@ onUnmounted(() => {
 
 const handleJumpToSeries = async (seriesId: string) => {
   if (!absService.value || isOfflineMode.value) return;
-  const { results: allSeries } = await absService.value.getLibrarySeriesPaged({ limit: 100 });
-  const target = allSeries.find(s => s.id === seriesId);
-  if (target) {
-    selectedSeries.value = target;
-    activeTab.value = 'SERIES';
+  try {
+    const series = await absService.value.getSeries(seriesId);
+    if (series) {
+      selectedSeries.value = series;
+      activeTab.value = 'SERIES';
+      emit('clear-initial-series');
+    }
+  } catch (e) {
+    console.error("Failed to jump to series", e);
   }
-  emit('clear-initial-series');
 };
 
 watch(() => props.auth.user?.token, () => {
