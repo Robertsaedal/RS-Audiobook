@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { ABSLibraryItem } from '../types';
-import { Play, CheckCircle, Check } from 'lucide-vue-next';
+import { Play, CheckCircle, Check, Clock } from 'lucide-vue-next';
 import { OfflineManager } from '../services/offlineManager';
 
 const props = defineProps<{
@@ -43,7 +43,6 @@ const isFinished = computed(() => {
 
 const displaySequence = computed(() => {
   // Prioritize seriesSequence from API, then sequence, then UI fallback
-  // Ensure we check for 0 or string '0'
   const meta = props.item?.media?.metadata;
   let raw = meta?.seriesSequence;
   
@@ -54,6 +53,7 @@ const displaySequence = computed(() => {
     raw = props.fallbackSequence;
   }
   
+  // Handle "0" or 0 correctly
   if (raw === undefined || raw === null || raw === '') return null;
   return raw;
 });
@@ -120,6 +120,11 @@ onMounted(async () => {
         </button>
       </div>
 
+      <!-- Finished Indicator Overlay -->
+      <div v-if="isFinished" class="absolute top-2 left-2 z-40 bg-green-600 rounded-full p-1 border border-white/20 shadow-lg">
+        <Check :size="12" class="text-white" stroke-width="3" />
+      </div>
+
       <!-- Play Overlay -->
       <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex items-center justify-center pointer-events-none">
         <div class="w-14 h-14 rounded-full bg-purple-600 text-white flex items-center justify-center shadow-[0_0_30px_rgba(168,85,247,0.5)] transform scale-90 group-hover:scale-100 transition-transform">
@@ -127,15 +132,16 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- High-Contrast Progress Bar (Bottom Edge) -->
-      <div v-if="progress > 0 && !isFinished" class="absolute bottom-0 left-0 h-1.5 w-full bg-neutral-900/80 z-30">
-        <div 
-          class="h-full bg-gradient-to-r from-purple-600 to-purple-400 shadow-[0_0_12px_rgba(168,85,247,0.8)] transition-all duration-300" 
+      <!-- Progress Bar (3px height) -->
+      <div v-if="progress > 0 && !isFinished" class="absolute bottom-0 left-0 w-full z-30 bg-neutral-900/50">
+         <div 
+          class="h-[3px] bg-gradient-to-r from-purple-600 to-purple-400 shadow-[0_0_8px_rgba(168,85,247,0.8)]" 
           :style="{ width: progress + '%' }" 
         />
       </div>
-      <!-- Finished Indicator -->
-      <div v-if="isFinished" class="absolute bottom-0 left-0 h-1 w-full bg-green-500 z-30 shadow-[0_0_10px_rgba(34,197,94,0.3)]" />
+
+      <!-- Finished Bar -->
+      <div v-if="isFinished" class="absolute bottom-0 left-0 h-[3px] w-full bg-green-500 z-30 shadow-[0_0_10px_rgba(34,197,94,0.3)]" />
       
       <!-- Percentage Text Overlay (Visible on hover when in progress) -->
       <div v-if="progress > 0 && !isFinished" class="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur-md px-2 py-1 rounded text-[9px] font-black text-white uppercase tracking-widest z-30 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none border border-white/10">

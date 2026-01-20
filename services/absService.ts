@@ -282,32 +282,41 @@ export class ABSService {
   }
 
   async downloadFile(url: string, onProgress?: (percentage: number) => void): Promise<Blob> {
-    return new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open('GET', url, true);
-      xhr.responseType = 'blob';
-      if (this.token && !url.includes('token=')) {
-        xhr.setRequestHeader('Authorization', `Bearer ${this.token}`);
+    const headers: HeadersInit = {};
+    if (this.token && !url.includes('token=')) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
+
+    const response = await fetch(url, { headers });
+    
+    if (!response.ok) {
+      throw new Error(`Download failed: ${response.status} ${response.statusText}`);
+    }
+
+    const contentLength = response.headers.get('content-length');
+    const total = contentLength ? parseInt(contentLength, 10) : 0;
+    let loaded = 0;
+
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error('ReadableStream not supported');
+
+    const chunks: Uint8Array[] = [];
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      
+      if (value) {
+        chunks.push(value);
+        loaded += value.length;
+        if (total > 0 && onProgress) {
+          onProgress((loaded / total) * 100);
+        }
       }
+    }
 
-      xhr.onprogress = (event) => {
-        if (event.lengthComputable && onProgress) {
-          const percent = (event.loaded / event.total) * 100;
-          onProgress(percent);
-        }
-      };
-
-      xhr.onload = () => {
-        if (xhr.status === 200) {
-          resolve(xhr.response);
-        } else {
-          reject(new Error(`Download failed: ${xhr.statusText}`));
-        }
-      };
-
-      xhr.onerror = () => reject(new Error('Network error during download'));
-      xhr.send();
-    });
+    const blob = new Blob(chunks);
+    return blob;
   }
 
   onProgressUpdate(callback: (progress: ABSProgress) => void) {

@@ -14,11 +14,10 @@ export class AppDatabase extends Dexie {
 
   constructor() {
     super('RSAudioDatabase');
+    this.version(1).stores({
+      downloads: 'itemId, downloadedAt'
+    });
   }
 }
 
 export const db = new AppDatabase();
-
-db.version(1).stores({
-  downloads: 'itemId, downloadedAt'
-});

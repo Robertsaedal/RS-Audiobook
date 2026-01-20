@@ -13,7 +13,7 @@ const emit = defineEmits<{
 
 <template>
   <Transition name="slide-up">
-    <div v-if="show" class="fixed bottom-20 left-4 right-4 md:left-auto md:right-8 md:bottom-8 md:w-96 bg-[#1a1a1a] border border-purple-500/30 rounded-2xl shadow-2xl p-4 z-[100] flex items-center gap-4">
+    <div v-if="show" class="fixed bottom-20 left-4 right-4 md:left-auto md:right-8 md:bottom-8 md:w-96 bg-[#1a1a1a] border border-purple-500/30 rounded-2xl shadow-2xl p-4 z-[200] flex items-center gap-4">
       <div class="w-12 h-12 bg-purple-600/20 rounded-xl flex items-center justify-center shrink-0">
         <Download class="text-purple-500" :size="24" />
       </div>

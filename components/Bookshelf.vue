@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { ABSLibraryItem, ABSProgress } from '../types';
 import { ABSService, LibraryQueryParams } from '../services/absService';
+import { OfflineManager } from '../services/offlineManager';
 import BookCard from './BookCard.vue';
 import { PackageOpen, Loader2, Plus, AlertTriangle, FastForward, RotateCw } from 'lucide-vue-next';
 
@@ -25,6 +26,7 @@ const hasMore = ref(true);
 const duplicateWallDetected = ref(false);
 const scrollContainerRef = ref<HTMLElement | null>(null);
 const sentinelRef = ref<HTMLElement | null>(null);
+const isOffline = ref(false);
 
 // Chunking Guard: Prevents duplicate requests for the same segment
 const requestedOffsets = new Set<number>();
@@ -43,10 +45,32 @@ const getMappedSortKey = (method: string) => {
   return method || 'addedAt';
 };
 
+const fetchOfflineBooks = async () => {
+  isLoading.value = true;
+  isOffline.value = true;
+  try {
+    const localItems = await OfflineManager.getAllDownloadedBooks();
+    libraryItems.value = localItems;
+    totalItems.value = localItems.length;
+    hasMore.value = false; // No pagination in offline mode
+    console.log(`📡 [Bookshelf] Loaded ${localItems.length} offline books`);
+  } catch (e) {
+    console.error("Failed to load offline books", e);
+  } finally {
+    isLoading.value = false;
+  }
+};
+
 /**
  * Core fetch function with explicit offset guards.
  */
 const fetchMoreItems = async (isInitial = false) => {
+  // Check Offline First
+  if (!navigator.onLine) {
+    if (isInitial) await fetchOfflineBooks();
+    return;
+  }
+
   const fetchOffset = isInitial ? 0 : internalOffset.value;
   
   // Guard: Don't request if already loading, already finished, or already requested this chunk
@@ -76,6 +100,7 @@ const fetchMoreItems = async (isInitial = false) => {
     const total = response?.total || 0;
     
     totalItems.value = total;
+    isOffline.value = false;
 
     if (results.length === 0) {
       console.log("⏹️ [Bookshelf] No items returned. Stream complete.");
@@ -120,7 +145,13 @@ const fetchMoreItems = async (isInitial = false) => {
     }
   } catch (e) {
     console.error("❌ [Bookshelf] Nexus transmission failure:", e);
-    hasMore.value = false; 
+    // Auto-fallback to offline books if this was an initial load and it failed
+    if (isInitial) {
+      console.log("Falling back to local storage...");
+      await fetchOfflineBooks();
+    } else {
+      hasMore.value = false; 
+    }
   } finally {
     isLoading.value = false;
   }
@@ -132,7 +163,7 @@ const setupObserver = () => {
   if (!sentinelRef.value) return;
 
   observer = new IntersectionObserver((entries) => {
-    if (entries[0].isIntersecting && !isLoading.value && hasMore.value) {
+    if (entries[0].isIntersecting && !isLoading.value && hasMore.value && !isOffline.value) {
       fetchMoreItems();
     }
   }, { 
@@ -155,6 +186,7 @@ const reset = async () => {
   totalItems.value = 0;
   internalOffset.value = 0;
   libraryItems.value = [];
+  isOffline.value = false;
   
   if (scrollContainerRef.value) {
     scrollContainerRef.value.scrollTop = 0;
@@ -188,10 +220,17 @@ watch(() => [props.sortMethod, props.desc, props.search], () => reset(), { deep:
   <div class="flex-1 h-full min-h-0 flex flex-col overflow-hidden">
     <div ref="scrollContainerRef" class="flex-1 overflow-y-auto custom-scrollbar px-2 pb-40 relative">
       
+      <!-- Offline Header for Library View -->
+      <div v-if="isOffline" class="py-4 text-center">
+        <span class="text-[10px] font-black uppercase tracking-[0.3em] text-amber-500">Offline Library • Downloaded Items Only</span>
+      </div>
+
       <div v-if="libraryItems.length === 0 && !isLoading" class="flex flex-col items-center justify-center py-40 text-center opacity-40">
         <PackageOpen :size="64" class="text-neutral-800 mb-6" />
         <h3 class="text-xl font-black uppercase tracking-tighter">Archive Empty</h3>
-        <p class="text-[9px] font-black uppercase tracking-widest mt-2">No items detected in current frequency</p>
+        <p class="text-[9px] font-black uppercase tracking-widest mt-2">
+          {{ isOffline ? 'No downloaded books found' : 'No items detected in current frequency' }}
+        </p>
       </div>
 
       <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-x-6 gap-y-12">
@@ -238,7 +277,7 @@ watch(() => [props.sortMethod, props.desc, props.search], () => reset(), { deep:
         </div>
 
         <button 
-          v-else-if="!isLoading && hasMore && totalItems > 0"
+          v-else-if="!isLoading && hasMore && totalItems > 0 && !isOffline"
           @click="fetchMoreItems()"
           class="flex items-center gap-3 px-6 py-3 bg-neutral-900/60 border border-white/5 rounded-full text-[9px] font-black uppercase tracking-[0.4em] text-neutral-500 hover:text-purple-400 hover:border-purple-500/20 transition-all active:scale-95"
         >

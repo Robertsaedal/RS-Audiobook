@@ -62,6 +62,12 @@ const fetchStats = async () => {
   
   try {
     const data = await props.absService.getUserStatsForYear(selectedYear.value);
+    
+    // Check if data is null (api might return 404 or empty if no data)
+    if (!data) {
+       throw new Error("No data returned from server for this period.");
+    }
+    
     // Ensure we have a valid structure even if data is missing
     stats.value = {
       totalTime: data?.totalTime || 0,
@@ -70,7 +76,12 @@ const fetchStats = async () => {
     };
   } catch (e: any) {
     console.error("Failed to fetch stats", e);
-    error.value = e.message || "Could not retrieve analytical data.";
+    // Only show error if it's not a 404 (which implies just no data)
+    if (e.message && e.message.includes('404')) {
+        stats.value = { totalTime: 0, items: [], days: {} };
+    } else {
+        error.value = e.message || "Could not retrieve analytical data.";
+    }
   } finally {
     isLoading.value = false;
   }

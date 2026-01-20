@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
 import { AuthState, ABSLibraryItem, ABSSeries, ABSProgress } from '../types';
 import { ABSService } from '../services/absService';
+import { OfflineManager } from '../services/offlineManager';
 import LibraryLayout, { LibraryTab } from '../components/LibraryLayout.vue';
 import Bookshelf from '../components/Bookshelf.vue';
 import SeriesShelf from '../components/SeriesShelf.vue';
@@ -10,7 +11,7 @@ import RequestPortal from '../components/RequestPortal.vue';
 import StatsView from './StatsView.vue';
 import BookCard from '../components/BookCard.vue';
 import SeriesCard from '../components/SeriesCard.vue';
-import { PackageOpen, Loader2 } from 'lucide-vue-next';
+import { PackageOpen, Loader2, WifiOff } from 'lucide-vue-next';
 
 const props = defineProps<{
   auth: AuthState,
@@ -31,6 +32,7 @@ const sortMethod = ref('addedAt');
 const desc = ref(1);
 const selectedSeries = ref<ABSSeries | null>(null);
 const isScanning = ref(false);
+const isOfflineMode = ref(!navigator.onLine);
 
 const currentlyReading = ref<ABSLibraryItem[]>([]);
 const continueSeries = ref<ABSLibraryItem[]>([]);
@@ -96,13 +98,18 @@ const handleProgressUpdate = (progress: ABSProgress) => {
   }
 
   // If item not found in "Continue Listening" and it's active, refetch dashboard to add it
-  // This helps if the server promotes a new item to the personalized shelf
-  if (!found && !progress.isFinished && !progress.hideFromContinueListening) {
+  if (!found && !progress.isFinished && !progress.hideFromContinueListening && !isOfflineMode.value) {
     fetchDashboardData();
   }
 };
 
 const handleMarkFinished = async (item: ABSLibraryItem) => {
+  if (isOfflineMode.value) {
+    // Offline optimistic update not fully persisted to server yet
+    currentlyReading.value = currentlyReading.value.filter(i => i.id !== item.id);
+    return;
+  }
+  
   if (!absService.value) return;
   try {
     // Optimistic UI update
@@ -110,12 +117,38 @@ const handleMarkFinished = async (item: ABSLibraryItem) => {
     await absService.value.updateProgress(item.id, { isFinished: true });
   } catch (e) {
     console.error("Failed to mark as finished", e);
-    // Revert on failure (optional, but good practice usually involves a toast error)
     fetchDashboardData();
   }
 };
 
+const handleOfflineFallback = async () => {
+  console.log("Entering Offline Mode Fallback");
+  isOfflineMode.value = true;
+  
+  const localBooks = await OfflineManager.getAllDownloadedBooks();
+  
+  // Populate "Continue Listening" with in-progress downloads
+  currentlyReading.value = localBooks.filter(b => {
+    const p = b.userProgress;
+    return p && p.progress > 0 && !p.isFinished;
+  });
+
+  // Populate "Recently Added" with all other downloads for easy access
+  recentlyAdded.value = localBooks.filter(b => {
+    const p = b.userProgress;
+    return !p || p.progress === 0 || p.isFinished;
+  });
+
+  continueSeries.value = [];
+  recentSeries.value = [];
+};
+
 const fetchDashboardData = async () => {
+  if (!navigator.onLine) {
+    await handleOfflineFallback();
+    return;
+  }
+
   if (!absService.value) return;
   try {
     // Official Strategy: Use server personalized shelves endpoint exclusively
@@ -146,9 +179,23 @@ const fetchDashboardData = async () => {
           break;
       }
     });
+    
+    isOfflineMode.value = false;
 
   } catch (e) {
     console.error("Dashboard hydration failed", e);
+    await handleOfflineFallback();
+  }
+};
+
+const updateOnlineStatus = () => {
+  const online = navigator.onLine;
+  isOfflineMode.value = !online;
+  if (online) {
+    initService();
+    fetchDashboardData();
+  } else {
+    handleOfflineFallback();
   }
 };
 
@@ -158,10 +205,19 @@ onMounted(() => {
   if (props.initialSeriesId) {
     handleJumpToSeries(props.initialSeriesId);
   }
+  
+  window.addEventListener('online', updateOnlineStatus);
+  window.addEventListener('offline', updateOnlineStatus);
+});
+
+onUnmounted(() => {
+  absService.value?.disconnect();
+  window.removeEventListener('online', updateOnlineStatus);
+  window.removeEventListener('offline', updateOnlineStatus);
 });
 
 const handleJumpToSeries = async (seriesId: string) => {
-  if (!absService.value) return;
+  if (!absService.value || isOfflineMode.value) return;
   const { results: allSeries } = await absService.value.getLibrarySeriesPaged({ limit: 100 });
   const target = allSeries.find(s => s.id === seriesId);
   if (target) {
@@ -176,10 +232,6 @@ watch(() => props.auth.user?.token, () => {
   fetchDashboardData();
 });
 
-onUnmounted(() => {
-  absService.value?.disconnect();
-});
-
 const handleTabChange = (tab: LibraryTab) => {
   activeTab.value = tab;
   selectedSeries.value = null;
@@ -188,7 +240,7 @@ const handleTabChange = (tab: LibraryTab) => {
 };
 
 const handleScan = async () => {
-  if (isScanning.value || !absService.value) return;
+  if (isScanning.value || !absService.value || isOfflineMode.value) return;
   isScanning.value = true;
   try {
     await absService.value.scanLibrary();
@@ -203,7 +255,7 @@ const trimmedSearch = computed(() => searchTerm.value.trim());
 
 // Global Search Logic
 const performGlobalSearch = async () => {
-  if (!trimmedSearch.value || trimmedSearch.value.length < 2 || !absService.value) return;
+  if (!trimmedSearch.value || trimmedSearch.value.length < 2 || !absService.value || isOfflineMode.value) return;
   isGlobalSearching.value = true;
   try {
     const results = await absService.value.quickSearch(trimmedSearch.value);
@@ -240,7 +292,15 @@ const isHomeEmpty = computed(() => {
     @logout="emit('logout')"
     @scan="handleScan"
   >
-    <div class="flex-1 min-h-0 h-full flex flex-col">
+    <div class="flex-1 min-h-0 h-full flex flex-col relative">
+      <!-- Offline Banner -->
+      <Transition name="slide-down">
+        <div v-if="isOfflineMode" class="absolute top-0 left-0 right-0 z-50 bg-amber-600/90 backdrop-blur-md px-4 py-2 flex items-center justify-center gap-2 text-white shadow-lg">
+          <WifiOff :size="14" />
+          <span class="text-[10px] font-black uppercase tracking-widest">Offline Mode • Showing Downloaded Books</span>
+        </div>
+      </Transition>
+
       <SeriesView 
         v-if="selectedSeries && absService"
         :series="selectedSeries" :absService="absService"
@@ -301,10 +361,15 @@ const isHomeEmpty = computed(() => {
         <!-- Standard Tab Views (Only visible when NOT searching) -->
         <template v-else>
           <div v-if="activeTab === 'HOME'" class="h-full bg-[#0d0d0d] overflow-y-auto custom-scrollbar -mx-4 md:-mx-8 px-4 md:px-8 pt-4 pb-40">
+            <!-- Add padding top if offline banner is shown -->
+            <div :class="{ 'pt-8': isOfflineMode }"></div>
+
             <template v-if="!isHomeEmpty">
               <section v-if="currentlyReading.length > 0 && absService" class="shelf-row">
                 <div class="shelf-tag">
-                  <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Continue Listening</span>
+                  <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">
+                    {{ isOfflineMode ? 'In Progress (Local)' : 'Continue Listening' }}
+                  </span>
                 </div>
                 <div class="flex gap-8 overflow-x-auto no-scrollbar pb-10 pl-2">
                   <div v-for="item in currentlyReading" :key="item.id" class="w-32 md:w-40 shrink-0">
@@ -337,7 +402,9 @@ const isHomeEmpty = computed(() => {
 
               <section v-if="recentlyAdded.length > 0 && absService" class="shelf-row">
                 <div class="shelf-tag">
-                  <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Recently Added</span>
+                  <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">
+                    {{ isOfflineMode ? 'Downloaded' : 'Recently Added' }}
+                  </span>
                 </div>
                 <div class="flex gap-8 overflow-x-auto no-scrollbar pb-10 pl-2">
                   <div v-for="item in recentlyAdded" :key="item.id" class="w-32 md:w-40 shrink-0">
@@ -371,7 +438,9 @@ const isHomeEmpty = computed(() => {
             <div v-else class="flex flex-col items-center justify-center py-40 text-center opacity-40">
               <PackageOpen :size="64" class="text-neutral-800 mb-6" />
               <h3 class="text-xl font-black uppercase tracking-tighter text-neutral-500">Archive Void</h3>
-              <p class="text-[10px] font-black uppercase tracking-[0.4em] mt-2">No records detected in current frequency</p>
+              <p class="text-[9px] font-black uppercase tracking-[0.4em] mt-2">
+                {{ isOfflineMode ? 'No downloads found on device' : 'No records detected in current frequency' }}
+              </p>
             </div>
           </div>
 
@@ -395,3 +464,12 @@ const isHomeEmpty = computed(() => {
     </div>
   </LibraryLayout>
 </template>
+
+<style scoped>
+.slide-down-enter-active, .slide-down-leave-active {
+  transition: all 0.3s ease-out;
+}
+.slide-down-enter-from, .slide-down-leave-to {
+  transform: translateY(-100%);
+}
+</style>

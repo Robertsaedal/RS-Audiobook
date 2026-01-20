@@ -144,6 +144,7 @@ onMounted(() => {
             :item="book" 
             :coverUrl="absService.getCoverUrl(book.id)" 
             show-metadata
+            :fallback-sequence="book.media.metadata.seriesSequence || book.media.metadata.sequence"
             @click="emit('select-item', book)" 
           />
         </div>
