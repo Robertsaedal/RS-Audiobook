@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { ABSService } from '../services/absService';
-import { Trophy, Clock, Calendar, BarChart2, AlertCircle, PlayCircle } from 'lucide-vue-next';
+import { BookOpen, Calendar, BarChart2, AlertCircle, PlayCircle, Trophy } from 'lucide-vue-next';
 
 const props = defineProps<{
   absService: ABSService
@@ -15,15 +15,7 @@ const stats = ref<{
   recentSessions: any[];
 } | null>(null);
 
-const formattedTime = computed(() => {
-  if (!stats.value) return { d: 0, h: 0, m: 0 };
-  const totalSeconds = stats.value.totalTime || 0;
-  const days = Math.floor(totalSeconds / 86400);
-  const remainingSeconds = totalSeconds % 86400;
-  const hours = Math.floor(remainingSeconds / 3600);
-  const minutes = Math.floor((remainingSeconds % 3600) / 60);
-  return { d: days, h: hours, m: minutes };
-});
+const finishedBooksCount = ref(0);
 
 const monthlyData = computed(() => {
   const months = new Array(12).fill(0);
@@ -46,10 +38,6 @@ const recentSessions = computed(() => {
     return stats.value?.recentSessions || [];
 });
 
-const totalDaysListened = computed(() => {
-    return stats.value?.days ? Object.keys(stats.value.days).length : 0;
-});
-
 const fetchStats = async () => {
   if (!props.absService) return;
   isLoading.value = true;
@@ -60,6 +48,20 @@ const fetchStats = async () => {
     const data = await props.absService.getListeningStats();
     if (!data) throw new Error("No stats available.");
     stats.value = data;
+
+    // Fetch finished books count (items with isFinished = true)
+    // We use a specific filter query to the library
+    try {
+        const finishedRes = await props.absService.getLibraryItemsPaged({ 
+            limit: 1, 
+            filter: 'progress.isFinished' 
+        });
+        finishedBooksCount.value = finishedRes.total || 0;
+    } catch {
+        // Fallback: Estimate from what we know or just show 0
+        finishedBooksCount.value = 0;
+    }
+
   } catch (e: any) {
     console.error("Failed to fetch stats", e);
     error.value = e.message || "Could not retrieve analytical data.";
@@ -73,6 +75,7 @@ onMounted(() => {
 });
 
 const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const currentYear = new Date().getFullYear();
 </script>
 
 <template>
@@ -81,13 +84,13 @@ const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep
       
       <!-- Header -->
       <div class="pt-8 pb-12">
-        <h1 class="text-4xl md:text-5xl font-black uppercase tracking-tighter text-white mb-2">Listening Stats</h1>
-        <p class="text-[10px] font-black uppercase tracking-[0.4em] text-purple-500">Your Audio Journey</p>
+        <h1 class="text-4xl md:text-5xl font-black uppercase tracking-tighter text-white mb-2">My Analytics</h1>
+        <p class="text-[10px] font-black uppercase tracking-[0.4em] text-purple-500">{{ currentYear }} Year in Review</p>
       </div>
 
       <div v-if="isLoading" class="flex flex-col items-center justify-center py-40 gap-6">
         <div class="w-12 h-12 border-2 border-purple-600/10 border-t-purple-600 rounded-full animate-spin" />
-        <p class="text-[8px] font-black uppercase tracking-[0.6em] text-neutral-600">Syncing Analytics...</p>
+        <p class="text-[8px] font-black uppercase tracking-[0.6em] text-neutral-600">Calculating Metrics...</p>
       </div>
 
       <div v-else-if="error" class="flex flex-col items-center justify-center py-20 gap-4 opacity-70">
@@ -98,73 +101,70 @@ const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep
 
       <div v-else-if="stats" class="space-y-12">
         
-        <!-- Hero Stats -->
+        <!-- Main KPI: Books Read -->
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          <!-- Total Time -->
-          <div class="bg-neutral-900/40 border border-white/5 rounded-3xl p-6 lg:p-8 flex flex-col gap-4">
-             <div class="flex items-center gap-3 text-purple-400">
-               <Clock :size="20" />
-               <span class="text-[9px] font-black uppercase tracking-[0.3em]">Total Time</span>
+          
+          <!-- Books Finished Card -->
+          <div class="bg-neutral-900/40 border border-white/5 rounded-3xl p-8 flex flex-col gap-6 relative overflow-hidden group">
+             <div class="absolute inset-0 bg-gradient-to-br from-purple-500/10 to-transparent opacity-50" />
+             <div class="relative z-10 flex items-center gap-3 text-purple-400">
+               <Trophy :size="24" />
+               <span class="text-[10px] font-black uppercase tracking-[0.3em]">Books Finished</span>
              </div>
-             <div class="flex items-baseline gap-2">
-                <span class="text-4xl lg:text-5xl font-black text-white tracking-tighter">{{ formattedTime.d }}<span class="text-base text-neutral-600 ml-1 mr-3">D</span></span>
-                <span class="text-4xl lg:text-5xl font-black text-white tracking-tighter">{{ formattedTime.h }}<span class="text-base text-neutral-600 ml-1 mr-3">H</span></span>
-                <span class="text-4xl lg:text-5xl font-black text-white tracking-tighter">{{ formattedTime.m }}<span class="text-base text-neutral-600 ml-1">M</span></span>
+             <div class="relative z-10 flex items-baseline gap-2">
+                <span class="text-7xl font-black text-white tracking-tighter drop-shadow-lg">{{ finishedBooksCount }}</span>
+                <span class="text-xl font-black text-neutral-500 uppercase">Titles</span>
              </div>
-          </div>
-
-          <!-- Days Listened -->
-          <div class="bg-neutral-900/40 border border-white/5 rounded-3xl p-6 lg:p-8 flex flex-col gap-4">
-             <div class="flex items-center gap-3 text-blue-400">
-               <Calendar :size="20" />
-               <span class="text-[9px] font-black uppercase tracking-[0.3em]">Active Days</span>
-             </div>
-             <div class="flex items-baseline gap-2">
-                <span class="text-5xl lg:text-6xl font-black text-white tracking-tighter">{{ totalDaysListened }}</span>
-                <span class="text-lg font-bold text-neutral-500 uppercase">Days</span>
+             <div class="relative z-10 w-full h-1.5 bg-neutral-800 rounded-full overflow-hidden">
+                <div class="h-full bg-purple-500 w-full animate-pulse" />
              </div>
           </div>
 
-           <!-- Monthly Chart (Mini) -->
-           <div class="bg-neutral-900/40 border border-white/5 rounded-3xl p-6 lg:p-8 flex flex-col gap-4 md:col-span-2 lg:col-span-1">
+           <!-- Activity Chart -->
+           <div class="bg-neutral-900/40 border border-white/5 rounded-3xl p-8 flex flex-col gap-4 md:col-span-2">
              <div class="flex items-center gap-3 text-green-400">
                <BarChart2 :size="20" />
-               <span class="text-[9px] font-black uppercase tracking-[0.3em]">Activity</span>
+               <span class="text-[9px] font-black uppercase tracking-[0.3em]">Listening Volume ({{ currentYear }})</span>
              </div>
-             <div class="flex-1 flex items-end justify-between gap-1 pt-4">
+             <div class="flex-1 flex items-end justify-between gap-2 pt-6 h-32">
                  <div 
                    v-for="(val, index) in monthlyData" 
                    :key="index"
-                   class="flex-1 bg-neutral-800 rounded-t-sm hover:bg-green-500 transition-colors"
+                   class="flex-1 bg-neutral-800 rounded-t-sm hover:bg-green-500 transition-colors relative group"
                    :style="{ height: `${(val / maxMonthlyValue) * 100}%`, minHeight: '4px' }"
-                   :title="`${monthNames[index]}: ${Math.round(val/3600)}h`"
-                 />
+                 >
+                    <div class="absolute -top-8 left-1/2 -translate-x-1/2 bg-white text-black text-[9px] font-bold px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                        {{ Math.round(val / 3600) }} hrs
+                    </div>
+                 </div>
              </div>
-             <div class="flex justify-between text-[7px] font-black uppercase text-neutral-600">
-                <span v-for="(m, i) in monthNames" :key="i" class="hidden sm:inline-block">{{ m }}</span>
+             <div class="flex justify-between text-[8px] font-black uppercase text-neutral-600 mt-2">
+                <span v-for="(m, i) in monthNames" :key="i" class="w-full text-center">{{ m }}</span>
              </div>
           </div>
         </div>
 
-        <!-- Recent Sessions -->
+        <!-- Recent Sessions List -->
         <div class="space-y-6">
-            <div class="flex items-center gap-3 text-neutral-400 px-2">
+            <div class="flex items-center gap-3 text-neutral-400 px-2 border-b border-white/5 pb-4">
                 <PlayCircle :size="18" />
-                <span class="text-[9px] font-black uppercase tracking-[0.3em]">Recent Sessions</span>
+                <span class="text-[9px] font-black uppercase tracking-[0.3em]">Session Log</span>
             </div>
             
-            <div v-if="recentSessions.length > 0" class="space-y-2">
-                <div v-for="(session, index) in recentSessions" :key="index" class="bg-neutral-900/30 border border-white/5 rounded-xl p-4 flex items-center justify-between">
+            <div v-if="recentSessions.length > 0" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div v-for="(session, index) in recentSessions" :key="index" class="bg-neutral-900/30 border border-white/5 rounded-xl p-4 flex items-center justify-between hover:border-white/10 transition-colors">
                     <div class="flex items-center gap-4">
-                        <span class="text-neutral-600 font-mono text-xs">{{ (index + 1).toString().padStart(2, '0') }}</span>
+                        <div class="w-8 h-8 rounded-full bg-neutral-800 flex items-center justify-center text-[10px] font-mono font-bold text-neutral-500">
+                            {{ (index + 1) }}
+                        </div>
                         <div class="flex flex-col">
                             <span class="text-sm font-bold text-white line-clamp-1">{{ session.mediaMetadata?.title || 'Unknown Title' }}</span>
                             <span class="text-[10px] text-neutral-500 uppercase tracking-wider">{{ session.mediaMetadata?.author || 'Unknown Author' }}</span>
                         </div>
                     </div>
-                    <div class="text-right">
-                         <span class="text-xs font-mono font-bold text-purple-400">{{ Math.round((session.timeListening || 0) / 60) }} min</span>
-                         <p class="text-[8px] text-neutral-600 uppercase">{{ new Date(session.updatedAt).toLocaleDateString() }}</p>
+                    <div class="text-right pl-4">
+                         <span class="text-xs font-mono font-bold text-purple-400 block">{{ Math.round((session.timeListening || 0) / 60) }}m</span>
+                         <span class="text-[8px] text-neutral-600 uppercase">{{ new Date(session.updatedAt).toLocaleDateString() }}</span>
                     </div>
                 </div>
             </div>

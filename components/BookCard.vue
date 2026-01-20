@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { ABSLibraryItem } from '../types';
-import { Play, CheckCircle, Check, Clock } from 'lucide-vue-next';
+import { Play, CheckCircle, Check } from 'lucide-vue-next';
 import { OfflineManager } from '../services/offlineManager';
 
 const props = defineProps<{
@@ -50,7 +50,7 @@ const displaySequence = computed(() => {
   if (raw === undefined || raw === null) {
     raw = meta?.sequence;
   }
-  if (raw === undefined || raw === null) {
+  if (raw === undefined || raw === null || raw === '') {
     raw = props.fallbackSequence;
   }
   
@@ -97,7 +97,8 @@ onMounted(async () => {
       />
       
       <!-- Book Sequence Badge (Top Right Pill) -->
-      <div v-if="displaySequence !== null" class="absolute top-2 right-2 bg-purple-600/90 backdrop-blur-md px-2 py-0.5 rounded-md flex items-center justify-center text-[10px] font-black text-white border border-white/20 shadow-xl z-50 tracking-tight">
+      <!-- Added explicit Z-index and opacity to ensure visibility -->
+      <div v-if="displaySequence !== null" class="absolute top-2 right-2 bg-purple-600/95 backdrop-blur-md px-2 py-0.5 rounded-md flex items-center justify-center text-[10px] font-black text-white border border-white/20 shadow-xl z-[60] tracking-tight">
         #{{ displaySequence }}
       </div>
       
@@ -108,7 +109,7 @@ onMounted(async () => {
 
       <!-- Mark Finished Button (Top Left - Hover or if in progress) -->
       <div 
-        v-if="!isFinished && progress > 0" 
+        v-if="!isFinished && (showProgress || progress > 0)" 
         class="absolute top-2 left-2 z-40 opacity-0 group-hover:opacity-100 transition-opacity"
         :class="{ 'left-8': isDownloaded }"
       >
@@ -122,7 +123,7 @@ onMounted(async () => {
       </div>
 
       <!-- Finished Indicator Overlay (Prominent) -->
-      <div v-if="isFinished" class="absolute inset-0 flex items-center justify-center z-40 bg-black/20">
+      <div v-if="isFinished" class="absolute inset-0 flex items-center justify-center z-40 bg-black/40">
          <div class="px-3 py-1 bg-green-600/90 backdrop-blur-md border border-green-400/30 rounded-full flex items-center gap-2 shadow-xl transform -rotate-12">
             <Check :size="12" class="text-white" stroke-width="4" />
             <span class="text-[9px] font-black text-white uppercase tracking-widest">FINISHED</span>
@@ -137,16 +138,16 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- Progress Bar (4px height) -->
-      <div v-if="progress > 0 && !isFinished" class="absolute bottom-0 left-0 w-full z-30 bg-neutral-900/50">
+      <!-- Progress Bar (4px height) - Force show if showProgress is true even if 0% -->
+      <div v-if="(progress > 0 || showProgress) && !isFinished" class="absolute bottom-0 left-0 w-full z-30 bg-neutral-900/50">
          <div 
           class="h-1 bg-gradient-to-r from-purple-600 to-purple-400 shadow-[0_0_8px_rgba(168,85,247,0.8)]" 
-          :style="{ width: progress + '%' }" 
+          :style="{ width: Math.max(progress, showProgress ? 2 : 0) + '%' }" 
         />
       </div>
       
       <!-- Percentage Text Overlay -->
-      <div v-if="progress > 0 && !isFinished" 
+      <div v-if="(progress > 0 || showProgress) && !isFinished" 
         class="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur-md px-2 py-1 rounded text-[9px] font-black text-white uppercase tracking-widest z-30 transition-opacity pointer-events-none border border-white/10"
         :class="showProgress ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'"
       >

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rs-audio-v12';
+const CACHE_NAME = 'rs-audio-v13';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -9,7 +9,16 @@ const STATIC_ASSETS = [
 self.addEventListener('install', (event) => {
   self.skipWaiting();
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
+    caches.open(CACHE_NAME).then(async (cache) => {
+      // Robust Caching: Iterate assets individually.
+      // If one asset fails (e.g., version mismatch), the SW still installs, 
+      // ensuring the "Add to Home Screen" banner works on Android.
+      await Promise.all(
+        STATIC_ASSETS.map(url => 
+          cache.add(url).catch(err => console.error(`Failed to cache ${url}:`, err))
+        )
+      );
+    })
   );
 });
 

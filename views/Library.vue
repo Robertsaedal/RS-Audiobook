@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, computed, nextTick } from 'vue';
+import { ref, onMounted, onUnmounted, onActivated, watch, computed, nextTick } from 'vue';
 import { AuthState, ABSLibraryItem, ABSSeries, ABSProgress } from '../types';
 import { ABSService } from '../services/absService';
 import { OfflineManager } from '../services/offlineManager';
@@ -12,6 +12,11 @@ import StatsView from './StatsView.vue';
 import BookCard from '../components/BookCard.vue';
 import SeriesCard from '../components/SeriesCard.vue';
 import { PackageOpen, Loader2, WifiOff } from 'lucide-vue-next';
+
+// Define component name for KeepAlive inclusion
+defineOptions({
+  name: 'Library'
+});
 
 const props = defineProps<{
   auth: AuthState,
@@ -58,8 +63,6 @@ const initService = () => {
 
 const setupListeners = () => {
   if (!absService.value) return;
-  
-  // Real-time progress synchronization
   absService.value.onProgressUpdate((progress) => handleProgressUpdate(progress));
   absService.value.onLibraryUpdate(() => fetchDashboardData());
 };
@@ -74,10 +77,9 @@ const handleProgressUpdate = (progress: ABSProgress) => {
     if (progress.isFinished || progress.hideFromContinueListening) {
       currentlyReading.value.splice(crIndex, 1);
     } else {
-      // In-place update to trigger reactivity without list jumps
       const item = currentlyReading.value[crIndex];
       item.userProgress = progress;
-      currentlyReading.value[crIndex] = { ...item }; // Force reactivity
+      currentlyReading.value[crIndex] = { ...item }; 
     }
   }
 
@@ -97,7 +99,6 @@ const handleProgressUpdate = (progress: ABSProgress) => {
     continueSeries.value[csIndex] = { ...item };
   }
 
-  // If item not found in "Continue Listening" and it's active, refetch dashboard to add it
   if (!found && !progress.isFinished && !progress.hideFromContinueListening && !isOfflineMode.value) {
     fetchDashboardData();
   }
@@ -105,14 +106,12 @@ const handleProgressUpdate = (progress: ABSProgress) => {
 
 const handleMarkFinished = async (item: ABSLibraryItem) => {
   if (isOfflineMode.value) {
-    // Offline optimistic update not fully persisted to server yet
     currentlyReading.value = currentlyReading.value.filter(i => i.id !== item.id);
     return;
   }
   
   if (!absService.value) return;
   try {
-    // Optimistic UI update
     currentlyReading.value = currentlyReading.value.filter(i => i.id !== item.id);
     await absService.value.updateProgress(item.id, { isFinished: true });
   } catch (e) {
@@ -122,18 +121,14 @@ const handleMarkFinished = async (item: ABSLibraryItem) => {
 };
 
 const handleOfflineFallback = async () => {
-  console.log("Entering Offline Mode Fallback");
   isOfflineMode.value = true;
-  
   const localBooks = await OfflineManager.getAllDownloadedBooks();
   
-  // Populate "Continue Listening" with in-progress downloads
   currentlyReading.value = localBooks.filter(b => {
     const p = b.userProgress;
     return p && p.progress > 0 && !p.isFinished;
   });
 
-  // Populate "Recently Added" with all other downloads for easy access
   recentlyAdded.value = localBooks.filter(b => {
     const p = b.userProgress;
     return !p || p.progress === 0 || p.isFinished;
@@ -151,12 +146,10 @@ const fetchDashboardData = async () => {
 
   if (!absService.value) return;
   try {
-    // Official Strategy: Use server personalized shelves endpoint exclusively
     const shelves = await absService.value.getPersonalizedShelves({ limit: 12 });
     
     if (!shelves || !Array.isArray(shelves)) return;
 
-    // Reset buckets
     currentlyReading.value = [];
     continueSeries.value = [];
     recentlyAdded.value = [];
@@ -171,7 +164,7 @@ const fetchDashboardData = async () => {
           continueSeries.value = shelf.entities;
           break;
         case 'recently-added':
-        case 'newest-episodes': // Fallback for podcasts if recently-added missing
+        case 'newest-episodes':
           recentlyAdded.value = shelf.entities;
           break;
         case 'recent-series':
@@ -203,14 +196,23 @@ onMounted(async () => {
   initService();
   await fetchDashboardData();
   
-  // Handle initial series jump if provided via props (from Player)
+  // Check initial series (First Load)
   if (props.initialSeriesId) {
-    await nextTick(); // Ensure service is ready
+    await nextTick();
     handleJumpToSeries(props.initialSeriesId);
   }
   
   window.addEventListener('online', updateOnlineStatus);
   window.addEventListener('offline', updateOnlineStatus);
+});
+
+// Since we use KeepAlive, we need onActivated to handle incoming navigation from Player
+onActivated(async () => {
+  if (props.initialSeriesId) {
+    // Small delay to ensure UI is ready if switching views
+    await nextTick(); 
+    handleJumpToSeries(props.initialSeriesId);
+  }
 });
 
 onUnmounted(() => {
@@ -221,11 +223,18 @@ onUnmounted(() => {
 
 const handleJumpToSeries = async (seriesId: string) => {
   if (!absService.value || isOfflineMode.value) return;
+  
+  // If we are already viewing this series, do nothing
+  if (selectedSeries.value?.id === seriesId) {
+    emit('clear-initial-series');
+    return;
+  }
+
   try {
     const series = await absService.value.getSeries(seriesId);
     if (series) {
       selectedSeries.value = series;
-      activeTab.value = 'SERIES';
+      activeTab.value = 'SERIES'; // Force tab switch
       emit('clear-initial-series');
     }
   } catch (e) {
@@ -241,7 +250,7 @@ watch(() => props.auth.user?.token, () => {
 const handleTabChange = (tab: LibraryTab) => {
   activeTab.value = tab;
   selectedSeries.value = null;
-  searchTerm.value = ''; // Clear search when switching tabs
+  searchTerm.value = ''; 
   if (tab === 'HOME') fetchDashboardData();
 };
 

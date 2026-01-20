@@ -63,8 +63,8 @@ export class ABSService {
       } catch (e: any) {
         clearTimeout(id);
         lastError = e;
-        // Increase delay between retries to handle transient protocol errors
-        if (i < retries - 1) await new Promise(resolve => setTimeout(resolve, 800 * (i + 1)));
+        // Optimized retry delay (500ms base) to recover quickly from protocol errors (QUIC)
+        if (i < retries - 1) await new Promise(resolve => setTimeout(resolve, 500 * (i + 1)));
       }
     }
     throw lastError || new Error('FAILED_AFTER_RETRIES');
@@ -156,7 +156,25 @@ export class ABSService {
     if (params?.limit) query.append('limit', params.limit.toString());
     query.append('include', 'progress');
     query.append('_cb', Date.now().toString());
-    return this.fetchApi(`/libraries/${HARDCODED_LIBRARY_ID}/personalized?${query.toString()}`);
+
+    const url = `/libraries/${HARDCODED_LIBRARY_ID}/personalized?${query.toString()}`;
+
+    // Explicit Retry Wrapper for Personalized Shelves (Resilience against ERR_QUIC_PROTOCOL_ERROR)
+    let retries = 3;
+    for (let i = 0; i < retries; i++) {
+      try {
+        const result = await this.fetchApi(url);
+        if (result && (Array.isArray(result) || result.length !== undefined)) {
+          return result;
+        }
+        throw new Error("Invalid response");
+      } catch (e) {
+        if (i === retries - 1) return []; // Fail gracefully
+        // Wait 500ms before retrying to allow protocol to reset
+        await new Promise(resolve => setTimeout(resolve, 500 * (i + 1)));
+      }
+    }
+    return [];
   }
 
   async getItemsInProgress(): Promise<ABSLibraryItem[]> {

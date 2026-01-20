@@ -4,7 +4,6 @@ import { AuthState, ABSLibraryItem } from './types';
 import InstallPwaBanner from './components/InstallPwaBanner.vue';
 
 // Dynamic Imports for Route-Based Code Splitting
-// This ensures the heavy Player or Library logic doesn't slow down the initial load.
 const Login = defineAsyncComponent(() => import('./views/Login.vue'));
 const Library = defineAsyncComponent(() => import('./views/Library.vue'));
 const Player = defineAsyncComponent(() => import('./views/Player.vue'));
@@ -49,17 +48,15 @@ onMounted(() => {
 
   if (!isStandalone && !dismissed) {
     if (isIosDevice) {
-      // iOS doesn't support beforeinstallprompt, show immediately if not dismissed
       setTimeout(() => {
         showPwaBanner.value = true;
       }, 2000);
     } else {
-      // Android/Desktop: Check if event was already captured in main.ts
       const earlyPrompt = (window as any).deferredPrompt;
       if (earlyPrompt) {
         deferredPrompt.value = earlyPrompt;
         showPwaBanner.value = true;
-        (window as any).deferredPrompt = null; // Clear global
+        (window as any).deferredPrompt = null;
       }
     }
   }
@@ -145,15 +142,19 @@ const closePlayer = (shouldPopState = true) => {
     <template v-else>
       <Transition name="fade" mode="out-in">
         <Login v-if="currentView === 'login'" @login="handleLogin" />
-        <Library 
-          v-else-if="currentView === 'library' && auth" 
-          :auth="auth" 
-          :isStreaming="isStreaming"
-          :initialSeriesId="initialSeriesId"
-          @select-item="openPlayer" 
-          @logout="handleLogout" 
-          @clear-initial-series="initialSeriesId = null"
-        />
+        
+        <!-- Use KeepAlive to maintain Library state/scroll position and avoid re-fetching -->
+        <KeepAlive include="Library" v-else-if="currentView === 'library' && auth">
+          <Library 
+            :auth="auth" 
+            :isStreaming="isStreaming"
+            :initialSeriesId="initialSeriesId"
+            @select-item="openPlayer" 
+            @logout="handleLogout" 
+            @clear-initial-series="initialSeriesId = null"
+          />
+        </KeepAlive>
+        
         <Player 
           v-else-if="currentView === 'player' && auth && selectedItem" 
           :auth="auth" 
