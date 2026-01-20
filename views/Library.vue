@@ -23,7 +23,8 @@ const emit = defineEmits<{
   (e: 'clear-initial-series'): void
 }>();
 
-const absService = new ABSService(props.auth.serverUrl, props.auth.user?.token || '', props.auth.user?.id);
+// Reactive service instance
+const absService = ref<ABSService | null>(null);
 
 const activeTab = ref<LibraryTab>('HOME');
 const searchTerm = ref('');
@@ -36,52 +37,22 @@ const currentlyReading = ref<ABSLibraryItem[]>([]);
 const recentlyAdded = ref<ABSLibraryItem[]>([]);
 const recentSeries = ref<ABSSeries[]>([]);
 
-const fetchDashboardData = async () => {
-  try {
-    const sessions = await absService.getListeningSessions();
-    if (sessions.length > 0) {
-      currentlyReading.value = sessions;
-    } else {
-      const { results: reading } = await absService.getLibraryItemsPaged({ 
-        limit: 15, sort: 'lastUpdate', desc: 1, filter: 'progress' 
-      });
-      currentlyReading.value = reading.filter(i => 
-        i.userProgress && !i.userProgress.isFinished && i.userProgress.progress > 0
-      );
-    }
-
-    const { results: added } = await absService.getLibraryItemsPaged({ 
-      limit: 20, sort: 'addedAt', desc: 1 
-    });
-    recentlyAdded.value = added;
-
-    const { results: series } = await absService.getLibrarySeriesPaged({ 
-      limit: 12, sort: 'addedAt', desc: 1 
-    });
-    recentSeries.value = series;
-  } catch (e) {
-    console.error("Dashboard hydration failed", e);
+const initService = () => {
+  if (absService.value) {
+    absService.value.disconnect();
   }
+  absService.value = new ABSService(
+    props.auth.serverUrl, 
+    props.auth.user?.token || '', 
+    props.auth.user?.id
+  );
+  setupListeners();
 };
 
-const handleJumpToSeries = async (seriesId: string) => {
-  const { results: allSeries } = await absService.getLibrarySeriesPaged({ limit: 100 });
-  const target = allSeries.find(s => s.id === seriesId);
-  if (target) {
-    selectedSeries.value = target;
-    activeTab.value = 'SERIES';
-  }
-  emit('clear-initial-series');
-};
+const setupListeners = () => {
+  if (!absService.value) return;
 
-onMounted(() => {
-  fetchDashboardData();
-  
-  if (props.initialSeriesId) {
-    handleJumpToSeries(props.initialSeriesId);
-  }
-
-  absService.onProgressUpdate((updated: ABSProgress) => {
+  absService.value.onProgressUpdate((updated: ABSProgress) => {
     const readingIdx = currentlyReading.value.findIndex(i => i.id === updated.itemId);
     if (readingIdx !== -1) {
       currentlyReading.value[readingIdx] = { 
@@ -102,11 +73,62 @@ onMounted(() => {
     }
   });
 
-  absService.onLibraryUpdate(() => fetchDashboardData());
-});
+  absService.value.onLibraryUpdate(() => fetchDashboardData());
+};
+
+const fetchDashboardData = async () => {
+  if (!absService.value) return;
+  try {
+    const sessions = await absService.value.getListeningSessions();
+    if (sessions.length > 0) {
+      currentlyReading.value = sessions;
+    } else {
+      const { results: reading } = await absService.value.getLibraryItemsPaged({ 
+        limit: 15, sort: 'lastUpdate', desc: 1, filter: 'progress' 
+      });
+      currentlyReading.value = reading.filter(i => 
+        i.userProgress && !i.userProgress.isFinished && i.userProgress.progress > 0
+      );
+    }
+
+    const { results: added } = await absService.value.getLibraryItemsPaged({ 
+      limit: 20, sort: 'addedAt', desc: 1 
+    });
+    recentlyAdded.value = added;
+
+    const { results: series } = await absService.value.getLibrarySeriesPaged({ 
+      limit: 12, sort: 'addedAt', desc: 1 
+    });
+    recentSeries.value = series;
+  } catch (e) {
+    console.error("Dashboard hydration failed", e);
+  }
+};
+
+const handleJumpToSeries = async (seriesId: string) => {
+  if (!absService.value) return;
+  const { results: allSeries } = await absService.value.getLibrarySeriesPaged({ limit: 100 });
+  const target = allSeries.find(s => s.id === seriesId);
+  if (target) {
+    selectedSeries.value = target;
+    activeTab.value = 'SERIES';
+  }
+  emit('clear-initial-series');
+};
+
+// Watch for auth changes to re-initialize
+watch(() => props.auth.user?.token, (newToken) => {
+  if (newToken) {
+    initService();
+    fetchDashboardData();
+    if (props.initialSeriesId) {
+      handleJumpToSeries(props.initialSeriesId);
+    }
+  }
+}, { immediate: true });
 
 onUnmounted(() => {
-  absService.disconnect();
+  absService.value?.disconnect();
 });
 
 const handleTabChange = (tab: LibraryTab) => {
@@ -116,10 +138,10 @@ const handleTabChange = (tab: LibraryTab) => {
 };
 
 const handleScan = async () => {
-  if (isScanning.value) return;
+  if (isScanning.value || !absService.value) return;
   isScanning.value = true;
   try {
-    await absService.scanLibrary();
+    await absService.value.scanLibrary();
   } catch (e) {
     console.error("Scan failed", e);
   } finally {
@@ -153,7 +175,7 @@ const filteredAdded = computed(() => {
   >
     <div class="flex-1 min-h-0">
       <SeriesView 
-        v-if="selectedSeries"
+        v-if="selectedSeries && absService"
         :series="selectedSeries" :absService="absService"
         @back="selectedSeries = null"
         @select-item="emit('select-item', $event)"
@@ -163,19 +185,19 @@ const filteredAdded = computed(() => {
         <div v-if="activeTab === 'HOME'" class="h-full bg-[#0d0d0d] overflow-y-auto custom-scrollbar -mx-4 md:-mx-8 px-4 md:px-8 pt-4 pb-40">
           
           <ContinueListening 
-            v-if="!searchTerm" 
+            v-if="!searchTerm && absService" 
             :absService="absService" 
             :items="currentlyReading"
             @resume-book="emit('select-item', $event)"
           />
 
-          <section v-if="filteredReading.length > 0 && searchTerm" class="shelf-row">
+          <section v-if="filteredReading.length > 0 && searchTerm && absService" class="shelf-row">
             <div class="shelf-tag">
               <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Currently Listening</span>
             </div>
             <div class="flex gap-6 overflow-x-auto no-scrollbar pb-6 pl-2">
               <div v-for="item in filteredReading" :key="item.id" class="w-32 md:w-40 shrink-0">
-                < BookCard 
+                <BookCard 
                   :item="item" 
                   :coverUrl="absService.getCoverUrl(item.id)" 
                   show-metadata
@@ -185,7 +207,7 @@ const filteredAdded = computed(() => {
             </div>
           </section>
 
-          <section v-if="filteredAdded.length > 0" class="shelf-row">
+          <section v-if="filteredAdded.length > 0 && absService" class="shelf-row">
             <div class="shelf-tag">
               <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Recently Added</span>
             </div>
@@ -201,7 +223,7 @@ const filteredAdded = computed(() => {
             </div>
           </section>
 
-          <section v-if="recentSeries.length > 0 && !searchTerm" class="shelf-row">
+          <section v-if="recentSeries.length > 0 && !searchTerm && absService" class="shelf-row">
             <div class="shelf-tag">
               <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Archives by Stacks</span>
             </div>
@@ -222,10 +244,10 @@ const filteredAdded = computed(() => {
           </div>
         </div>
 
-        <div v-else-if="activeTab === 'LIBRARY'" class="h-full">
+        <div v-else-if="activeTab === 'LIBRARY' && absService" class="h-full">
           <Bookshelf :absService="absService" :sortMethod="sortMethod" :desc="desc" :search="searchTerm" @select-item="emit('select-item', $event)" />
         </div>
-        <div v-else-if="activeTab === 'SERIES'" class="h-full">
+        <div v-else-if="activeTab === 'SERIES' && absService" class="h-full">
           <SeriesShelf :absService="absService" :sortMethod="sortMethod" :desc="desc" @select-series="selectedSeries = $event" />
         </div>
         <div v-else-if="activeTab === 'REQUEST'" class="h-full">
