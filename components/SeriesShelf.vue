@@ -57,11 +57,12 @@ const calculateLayout = async () => {
   layout.cardWidth = Math.floor((availableWidth - (layout.entitiesPerRow - 1) * CARD_GUTTER) / layout.entitiesPerRow);
   layout.cardHeight = layout.cardWidth * CARD_ASPECT_RATIO;
   layout.shelfHeight = layout.cardHeight + SHELF_PADDING_Y;
-  layout.totalRows = Math.ceil(totalEntities.value / layout.entitiesPerRow);
+  layout.totalRows = Math.ceil(totalEntities.value / Math.max(1, layout.entitiesPerRow));
   layout.marginLeft = (width - (layout.entitiesPerRow * layout.cardWidth + (layout.entitiesPerRow - 1) * CARD_GUTTER)) / 2;
 };
 
 const visibleRange = computed(() => {
+  if (totalEntities.value === 0 || layout.shelfHeight === 0) return { start: 0, end: 0 };
   const startRow = Math.max(0, Math.floor(scrollTop.value / layout.shelfHeight) - 1);
   const endRow = Math.ceil((scrollTop.value + containerHeight.value) / layout.shelfHeight) + 1;
   return {
@@ -98,13 +99,14 @@ const fetchPage = async (page: number) => {
     
     const { results, total } = await props.absService.getLibrarySeriesPaged(params);
     
-    // Robust parsing for total
-    const parsedTotal = parseInt(total as any);
-    const validTotal = isNaN(parsedTotal) ? (results?.length || 0) : Math.max(0, parsedTotal);
+    const rawTotal = typeof total === 'number' ? total : parseInt(total as any) || 0;
+    const validTotal = Math.max(0, Math.min(Math.floor(rawTotal), 50000));
     
     if (totalEntities.value !== validTotal) {
       totalEntities.value = validTotal;
-      entities.value = validTotal > 0 ? new Array(validTotal).fill(null) : [];
+      if (entities.value.length !== validTotal) {
+        entities.value = new Array(validTotal).fill(null);
+      }
       await calculateLayout();
     }
 
@@ -162,7 +164,10 @@ onUnmounted(() => {
 
 watch(() => [props.sortMethod, props.desc], () => reset(), { deep: true });
 
-const totalHeight = computed(() => layout.totalRows * layout.shelfHeight + (props.isStreaming ? 180 : 80));
+const totalHeight = computed(() => {
+  if (totalEntities.value === 0) return 400;
+  return layout.totalRows * layout.shelfHeight + (props.isStreaming ? 180 : 80);
+});
 </script>
 
 <template>
@@ -199,15 +204,6 @@ const totalHeight = computed(() => layout.totalRows * layout.shelfHeight + (prop
             class="animate-fade-in"
           />
         </div>
-      </template>
-
-      <template v-for="i in Math.ceil(containerHeight / layout.shelfHeight) + 2" :key="'shelf-s-' + i">
-        <div 
-          class="absolute left-0 right-0 h-px bg-gradient-to-r from-transparent via-purple-500/5 to-transparent pointer-events-none"
-          :style="{ 
-            top: (Math.floor(scrollTop / layout.shelfHeight) + i - 1) * layout.shelfHeight + layout.cardHeight + 20 + 'px' 
-          }"
-        />
       </template>
     </div>
   </div>

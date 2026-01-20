@@ -63,13 +63,13 @@ const calculateLayout = async () => {
   layout.cardWidth = Math.floor((availableWidth - (layout.entitiesPerRow - 1) * CARD_GUTTER) / layout.entitiesPerRow);
   layout.cardHeight = layout.cardWidth * CARD_ASPECT_RATIO;
   layout.shelfHeight = layout.cardHeight + SHELF_PADDING_Y;
-  layout.totalRows = Math.ceil(totalEntities.value / layout.entitiesPerRow);
+  layout.totalRows = Math.ceil(totalEntities.value / Math.max(1, layout.entitiesPerRow));
   layout.marginLeft = (width - (layout.entitiesPerRow * layout.cardWidth + (layout.entitiesPerRow - 1) * CARD_GUTTER)) / 2;
 };
 
 // Virtual Visibility Logic
 const visibleRange = computed(() => {
-  if (totalEntities.value === 0) return { start: 0, end: 0 };
+  if (totalEntities.value === 0 || layout.shelfHeight === 0) return { start: 0, end: 0 };
   const startRow = Math.max(0, Math.floor(scrollTop.value / layout.shelfHeight) - 1);
   const endRow = Math.ceil((scrollTop.value + containerHeight.value) / layout.shelfHeight) + 1;
   
@@ -109,15 +109,13 @@ const fetchPage = async (page: number) => {
     
     const { results, total } = await props.absService.getLibraryItemsPaged(params);
     
-    // Improved safety check for total entities to avoid RangeError
+    // Safety check for total entities to avoid RangeError
     const rawTotal = typeof total === 'number' ? total : parseInt(total as any) || 0;
-    const validTotal = Math.max(0, Math.min(rawTotal, 100000)); // Cap at a sane limit
+    const validTotal = Math.max(0, Math.min(Math.floor(rawTotal), 50000)); // Cap for sanity
     
     if (totalEntities.value !== validTotal) {
       totalEntities.value = validTotal;
-      // Use a more resilient approach for array initialization
       if (entities.value.length !== validTotal) {
-        // Splice/Push is safer than Array.from for very large lengths
         entities.value = new Array(validTotal).fill(null);
       }
       await calculateLayout();

@@ -30,22 +30,29 @@ const coverUrl = computed(() => {
   return `${baseUrl}/api/items/${props.item.id}/cover?token=${props.auth.user?.token}`;
 });
 
-const chapters = computed(() => props.item.media.chapters || []);
+const chapters = computed(() => {
+  if (!props.item?.media?.chapters) return [];
+  return props.item.media.chapters;
+});
 
 const currentChapterIndex = computed(() => {
-  if (!chapters.value.length) return -1;
+  if (!chapters.value || chapters.value.length === 0) return -1;
+  // Use a tiny epsilon to ensure we stay within chapter boundaries
+  const time = state.currentTime + 0.1;
   return chapters.value.findIndex((ch, i) => 
-    state.currentTime >= ch.start && (i === chapters.value.length - 1 || state.currentTime < (chapters.value[i+1]?.start || ch.end))
+    time >= ch.start && (i === chapters.value.length - 1 || time < (chapters.value[i+1]?.start || ch.end))
   );
 });
 
 const currentChapter = computed(() => currentChapterIndex.value !== -1 ? chapters.value[currentChapterIndex.value] : null);
 
+// Chapter Based Progress Logic
 const chapterProgressPercent = computed(() => {
   if (!currentChapter.value) return 0;
   const chapterDuration = currentChapter.value.end - currentChapter.value.start;
-  const elapsedInChapter = state.currentTime - currentChapter.value.start;
-  return Math.min(100, Math.max(0, (elapsedInChapter / chapterDuration) * 100));
+  if (chapterDuration <= 0) return 0;
+  const elapsedInChapter = Math.max(0, state.currentTime - currentChapter.value.start);
+  return Math.min(100, (elapsedInChapter / chapterDuration) * 100);
 });
 
 const timeRemainingInChapter = computed(() => {
@@ -75,7 +82,7 @@ onMounted(() => {
       if (sleepSeconds.value <= 0) pause();
     }
     if (sleepAtChapterEnd.value && currentChapter.value) {
-      if (timeRemainingInChapter.value < 0.5) {
+      if (timeRemainingInChapter.value < 0.8) {
         pause();
         sleepAtChapterEnd.value = false;
       }
@@ -114,8 +121,8 @@ const skipToPrevChapter = () => {
     seek(0);
     return;
   }
-  // If we are more than 3 seconds into the chapter, restart current chapter
-  if (state.currentTime - (currentChapter.value?.start || 0) > 3) {
+  // If we are more than 4 seconds in, just restart current chapter
+  if (state.currentTime - (currentChapter.value?.start || 0) > 4) {
     seek(currentChapter.value!.start);
   } else {
     const prev = chapters.value[currentChapterIndex.value - 1];
@@ -127,12 +134,25 @@ const handleChapterClick = (time: number) => {
   seek(time);
   showChapters.value = false;
 };
+
+const handleChapterProgressClick = (e: MouseEvent) => {
+  const el = e.currentTarget as HTMLElement;
+  const rect = el.getBoundingClientRect();
+  const ratio = (e.clientX - rect.left) / rect.width;
+  
+  if (currentChapter.value) {
+    const chapterDur = currentChapter.value.end - currentChapter.value.start;
+    seek(currentChapter.value.start + (ratio * chapterDur));
+  } else {
+    seek(ratio * state.duration);
+  }
+};
 </script>
 
 <template>
   <div class="h-[100dvh] w-full bg-black text-white flex flex-col relative overflow-hidden font-sans select-none safe-top safe-bottom">
     
-    <!-- Ambient Background Glow -->
+    <!-- Glow -->
     <div class="absolute inset-0 z-0 pointer-events-none flex items-center justify-center">
       <div class="w-[500px] h-[500px] bg-purple-600/10 rounded-full blur-[160px] animate-pulse" />
     </div>
@@ -146,7 +166,7 @@ const handleChapterClick = (time: number) => {
     </Transition>
 
     <template v-if="!state.isLoading">
-      <!-- Header Navigation -->
+      <!-- Header -->
       <header class="px-8 py-8 flex justify-between items-center z-20 shrink-0">
         <button @click="emit('back')" class="p-2 text-neutral-600 hover:text-white transition-colors active:scale-90">
           <ChevronDown :size="24" stroke-width="1.5" />
@@ -167,9 +187,9 @@ const handleChapterClick = (time: number) => {
         </button>
       </header>
 
-      <!-- Central Artifact Area -->
+      <!-- Center Artifact Area -->
       <div class="flex-1 flex flex-col items-center justify-center px-8 relative gap-10">
-        <!-- Artifact Cover (Click for Info) -->
+        <!-- Photo Click for Info -->
         <div @click="showInfo = true" class="relative w-full max-w-[260px] aspect-square group cursor-pointer">
           <div class="absolute -inset-10 bg-purple-600/5 blur-[100px] rounded-full opacity-50" />
           <div class="relative z-10 w-full h-full rounded-[40px] overflow-hidden border border-white/10 shadow-[0_30px_60px_-15px_rgba(0,0,0,0.8)] transition-transform duration-700 group-hover:scale-[1.02]">
@@ -177,55 +197,54 @@ const handleChapterClick = (time: number) => {
           </div>
         </div>
         
-        <!-- Metadata Stack -->
+        <!-- Metadata -->
         <div class="text-center space-y-4 w-full max-w-md px-4 z-10">
           <div class="space-y-1">
             <p v-if="metadata.seriesName" class="text-[8px] font-black uppercase tracking-[0.4em] text-neutral-500">
-              {{ metadata.seriesName }}, BOOK {{ metadata.sequence || '01' }}
+              {{ metadata.seriesName }} <span class="mx-1 text-purple-900">—</span> BOOK {{ metadata.sequence || '1' }}
             </p>
             <h1 class="text-lg md:text-xl font-black uppercase tracking-tight text-white leading-tight line-clamp-2">{{ metadata.title }}</h1>
             <p class="text-[9px] font-black uppercase tracking-[0.3em] text-neutral-600">{{ metadata.authorName }}</p>
           </div>
 
-          <!-- Timer Display -->
+          <!-- Total Timer -->
           <div class="pt-2">
             <div class="text-3xl font-black font-mono-timer tabular-nums tracking-tighter text-white">
               {{ secondsToTimestamp(state.currentTime) }}
             </div>
+            <p class="text-[8px] font-black text-neutral-800 uppercase tracking-widest mt-1">TOTAL ELAPSED</p>
           </div>
         </div>
       </div>
 
-      <!-- Playback Controls -->
+      <!-- Controls -->
       <footer class="px-10 pb-16 space-y-12 max-w-xl mx-auto w-full z-20">
         <div class="space-y-4">
+          <!-- Chapter Based Progress Bar -->
           <div 
-            class="h-1 w-full bg-neutral-900 rounded-full relative cursor-pointer overflow-hidden group" 
-            @click="(e: any) => {
-              const clickPos = e.offsetX / e.currentTarget.clientWidth;
-              seek(clickPos * state.duration);
-            }"
+            class="h-1.5 w-full bg-neutral-900 rounded-full relative cursor-pointer overflow-hidden group" 
+            @click="handleChapterProgressClick"
           >
             <div 
-              class="absolute inset-y-0 left-0 bg-purple-500 shadow-[0_0_12px_rgba(157,80,187,1)] transition-all duration-150" 
-              :style="{ width: (state.currentTime / state.duration * 100) + '%' }"
+              class="absolute inset-y-0 left-0 bg-purple-500 shadow-[0_0_12px_rgba(157,80,187,0.8)] transition-all duration-150" 
+              :style="{ width: chapterProgressPercent + '%' }"
             />
           </div>
-          <div class="flex justify-between items-center text-[8px] font-bold font-mono text-neutral-600 tracking-widest tabular-nums">
-            <span>{{ secondsToTimestamp(state.currentTime) }}</span>
-            <span class="text-purple-900/40 uppercase tracking-[0.3em] font-black">Archive Playback</span>
-            <span>-{{ secondsToTimestamp(state.duration - state.currentTime) }}</span>
+          <div class="flex justify-between items-center text-[8px] font-bold font-mono text-neutral-600 tracking-widest tabular-nums uppercase">
+            <span>{{ secondsToTimestamp(state.currentTime - (currentChapter?.start || 0)) }}</span>
+            <span class="text-purple-500/40 font-black">Segment Progress</span>
+            <span>-{{ secondsToTimestamp(timeRemainingInChapter) }}</span>
           </div>
         </div>
 
-        <!-- Master Control Row -->
-        <div class="flex items-center justify-center gap-6 md:gap-10">
-          <button @click="skipToPrevChapter" class="text-neutral-700 hover:text-purple-400 transition-colors active:scale-90" title="Previous Chapter">
-            <SkipBack :size="24" />
+        <!-- Master Control Row with +/- Skip Buttons -->
+        <div class="flex items-center justify-center gap-4 md:gap-8">
+          <button @click="skipToPrevChapter" class="p-3 text-neutral-700 hover:text-purple-400 transition-colors active:scale-90" title="Prev Chapter">
+            <SkipBack :size="20" stroke-width="1.5" />
           </button>
           
-          <button @click="seek(state.currentTime - 15)" class="text-neutral-700 hover:text-purple-500 transition-colors active:scale-90">
-            <RotateCcw :size="28" stroke-width="1.5" />
+          <button @click="seek(state.currentTime - 10)" class="p-3 text-neutral-700 hover:text-white transition-colors active:scale-90" title="Back 10s">
+            <RotateCcw :size="24" stroke-width="1.5" />
           </button>
 
           <button @click="togglePlay" class="w-20 h-20 rounded-full bg-white/5 flex items-center justify-center border border-purple-500/20 shadow-[0_0_50px_rgba(157,80,187,0.1)] active:scale-95 transition-all group relative">
@@ -234,12 +253,12 @@ const handleChapterClick = (time: number) => {
             <Play v-else :size="32" class="text-purple-500 fill-current translate-x-1" />
           </button>
 
-          <button @click="seek(state.currentTime + 30)" class="text-neutral-700 hover:text-purple-500 transition-colors active:scale-90">
-            <RotateCw :size="28" stroke-width="1.5" />
+          <button @click="seek(state.currentTime + 30)" class="p-3 text-neutral-700 hover:text-white transition-colors active:scale-90" title="Forward 30s">
+            <RotateCw :size="24" stroke-width="1.5" />
           </button>
 
-          <button @click="skipToNextChapter" class="text-neutral-700 hover:text-purple-400 transition-colors active:scale-90" title="Next Chapter">
-            <SkipForward :size="24" />
+          <button @click="skipToNextChapter" class="p-3 text-neutral-700 hover:text-purple-400 transition-colors active:scale-90" title="Next Chapter">
+            <SkipForward :size="20" stroke-width="1.5" />
           </button>
         </div>
 
@@ -250,12 +269,12 @@ const handleChapterClick = (time: number) => {
               <span>Speed</span>
             </div>
             <div class="flex items-center justify-between w-full px-2">
-              <button @click="setPlaybackRate(Math.max(0.5, state.playbackRate - 0.1))" class="text-neutral-600 hover:text-white transition-colors">
-                <Minus :size="14" />
+              <button @click="setPlaybackRate(Math.max(0.5, state.playbackRate - 0.1))" class="text-neutral-600 hover:text-white transition-colors active:scale-90">
+                <RotateCcw :size="14" />
               </button>
               <span class="text-xs font-black font-mono text-purple-500">{{ state.playbackRate.toFixed(1) }}x</span>
-              <button @click="setPlaybackRate(Math.min(2.5, state.playbackRate + 0.1))" class="text-neutral-600 hover:text-white transition-colors">
-                <Plus :size="14" />
+              <button @click="setPlaybackRate(Math.min(2.5, state.playbackRate + 0.1))" class="text-neutral-600 hover:text-white transition-colors active:scale-90">
+                <RotateCw :size="14" />
               </button>
             </div>
           </div>
@@ -266,8 +285,8 @@ const handleChapterClick = (time: number) => {
               <span>Sleep</span>
             </div>
             <div class="flex items-center justify-between w-full px-2">
-              <button @click="adjustSleep(-15)" class="text-neutral-600 hover:text-white transition-colors">
-                <Minus :size="14" />
+              <button @click="adjustSleep(-15)" class="text-neutral-600 hover:text-white transition-colors active:scale-90">
+                <RotateCcw :size="14" />
               </button>
               <button @click="toggleChapterSleep" class="flex flex-col items-center">
                 <div v-if="sleepAtChapterEnd" class="flex flex-col items-center">
@@ -278,8 +297,8 @@ const handleChapterClick = (time: number) => {
                   {{ sleepSeconds > 0 ? Math.ceil(sleepSeconds / 60) + 'm' : 'OFF' }}
                 </span>
               </button>
-              <button @click="adjustSleep(15)" class="text-neutral-600 hover:text-white transition-colors">
-                <Plus :size="14" />
+              <button @click="adjustSleep(15)" class="text-neutral-600 hover:text-white transition-colors active:scale-90">
+                <RotateCw :size="14" />
               </button>
             </div>
           </div>

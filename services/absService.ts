@@ -126,18 +126,14 @@ export class ABSService {
       });
       if (!response.ok) return null;
       
-      const contentType = response.headers.get('content-type');
-      if (contentType && contentType.includes('application/json')) {
-        // Double check for "OK" strings returned as application/json (incorrect server behavior)
-        const text = await response.text();
-        if (text === 'OK') return text;
-        try {
-          return JSON.parse(text);
-        } catch (e) {
-          return text;
-        }
+      const text = await response.text();
+      if (text.trim() === 'OK') return 'OK';
+      
+      try {
+        return JSON.parse(text);
+      } catch (e) {
+        return text;
       }
-      return response.text(); 
     } catch (e) {
       console.error(`API Fetch Error: ${endpoint}`, e);
       return null;
@@ -194,7 +190,6 @@ export class ABSService {
 
     const data = await this.fetchApi(`/libraries/${libId}/series?${query.toString()}`);
     
-    // Handle various ABS API response formats for series
     let results = [];
     if (data?.results) results = data.results;
     else if (data?.series) results = data.series;
@@ -212,7 +207,7 @@ export class ABSService {
     const libId = await this.ensureLibraryId();
     if (!libId) return false;
     const data = await this.fetchApi(`/libraries/${libId}/scan`, { method: 'POST' });
-    return !!data;
+    return data === 'OK' || !!data;
   }
 
   async getSeriesItems(seriesId: string): Promise<ABSLibraryItem[]> {
@@ -267,6 +262,7 @@ export class ABSService {
   }
 
   getCoverUrl(itemId: string): string {
+    if (!itemId) return '';
     return `${this.serverUrl}/api/items/${itemId}/cover?token=${this.token}`;
   }
 

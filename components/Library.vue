@@ -8,7 +8,7 @@ import Bookshelf from './Bookshelf.vue';
 import SeriesShelf from './SeriesShelf.vue';
 import SeriesView from './SeriesView.vue';
 import RequestPortal from './RequestPortal.vue';
-import { ArrowUpDown, Check, Play } from 'lucide-vue-next';
+import { ArrowUpDown, Check, Play, Clock } from 'lucide-vue-next';
 
 const props = defineProps<{
   auth: AuthState,
@@ -36,16 +36,29 @@ const currentlyReading = ref<ABSLibraryItem[]>([]);
 const fetchCurrentlyReading = async () => {
   try {
     const { results } = await absService.getLibraryItemsPaged({ 
-      limit: 5, 
+      limit: 10, 
       sort: 'lastUpdate', 
       desc: 1,
       filter: 'progress' 
     });
-    // Filter out finished books and only include those with progress
-    currentlyReading.value = results.filter(i => i.userProgress && !i.userProgress.isFinished && i.userProgress.progress > 0);
+    // Filter items with active progress (not finished, some progress made)
+    currentlyReading.value = (results || []).filter(i => 
+      i.userProgress && 
+      !i.userProgress.isFinished && 
+      i.userProgress.progress > 0 &&
+      i.userProgress.progress < 0.99
+    );
   } catch (e) {
     console.error("Failed to fetch currently reading items");
   }
+};
+
+const secondsToPretty = (s: number) => {
+  if (!s || isNaN(s)) return '0s';
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
 };
 
 onMounted(() => {
@@ -90,13 +103,12 @@ const handleScan = async () => {
 };
 
 absService.onProgressUpdate((updated) => {
-  // Update currently reading list if it's there
   const idx = currentlyReading.value.findIndex(i => i.id === updated.itemId);
   if (idx !== -1) {
     currentlyReading.value[idx] = { ...currentlyReading.value[idx], userProgress: updated };
-    if (updated.isFinished) currentlyReading.value.splice(idx, 1);
+    if (updated.isFinished || updated.progress >= 0.99) currentlyReading.value.splice(idx, 1);
   } else if (!updated.isFinished && updated.progress > 0) {
-    fetchCurrentlyReading(); // Refresh if new item started
+    fetchCurrentlyReading();
   }
 });
 </script>
@@ -114,7 +126,7 @@ absService.onProgressUpdate((updated) => {
     @scan="handleScan"
     @clear-selection="selectedCount = 0"
   >
-    <!-- Local Header -->
+    <!-- Header -->
     <header v-if="activeTab !== 'REQUEST' && !selectedSeries" class="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6 animate-fade-in">
       <div class="space-y-1">
         <h2 class="text-3xl font-black uppercase tracking-tighter text-white">
@@ -126,7 +138,6 @@ absService.onProgressUpdate((updated) => {
       </div>
 
       <div class="flex items-center gap-4">
-        <!-- Sort Menu -->
         <div class="relative">
           <button 
             @click="showSortMenu = !showSortMenu"
@@ -155,7 +166,6 @@ absService.onProgressUpdate((updated) => {
       </div>
     </header>
 
-    <!-- Main View Switcher -->
     <div class="flex-1 min-h-0">
       <!-- Search results override normal view -->
       <div v-if="searchTerm && !selectedSeries" class="h-full">
@@ -179,33 +189,31 @@ absService.onProgressUpdate((updated) => {
 
       <template v-else>
         <!-- HOME TAB -->
-        <div v-if="activeTab === 'HOME'" class="space-y-16 h-full overflow-y-auto no-scrollbar pb-20">
-          <!-- Currently Reading Hero -->
+        <div v-if="activeTab === 'HOME'" class="space-y-16 h-full overflow-y-auto no-scrollbar pb-24">
+          
+          <!-- Section 1: Currently Reading -->
           <section v-if="currentlyReading.length > 0" class="space-y-6">
              <div class="flex items-center justify-between">
                 <h3 class="text-[10px] font-bold uppercase tracking-[0.5em] text-neutral-700">Currently Reading</h3>
-                <span class="text-[8px] font-bold text-neutral-800 uppercase tracking-widest">{{ currentlyReading.length }} Items In Queue</span>
              </div>
              
-             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <div 
                   v-for="item in currentlyReading" 
                   :key="item.id"
-                  class="relative group bg-[#161616] rounded-3xl overflow-hidden border border-white/5 cursor-pointer shadow-2xl transition-all hover:border-purple-500/20 h-48 flex"
+                  class="relative group bg-[#161616] rounded-2xl overflow-hidden border border-white/5 cursor-pointer shadow-xl transition-all hover:border-purple-500/30 flex h-36"
                   @click="emit('select-item', item)"
                 >
-                  <div class="w-32 h-full shrink-0 relative overflow-hidden">
+                  <div class="w-24 h-full shrink-0 relative overflow-hidden">
                     <img :src="absService.getCoverUrl(item.id)" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
                     <div class="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                      <div class="w-10 h-10 rounded-full bg-purple-600 flex items-center justify-center text-white">
-                        <Play :size="20" fill="currentColor" class="translate-x-0.5" />
-                      </div>
+                      <Play :size="20" fill="currentColor" class="text-white translate-x-0.5" />
                     </div>
                   </div>
                   
-                  <div class="flex-1 p-6 flex flex-col justify-center gap-4">
-                    <div class="space-y-1">
-                      <h4 class="text-xl font-black uppercase tracking-tighter text-white leading-tight line-clamp-2">
+                  <div class="flex-1 p-5 flex flex-col justify-center gap-3">
+                    <div class="space-y-0.5">
+                      <h4 class="text-sm font-black uppercase tracking-tight text-white leading-tight line-clamp-1">
                         {{ item.media.metadata.title }}
                       </h4>
                       <p class="text-[9px] font-black text-neutral-500 uppercase tracking-[0.2em]">
@@ -214,12 +222,15 @@ absService.onProgressUpdate((updated) => {
                     </div>
                     
                     <div class="space-y-2">
-                      <div class="flex justify-between items-center text-[8px] font-bold text-neutral-700 uppercase tracking-widest">
-                        <span>Progress</span>
+                      <div class="flex justify-between items-center text-[8px] font-bold text-neutral-700 uppercase tracking-widest tabular-nums">
+                        <div class="flex items-center gap-1.5">
+                          <Clock :size="8" />
+                          <span>{{ secondsToPretty(item.media.duration * (1 - (item.userProgress?.progress || 0))) }} Left</span>
+                        </div>
                         <span>{{ Math.floor((item.userProgress?.progress || 0) * 100) }}%</span>
                       </div>
                       <div class="w-full h-1 bg-white/5 rounded-full overflow-hidden">
-                        <div class="h-full bg-purple-500 shadow-[0_0_10px_rgba(168,85,247,0.5)] transition-all duration-1000" :style="{ width: `${(item.userProgress?.progress || 0) * 100}%` }" />
+                        <div class="h-full bg-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.5)] transition-all duration-1000" :style="{ width: `${(item.userProgress?.progress || 0) * 100}%` }" />
                       </div>
                     </div>
                   </div>
@@ -227,7 +238,7 @@ absService.onProgressUpdate((updated) => {
              </div>
           </section>
 
-          <!-- Dashboard Shelf (Recently Added) -->
+          <!-- Section 2: Recently Added -->
           <section class="h-full">
             <h3 class="text-[10px] font-bold uppercase tracking-[0.5em] text-neutral-700 mb-8">Recently Added</h3>
             <Bookshelf 
