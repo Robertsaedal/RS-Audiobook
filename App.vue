@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
 import { AuthState, ABSLibraryItem } from './types';
-import Login from './components/Login.vue';
-import Library from './components/Library.vue';
-import Player from './components/Player.vue';
+import Login from './views/Login.vue';
+import Library from './views/Library.vue';
+import Player from './views/Player.vue';
 
 const currentView = ref<'login' | 'library' | 'player'>('login');
 const auth = ref<AuthState | null>(null);

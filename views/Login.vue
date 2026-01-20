@@ -8,16 +8,12 @@ const emit = defineEmits<{
   (e: 'login', auth: AuthState): void
 }>();
 
-// Fixed potential typo in default URL and ensured it is editable
 const serverUrl = ref('https://api.robertsaedal.xyz');
 const username = ref('');
 const password = ref('');
 const processing = ref(false);
 const error = ref<string | null>(null);
 
-/**
- * Handle initial authorization check if token exists
- */
 onMounted(async () => {
   const savedAuth = localStorage.getItem('rs_auth');
   if (savedAuth) {
@@ -40,27 +36,19 @@ onMounted(async () => {
   }
 });
 
-/**
- * Official Login Pattern Implementation
- */
 const submitForm = async () => {
   error.value = null;
   processing.value = true;
 
   try {
     const normalizedUrl = ABSService.normalizeUrl(serverUrl.value);
-    
-    // 1. Authenticate / Login
     const authRes = await ABSService.login(normalizedUrl, username.value, password.value);
-    
-    // Official code handles re-login flags here, we prioritize the token
     const token = authRes.user.accessToken || authRes.user.token;
     
     if (!token) {
       throw new Error('No access token received from portal.');
     }
 
-    // 2. Authorize (POST check)
     const authorizeRes = await ABSService.authorize(normalizedUrl, token);
     
     if (authorizeRes) {
@@ -73,13 +61,11 @@ const submitForm = async () => {
         }
       };
 
-      // 3. Persist and Emit
       localStorage.setItem('rs_auth', JSON.stringify(authData));
       emit('login', authData);
     }
   } catch (err: any) {
     console.error('Portal connection failed', err);
-    // Display error message from server exactly like official pattern
     error.value = err.message || 'Connection failed: Check URL and Credentials';
   } finally {
     processing.value = false;
@@ -89,14 +75,12 @@ const submitForm = async () => {
 
 <template>
   <div class="flex-1 flex flex-col items-center justify-center p-8 bg-black h-[100dvh] overflow-hidden relative">
-    <!-- Ambient Background Glow -->
     <div class="absolute inset-0 z-0 overflow-hidden pointer-events-none">
       <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-purple-600/10 rounded-full blur-[120px] animate-pulse" />
       <div class="absolute top-0 right-0 w-[300px] h-[300px] bg-purple-900/10 rounded-full blur-[80px]" />
     </div>
 
     <div class="w-full max-w-md space-y-10 animate-fade-in relative z-10">
-      <!-- Logo Header -->
       <div class="text-center flex flex-col items-center">
         <div class="w-24 h-24 rounded-[32px] overflow-hidden shadow-[0_0_50px_rgba(157,80,187,0.3)] mb-8 bg-neutral-900 border border-purple-500/20 flex items-center justify-center group relative">
           <Headphones :size="40" class="text-purple-500 drop-shadow-[0_0_10px_rgba(157,80,187,0.8)] transition-transform group-hover:scale-110 duration-700" />
@@ -110,7 +94,6 @@ const submitForm = async () => {
         </div>
       </div>
 
-      <!-- Main Login Card -->
       <div class="bg-neutral-900/40 backdrop-blur-2xl border border-purple-500/30 rounded-[40px] p-8 shadow-2xl relative overflow-hidden group">
         <div class="absolute inset-0 bg-gradient-to-br from-purple-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
         
@@ -120,7 +103,6 @@ const submitForm = async () => {
         </div>
 
         <form @submit.prevent="submitForm" class="space-y-5">
-          <!-- Server Endpoint -->
           <div class="space-y-1.5">
             <label class="text-[9px] font-black text-neutral-500 uppercase tracking-[0.2em] ml-5">Portal Address</label>
             <div class="relative group">
@@ -136,7 +118,6 @@ const submitForm = async () => {
             </div>
           </div>
 
-          <!-- Username -->
           <div class="space-y-1.5">
             <label class="text-[9px] font-black text-neutral-500 uppercase tracking-[0.2em] ml-5">Identifier</label>
             <div class="relative group">
@@ -152,7 +133,6 @@ const submitForm = async () => {
             </div>
           </div>
 
-          <!-- Password -->
           <div class="space-y-1.5">
             <label class="text-[9px] font-black text-neutral-500 uppercase tracking-[0.2em] ml-5">Passkey</label>
             <div class="relative group">
@@ -167,7 +147,6 @@ const submitForm = async () => {
             </div>
           </div>
 
-          <!-- Action Button -->
           <button
             type="submit"
             :disabled="processing"
@@ -182,7 +161,6 @@ const submitForm = async () => {
         </form>
       </div>
 
-      <!-- Footer Info -->
       <div class="text-center pt-6 opacity-30">
         <p class="text-[8px] font-black text-neutral-400 uppercase tracking-[0.5em]">Premium Minimalism • Archive Client v5.2</p>
       </div>
@@ -194,18 +172,15 @@ const submitForm = async () => {
 .animate-shake {
   animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
 }
-
 @keyframes shake {
   10%, 90% { transform: translate3d(-1px, 0, 0); }
   20%, 80% { transform: translate3d(2px, 0, 0); }
   30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
   40%, 60% { transform: translate3d(4px, 0, 0); }
 }
-
 .animate-fade-in {
   animation: fade-in 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
 }
-
 @keyframes fade-in {
   from { opacity: 0; transform: translateY(20px); }
   to { opacity: 1; transform: translateY(0); }

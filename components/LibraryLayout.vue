@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { 
-  Home, BookOpen, Layers, User,
+  Home, BookOpen, Layers, User, Headphones,
   X, RotateCw, PlusSquare, Search
 } from 'lucide-vue-next';
 import confetti from 'https://esm.sh/canvas-confetti';
@@ -63,7 +63,9 @@ const handleRequestClick = (event: MouseEvent) => {
     <header class="h-16 w-full fixed top-0 left-0 right-0 bg-[#111111]/80 backdrop-blur-xl z-[60] px-4 md:px-6 flex items-center justify-between border-b border-white/5">
       <div class="flex items-center gap-4">
         <div class="flex items-center cursor-pointer group" @click="emit('tab-change', 'HOME')">
-          <img src="/logo.png" alt="ABS" class="w-8 h-8 mr-3 group-hover:scale-110 transition-transform" />
+          <div class="w-8 h-8 mr-3 flex items-center justify-center bg-neutral-900 rounded-lg border border-purple-500/20 group-hover:scale-110 transition-transform">
+            <Headphones :size="18" class="text-purple-500" />
+          </div>
           <h1 class="text-xl font-bold tracking-tight hidden lg:block">audiobookshelf</h1>
         </div>
       </div>

@@ -1,11 +1,8 @@
-const CACHE_NAME = 'rs-audio-v10';
+const CACHE_NAME = 'rs-audio-v12';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
-  '/index.tsx',
-  '/App.tsx',
   '/manifest.json',
-  '/logo.png',
   '/favicon.ico'
 ];
 
@@ -27,9 +24,8 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // NO-INTERFERE: Early return for API domains and streams
+  // Skip caching for API calls, streams, and sockets
   if (
-    url.hostname.includes('duckdns.org') || 
     url.hostname.includes('robertsaedal.xyz') || 
     url.pathname.includes('/api/') ||
     url.pathname.includes('/socket.io') ||
@@ -39,7 +35,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Only handle cache for known static UI assets
+  // Cache static UI assets
   if (STATIC_ASSETS.includes(url.pathname) || url.pathname.startsWith('/assets/')) {
     event.respondWith(
       caches.match(event.request).then((response) => {
@@ -49,6 +45,5 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Default to network for everything else
   return;
 });
