@@ -10,7 +10,6 @@ export interface LibraryQueryParams {
   search?: string;
 }
 
-// Strictly enforced Base URL as requested to prevent relative path interception
 const SERVER_URL = 'https://api.robertsaedal.xyz';
 const BASE_API_URL = `${SERVER_URL}/api`;
 const HARDCODED_LIBRARY_ID = 'a5706742-ccbf-452a-8b7d-822988dd5f63';
@@ -24,7 +23,6 @@ export class ABSService {
 
   constructor(serverUrl: string, token: string, userId?: string) {
     this.serverUrl = SERVER_URL;
-    // Strip any existing "Bearer " prefix and trim
     this.token = typeof token === 'string' ? token.replace(/^Bearer\s+/i, '').trim() : '';
     this.userId = userId || null;
     this.initSocket();
@@ -51,15 +49,13 @@ export class ABSService {
       const controller = new AbortController();
       const id = setTimeout(() => controller.abort(), timeout);
       try {
-        // Ensure the URL is absolute and correctly formatted
         const absoluteUrl = url.startsWith('http') ? url : `${BASE_API_URL}${url.startsWith('/') ? url : `/${url}`}`;
-        
         const response = await fetch(absoluteUrl, { ...options, signal: controller.signal });
         clearTimeout(id);
         
         const contentType = response.headers.get("content-type");
         if (contentType && contentType.includes("text/html") && !url.includes('/login')) {
-          throw new TypeError("Authorization check failed: Server returned HTML (possible redirect).");
+          throw new TypeError("Authorization check failed: Server returned HTML.");
         }
 
         if (response.ok || (response.status >= 400 && response.status < 500)) return response;
@@ -77,14 +73,11 @@ export class ABSService {
     const loginUrl = `${SERVER_URL}/login`;
     const response = await this.fetchWithRetry(loginUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: username.trim(), password: password || '' }),
     });
-    
     const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data || `Login failed: ${response.status}`);
-    }
+    if (!response.ok) throw new Error(data || `Login failed: ${response.status}`);
     return data;
   }
 
@@ -95,52 +88,32 @@ export class ABSService {
       method: 'POST',
       headers: { 
         'Authorization': `Bearer ${cleanToken}`,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json' 
-      },
-      body: JSON.stringify({}),
+        'Content-Type': 'application/json'
+      }
     });
-
     const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data || 'Authorization failed');
-    }
+    if (!response.ok) throw new Error(data || 'Authorization failed');
     return data;
   }
 
   private async fetchApi(endpoint: string, options: RequestInit = {}) {
-    // Force absolute path logic
     const path = endpoint.startsWith('/api/') ? endpoint.substring(4) : endpoint;
     const url = `${BASE_API_URL}${path.startsWith('/') ? path : `/${path}`}`;
-    
     try {
       const response = await ABSService.fetchWithRetry(url, {
         ...options,
         headers: {
           'Authorization': `Bearer ${this.token}`,
           'Content-Type': 'application/json',
-          'Accept': 'application/json',
           ...options.headers,
         },
       });
       if (!response.ok) return null;
-      
       const text = await response.text();
-      if (text.trim() === 'OK') return 'OK';
-      
-      try {
-        return JSON.parse(text);
-      } catch (e) {
-        return text;
-      }
+      try { return JSON.parse(text); } catch { return text; }
     } catch (e) {
-      console.error(`API Fetch Error: ${endpoint}`, e);
       return null;
     }
-  }
-
-  async ensureLibraryId(): Promise<string> {
-    return HARDCODED_LIBRARY_ID;
   }
 
   async getLibraryItemsPaged(params: LibraryQueryParams): Promise<{ results: ABSLibraryItem[], total: number }> {
@@ -148,52 +121,55 @@ export class ABSService {
     if (params.limit) query.append('limit', params.limit.toString());
     if (params.offset !== undefined) query.append('offset', params.offset.toString());
     
-    // Sort logic mapping
-    let sortKey = params.sort;
-    if (sortKey === 'addedAt') sortKey = 'addedAt';
-    if (sortKey) query.append('sort', sortKey);
+    // Strict Sorting Mapping
+    let sort = params.sort || 'addedAt';
+    if (sort === 'addedAt') query.append('sort', 'addedAt');
+    else if (sort === 'updatedAt') query.append('sort', 'updatedAt');
+    else if (sort.includes('title')) query.append('sort', 'media.metadata.title');
+    else if (sort.includes('author')) query.append('sort', 'media.metadata.authorName');
+    else query.append('sort', sort);
+
+    const desc = params.desc !== undefined ? params.desc : (sort === 'addedAt' ? 1 : 0);
+    query.append('desc', desc.toString());
     
-    if (params.desc !== undefined) query.append('desc', params.desc.toString());
     if (params.filter) query.append('filter', params.filter);
     if (params.search) query.append('search', params.search);
     
-    // Include progress and metadata to ensure server has context for sorting/filtering
+    // Mandatory for reliable sorting and UI display
     query.append('include', 'progress,metadata');
 
     const data = await this.fetchApi(`/libraries/${HARDCODED_LIBRARY_ID}/items?${query.toString()}`);
-    
-    // Support multiple ABS response formats (results or items array)
     const results = data?.results || data?.items || (Array.isArray(data) ? data : []);
-    const total = typeof data?.total === 'number' ? data.total : results.length;
-
+    const total = data?.total ?? data?.totalItems ?? results.length;
     return { results, total };
+  }
+
+  /**
+   * Official way to populate dashboard/home screen with continue listening.
+   */
+  async getPersonalizedShelves(): Promise<any> {
+    return this.fetchApi(`/libraries/${HARDCODED_LIBRARY_ID}/personalized`);
+  }
+
+  /**
+   * Directly get all items in progress for the current user.
+   */
+  async getItemsInProgress(): Promise<ABSLibraryItem[]> {
+    const data = await this.fetchApi('/me/items-in-progress');
+    return Array.isArray(data) ? data : (data?.results || []);
   }
 
   async getLibrarySeriesPaged(params: LibraryQueryParams): Promise<{ results: ABSSeries[], total: number }> {
     const query = new URLSearchParams();
     if (params.limit) query.append('limit', params.limit.toString());
     if (params.offset !== undefined) query.append('offset', params.offset.toString());
-    
-    // Series sorting fallback: API often expects 'addedDate' for series added sorting
     const sort = params.sort === 'addedAt' ? 'addedDate' : params.sort;
     if (sort) query.append('sort', sort);
-    
     if (params.desc !== undefined) query.append('desc', params.desc.toString());
     query.append('include', 'books'); 
-
     const data = await this.fetchApi(`/libraries/${HARDCODED_LIBRARY_ID}/series?${query.toString()}`);
-    
-    let results = [];
-    if (data?.results) results = data.results;
-    else if (data?.series) results = data.series;
-    else if (data?.items) results = data.items;
-    else if (Array.isArray(data)) results = data;
-
-    let total = 0;
-    if (typeof data?.total === 'number') total = data.total;
-    else if (typeof data?.totalSeries === 'number') total = data.totalSeries;
-    else total = results.length;
-
+    const results = data?.results || data?.series || data?.items || (Array.isArray(data) ? data : []);
+    const total = data?.total ?? data?.totalSeries ?? results.length;
     return { results, total };
   }
 
@@ -230,41 +206,21 @@ export class ABSService {
     const progress = duration > 0 ? currentTime / duration : 0;
     await this.fetchApi(`/me/progress/${itemId}`, {
       method: 'PATCH',
-      body: JSON.stringify({
-        currentTime,
-        duration,
-        progress,
-        isFinished: progress >= 0.99
-      })
+      body: JSON.stringify({ currentTime, duration, progress, isFinished: progress >= 0.99 })
     });
   }
 
   async startPlaybackSession(itemId: string, deviceInfo: any, supportedMimeTypes: string[], forceTranscode = false): Promise<ABSPlaybackSession | null> {
-    const payload = {
-      deviceInfo,
-      supportedMimeTypes,
-      mediaPlayer: 'html5',
-      forceTranscode,
-      forceDirectPlay: false
-    };
-    return this.fetchApi(`/items/${itemId}/play`, {
-      method: 'POST',
-      body: JSON.stringify(payload)
-    });
+    const payload = { deviceInfo, supportedMimeTypes, mediaPlayer: 'html5', forceTranscode, forceDirectPlay: false };
+    return this.fetchApi(`/items/${itemId}/play`, { method: 'POST', body: JSON.stringify(payload) });
   }
 
   async syncSession(sessionId: string, timeListened: number, currentTime: number): Promise<void> {
-    await this.fetchApi(`/session/${sessionId}/sync`, {
-      method: 'POST',
-      body: JSON.stringify({ timeListened, currentTime })
-    });
+    await this.fetchApi(`/session/${sessionId}/sync`, { method: 'POST', body: JSON.stringify({ timeListened, currentTime }) });
   }
 
   async closeSession(sessionId: string, syncData?: { timeListened: number, currentTime: number }): Promise<void> {
-    await this.fetchApi(`/session/${sessionId}/close`, {
-      method: 'POST',
-      body: syncData ? JSON.stringify(syncData) : undefined
-    });
+    await this.fetchApi(`/session/${sessionId}/close`, { method: 'POST', body: syncData ? JSON.stringify(syncData) : undefined });
   }
 
   getCoverUrl(itemId: string): string {

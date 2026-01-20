@@ -56,44 +56,44 @@ const setupListeners = () => {
 const fetchDashboardData = async () => {
   if (!absService.value) return;
   try {
-    // 1. Fetch official listening sessions
-    const sessions = await absService.value.getListeningSessions();
-    
-    // 2. Fetch recent in-progress items via library filter
-    const { results: inProgress } = await absService.value.getLibraryItemsPaged({ 
-      limit: 24, sort: 'lastUpdate', desc: 1, filter: 'progress' 
-    });
+    // Official Strategy: Use personalized shelves + in-progress items
+    const [personalized, inProgress] = await Promise.all([
+      absService.value.getPersonalizedShelves(),
+      absService.value.getItemsInProgress()
+    ]);
 
-    // Merge and deduplicate
+    // Deduplicate and filter Finished items from "Continue Listening"
     const combinedMap = new Map<string, ABSLibraryItem>();
     
-    // Add sessions first
-    sessions.forEach(item => {
-      // Check if it has any progress or is the active item
+    // 1. High priority: Items currently in progress
+    inProgress.forEach(item => {
       if (item.userProgress && !item.userProgress.isFinished) {
-        combinedMap.set(item.id, item);
-      } else if (!item.userProgress) {
-        // Fallback: items from getListeningSessions are by definition items you listened to
         combinedMap.set(item.id, item);
       }
     });
 
-    // Supplement with in-progress items from library
-    inProgress.forEach(item => {
-      if (!combinedMap.has(item.id)) {
-        if (item.userProgress && !item.userProgress.isFinished && item.userProgress.progress > 0) {
-          combinedMap.set(item.id, item);
-        }
+    // 2. Secondary: Items from personalized shelves (Continue Listening)
+    if (personalized && Array.isArray(personalized)) {
+      const continueShelf = personalized.find(s => s.id === 'continue-listening');
+      if (continueShelf && continueShelf.entities) {
+        continueShelf.entities.forEach((entity: any) => {
+          const item = entity.libraryItem || entity;
+          if (item?.id && !combinedMap.has(item.id)) {
+            if (item.userProgress && !item.userProgress.isFinished) {
+              combinedMap.set(item.id, item);
+            }
+          }
+        });
       }
-    });
+    }
 
     currentlyReading.value = Array.from(combinedMap.values())
       .sort((a, b) => (b.userProgress?.lastUpdate || 0) - (a.userProgress?.lastUpdate || 0))
-      .slice(0, 15);
+      .slice(0, 20);
 
-    // Recently Added - use normalized key for ABS API reliability
+    // Recently Added - Ensure descending addedAt
     const { results: added } = await absService.value.getLibraryItemsPaged({ 
-      limit: 20, sort: 'addedDate', desc: 1 
+      limit: 20, sort: 'addedAt', desc: 1 
     });
     recentlyAdded.value = added;
 
@@ -153,7 +153,6 @@ const handleScan = async () => {
   }
 };
 
-// Use trimmed search to prevent whitespace-only from triggering search mode
 const trimmedSearch = computed(() => searchTerm.value.trim());
 
 const filteredReading = computed(() => {
@@ -169,7 +168,6 @@ const filteredAdded = computed(() => {
   return recentlyAdded.value.filter(i => i.media.metadata.title.toLowerCase().includes(term) || i.media.metadata.authorName.toLowerCase().includes(term));
 });
 
-// Check if all shelves are actually empty
 const isHomeEmpty = computed(() => {
   return filteredReading.value.length === 0 && filteredAdded.value.length === 0 && recentSeries.value.length === 0;
 });
@@ -195,11 +193,9 @@ const isHomeEmpty = computed(() => {
       />
 
       <template v-else>
-        <!-- Home View: Dashboard Shelves -->
         <div v-if="activeTab === 'HOME'" class="h-full bg-[#0d0d0d] overflow-y-auto custom-scrollbar -mx-4 md:-mx-8 px-4 md:px-8 pt-4 pb-40">
           
           <template v-if="!isHomeEmpty || trimmedSearch">
-            <!-- Continue Listening Shelf -->
             <section v-if="filteredReading.length > 0 && absService" class="shelf-row">
               <div class="shelf-tag">
                 <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Continue Listening</span>
@@ -216,7 +212,6 @@ const isHomeEmpty = computed(() => {
               </div>
             </section>
 
-            <!-- Recently Added Shelf -->
             <section v-if="filteredAdded.length > 0 && absService" class="shelf-row">
               <div class="shelf-tag">
                 <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Recently Added</span>
@@ -233,7 +228,6 @@ const isHomeEmpty = computed(() => {
               </div>
             </section>
 
-            <!-- Series Collection -->
             <section v-if="recentSeries.length > 0 && !trimmedSearch && absService" class="shelf-row">
               <div class="shelf-tag">
                 <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Series Stacks</span>
@@ -250,14 +244,12 @@ const isHomeEmpty = computed(() => {
               </div>
             </section>
 
-            <!-- Search Results Feedback -->
             <div v-if="trimmedSearch && filteredReading.length === 0 && filteredAdded.length === 0" class="flex flex-col items-center justify-center py-40 text-center opacity-40">
               <h3 class="text-xl font-black uppercase tracking-tighter text-neutral-500">No matching artifacts</h3>
               <p class="text-[10px] font-black uppercase tracking-[0.4em] mt-2">Adjust frequency or search term</p>
             </div>
           </template>
 
-          <!-- True Empty State: Shown when archive returns nothing and no search is active -->
           <div v-else class="flex flex-col items-center justify-center py-40 text-center opacity-40">
             <PackageOpen :size="64" class="text-neutral-800 mb-6" />
             <h3 class="text-xl font-black uppercase tracking-tighter text-neutral-500">Archive Void</h3>
@@ -265,17 +257,14 @@ const isHomeEmpty = computed(() => {
           </div>
         </div>
 
-        <!-- Library View -->
         <div v-else-if="activeTab === 'LIBRARY' && absService" class="h-full flex flex-col overflow-hidden">
           <Bookshelf :absService="absService" :sortMethod="sortMethod" :desc="desc" :search="trimmedSearch" @select-item="emit('select-item', $event)" />
         </div>
 
-        <!-- Series View -->
         <div v-else-if="activeTab === 'SERIES' && absService" class="h-full flex flex-col overflow-hidden">
           <SeriesShelf :absService="absService" :sortMethod="sortMethod" :desc="desc" @select-series="selectedSeries = $event" />
         </div>
 
-        <!-- Request Portal -->
         <div v-else-if="activeTab === 'REQUEST'" class="h-full flex flex-col overflow-hidden">
           <RequestPortal />
         </div>
