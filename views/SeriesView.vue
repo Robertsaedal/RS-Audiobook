@@ -68,7 +68,6 @@ const getSequence = (item: ABSLibraryItem) => {
     }
 
     // D. Aggressive Fallback: In Series View, assume the first series entry IS the sequence we want
-    // This fixes cases where Series ID in View doesn't match ID in Book Metadata perfectly due to stale data
     if (!s && seriesList.length > 0) {
        s = seriesList[0];
     }
@@ -101,7 +100,6 @@ const fetchBooks = async () => {
   if (!props.series.id) return;
   
   // If props.series ALREADY has books, rely on it first, but fetch in background to get updates
-  // This prevents the "0 books" flash if data was passed correctly from Library
   if (props.series.books && props.series.books.length > 0) {
       seriesBooks.value = props.series.books;
   } else {
@@ -205,6 +203,8 @@ onMounted(() => {
             <h1 class="text-5xl md:text-7xl lg:text-8xl font-black uppercase tracking-tighter leading-none text-white drop-shadow-2xl">
               {{ localSeries.name }}
             </h1>
+            <!-- Description with HTML parsing support -->
+            <div v-if="localSeries.description" v-html="localSeries.description" class="text-neutral-400 text-xs font-medium leading-relaxed max-w-2xl line-clamp-3"></div>
           </div>
           <div class="flex flex-wrap items-center gap-y-4 gap-x-8">
             <div class="flex items-center gap-3">
@@ -243,7 +243,7 @@ onMounted(() => {
             :coverUrl="absService.getCoverUrl(book.id)" 
             show-metadata
             show-progress
-            :fallbackSequence="getSequence(book)"
+            :fallback-sequence="getSequence(book)"
             @click="emit('select-item', book)" 
           />
         </div>

@@ -73,7 +73,9 @@ const isFinished = computed(() => {
 
 const displaySequence = computed(() => {
   // 1. Explicit fallback passed from parent (SeriesView context)
-  if (props.fallbackSequence !== undefined && props.fallbackSequence !== null && String(props.fallbackSequence).trim() !== '') {
+  if (props.fallbackSequence !== undefined && props.fallbackSequence !== null) {
+    // Allow '0' string or number as valid, but reject empty string/whitespace
+    if (typeof props.fallbackSequence === 'string' && props.fallbackSequence.trim() === '') return null;
     return props.fallbackSequence;
   }
 
@@ -91,7 +93,6 @@ const displaySequence = computed(() => {
   }
 
   // 4. Nested series array (Standard ABS structure)
-  // If multiple series, we can't guess which one, but usually taking the first is better than nothing
   if (Array.isArray((meta as any).series) && (meta as any).series.length > 0) {
     const s = (meta as any).series[0];
     if (s.sequence !== undefined && s.sequence !== null) return s.sequence;
@@ -137,9 +138,13 @@ onMounted(async () => {
         loading="lazy" 
       />
       
-      <!-- Book Sequence Badge -->
-      <div v-if="displaySequence !== null && displaySequence !== ''" class="absolute top-2 left-2 bg-neutral-900/90 backdrop-blur-md px-2 py-0.5 rounded-md flex items-center justify-center text-[10px] font-black text-white border border-white/10 shadow-xl z-[60] tracking-tight">
-        #{{ displaySequence }}
+      <!-- Book Sequence Badge (High Visibility) -->
+      <div v-if="displaySequence !== null" class="absolute top-2 left-2 z-[70]">
+        <div class="px-2 py-1 bg-black/70 backdrop-blur-md border border-white/10 rounded-md shadow-lg">
+          <span class="text-[10px] font-black text-purple-400 tracking-tighter">
+            #{{ displaySequence }}
+          </span>
+        </div>
       </div>
       
       <!-- Finished Checkmark -->

@@ -245,7 +245,7 @@ export class ABSService {
   /**
    * Fetches all books for a series.
    * Hybrid Strategy: Try getSeries first, then fallback to filtering items.
-   * Now includes 'seriesName' fallback for cases where ID might be stale or mismatched.
+   * Now includes Base64 ID filter strategy which is standard for ABS Web Client.
    */
   async getSeriesBooks(seriesId: string, seriesName?: string): Promise<ABSLibraryItem[]> {
     // Strategy A: Direct Series Endpoint (Preferred)
@@ -258,12 +258,21 @@ export class ABSService {
         console.warn('Series endpoint fetch failed, trying filter fallback', e);
     }
 
-    // Strategy B: Items Endpoint with Filter (ID Fallback)
+    // Strategy B: Items Endpoint with Filter Strategies
     const tryFilters = [`series.id.eq.${seriesId}`, `series.eq.${seriesId}`];
     
-    // Strategy C: Name Fallback (If provided)
+    // Add Base64 Strategy (Common in ABS Web UI)
+    try {
+      if (typeof btoa === 'function') {
+        const b64Id = btoa(seriesId);
+        tryFilters.push(`series.${b64Id}`);
+      }
+    } catch (e) {
+      // Ignore encoding errors
+    }
+
+    // Add Name Fallback
     if (seriesName) {
-      // Encode purely, but ABS usually handles raw strings in filters if not too complex
       tryFilters.push(`series.name.eq.${seriesName}`);
     }
 
@@ -272,7 +281,7 @@ export class ABSService {
           const response = await this.getLibraryItemsPaged({
             limit: 500,
             filter: filter,
-            sort: 'series.sequence', // Try sorting by sequence
+            sort: 'series.sequence',
             desc: 0
           });
           if (response && response.results.length > 0) {
