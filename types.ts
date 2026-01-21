@@ -42,6 +42,7 @@ export interface ABSLibraryItem {
       seriesId?: string;
       sequence?: string;
       seriesSequence?: string | number;
+      series?: Array<{ id: string, name: string, sequence?: string }>;
       narratorName?: string;
       publisher?: string;
       publishedYear?: string;

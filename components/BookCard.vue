@@ -38,7 +38,7 @@ const progressPercentage = computed(() => {
   // 1. Explicitly Finished Flag
   if (p.isFinished) return 100;
 
-  // 2. Calculate from Timestamps (Most Reliable for "0%" issue)
+  // 2. Calculate from Timestamps (Most Reliable for "0%" issue or live updates)
   const duration = p.duration || props.item.media?.duration || 0;
   const currentTime = p.currentTime || 0;
   let calculatedPct = 0;
@@ -87,14 +87,14 @@ const displaySequence = computed(() => {
   if (meta.sequence !== undefined && meta.sequence !== null) return meta.sequence;
 
   // 3. Root level sequence (Legacy/Compact views or Series Context)
-  // Check strict existence to allow '0' but exclude null/undefined
   if ((props.item as any).sequence !== undefined && (props.item as any).sequence !== null) {
     return (props.item as any).sequence;
   }
 
   // 4. Nested series array (Standard ABS structure)
-  if (Array.isArray((meta as any).series) && (meta as any).series.length > 0) {
-    const s = (meta as any).series[0];
+  // Check the 'series' array which contains { id, name, sequence } objects
+  if (Array.isArray(meta.series) && meta.series.length > 0) {
+    const s = meta.series[0]; // Default to first series
     if (s.sequence !== undefined && s.sequence !== null) return s.sequence;
   }
 
