@@ -42,8 +42,8 @@ const totalDurationPretty = computed(() => {
 const getSequence = (item: ABSLibraryItem) => {
   const meta = item.media.metadata;
   
-  // 1. Check direct property on item (often populated by server in series view)
-  if ((item as any).sequence !== undefined && (item as any).sequence !== null && (item as any).sequence !== '') {
+  // 1. Check direct property on item (often populated by server in series view context)
+  if ((item as any).sequence !== undefined && (item as any).sequence !== null && String((item as any).sequence).trim() !== '') {
     return String((item as any).sequence);
   }
 
@@ -68,7 +68,7 @@ const getSequence = (item: ABSLibraryItem) => {
     }
 
     // D. Aggressive Fallback: In Series View, assume the first series entry IS the sequence we want
-    // This fixes cases where Series ID in View doesn't match ID in Book Metadata perfectly
+    // This fixes cases where Series ID in View doesn't match ID in Book Metadata perfectly due to stale data
     if (!s && seriesList.length > 0) {
        s = seriesList[0];
     }
@@ -105,21 +105,22 @@ const fetchBooks = async () => {
   if (props.series.books && props.series.books.length > 0) {
       seriesBooks.value = props.series.books;
   } else {
-      isLoading.value = true;
+      isLoadingBooks.value = true;
   }
   
   try {
-    const books = await props.absService.getSeriesBooks(props.series.id);
+    // Pass Series Name to allow for "Name Match" fallback if ID match fails
+    const books = await props.absService.getSeriesBooks(props.series.id, props.series.name);
     
     if (books && books.length > 0) {
       seriesBooks.value = books;
     } else {
-        console.warn(`[SeriesView] No books returned for series ${props.series.id}`);
+        console.warn(`[SeriesView] No books returned for series ${props.series.id} (Name: ${props.series.name})`);
     }
   } catch (e) {
     console.error("Failed to fetch series books", e);
   } finally {
-    isLoading.value = false;
+    isLoadingBooks.value = false;
   }
 };
 

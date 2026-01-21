@@ -245,9 +245,9 @@ export class ABSService {
   /**
    * Fetches all books for a series.
    * Hybrid Strategy: Try getSeries first, then fallback to filtering items.
-   * This handles differences in ABS server versions where /series/{id} might not return full item details.
+   * Now includes 'seriesName' fallback for cases where ID might be stale or mismatched.
    */
-  async getSeriesBooks(seriesId: string): Promise<ABSLibraryItem[]> {
+  async getSeriesBooks(seriesId: string, seriesName?: string): Promise<ABSLibraryItem[]> {
     // Strategy A: Direct Series Endpoint (Preferred)
     try {
         const seriesData = await this.getSeries(seriesId);
@@ -258,11 +258,15 @@ export class ABSService {
         console.warn('Series endpoint fetch failed, trying filter fallback', e);
     }
 
-    // Strategy B: Items Endpoint with Filter (Fallback)
-    // filter=series.id.eq.SERIES_ID
-    // Also try just series.id.eq without quotes if UUID
+    // Strategy B: Items Endpoint with Filter (ID Fallback)
     const tryFilters = [`series.id.eq.${seriesId}`, `series.eq.${seriesId}`];
     
+    // Strategy C: Name Fallback (If provided)
+    if (seriesName) {
+      // Encode purely, but ABS usually handles raw strings in filters if not too complex
+      tryFilters.push(`series.name.eq.${seriesName}`);
+    }
+
     for (const filter of tryFilters) {
         try {
           const response = await this.getLibraryItemsPaged({
@@ -279,7 +283,7 @@ export class ABSService {
         }
     }
 
-    console.warn(`[ABSService] Could not find books for series ${seriesId}`);
+    console.warn(`[ABSService] Could not find books for series ${seriesId} (Name: ${seriesName})`);
     return [];
   }
 

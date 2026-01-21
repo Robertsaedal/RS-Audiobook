@@ -213,10 +213,12 @@ const setSleepToEndOfChapter = () => {
 const metadata = computed(() => activeItem.value?.media?.metadata || {});
 
 const derivedSeriesId = computed(() => {
-  if (metadata.value.seriesId) return metadata.value.seriesId;
+  // Priority: 1. Series Array (Resolved Relation - Most Accurate)
   if (Array.isArray((metadata.value as any).series) && (metadata.value as any).series.length > 0) {
     return (metadata.value as any).series[0].id;
   }
+  // Priority 2: Root Series ID (Potential Legacy String)
+  if (metadata.value.seriesId) return metadata.value.seriesId;
   return null;
 });
 

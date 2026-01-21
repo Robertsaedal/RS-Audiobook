@@ -84,7 +84,8 @@ const displaySequence = computed(() => {
   if (meta.seriesSequence !== undefined && meta.seriesSequence !== null) return meta.seriesSequence;
   if (meta.sequence !== undefined && meta.sequence !== null) return meta.sequence;
 
-  // 3. Root level sequence (Legacy/Compact views)
+  // 3. Root level sequence (Legacy/Compact views or Series Context)
+  // Check strict existence to allow '0' but exclude null/undefined
   if ((props.item as any).sequence !== undefined && (props.item as any).sequence !== null) {
     return (props.item as any).sequence;
   }
@@ -137,7 +138,7 @@ onMounted(async () => {
       />
       
       <!-- Book Sequence Badge -->
-      <div v-if="displaySequence !== null" class="absolute top-2 left-2 bg-neutral-900/90 backdrop-blur-md px-2 py-0.5 rounded-md flex items-center justify-center text-[10px] font-black text-white border border-white/10 shadow-xl z-[60] tracking-tight">
+      <div v-if="displaySequence !== null && displaySequence !== ''" class="absolute top-2 left-2 bg-neutral-900/90 backdrop-blur-md px-2 py-0.5 rounded-md flex items-center justify-center text-[10px] font-black text-white border border-white/10 shadow-xl z-[60] tracking-tight">
         #{{ displaySequence }}
       </div>
       
