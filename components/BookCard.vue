@@ -36,7 +36,8 @@ const progressPercentage = computed(() => {
   const media = props.item.media;
 
   // 1. Explicitly Finished Flag (Instant 100%)
-  if (p?.isFinished) return 100;
+  // Handle both isFinished (standard) and isCompleted (some API versions)
+  if (p?.isFinished || (p as any)?.isCompleted) return 100;
 
   // 2. "Heartbeat" Calculation (currentTime / duration)
   // We prioritize media.duration (source of truth) over progress.duration (snapshot)
@@ -62,7 +63,7 @@ const isFinished = computed(() => {
   const p = progressData.value;
   if (!p) return false;
   
-  if (p.isFinished) return true;
+  if (p.isFinished || (p as any).isCompleted) return true;
   
   // Auto-mark as finished if > 97% (Tolerance for credits)
   return progressPercentage.value > 97;

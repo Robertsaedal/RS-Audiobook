@@ -141,7 +141,8 @@ export class ABSService {
     if (params.search) query.append('search', params.search);
     
     // Explicitly request progress and media (for duration fallback) and series (for sequence)
-    query.append('include', 'progress,metadata,series,media');
+    // userProgress is crucial for accurate progress tracking
+    query.append('include', 'progress,userProgress,metadata,series,media');
     query.append('_cb', Date.now().toString());
 
     const data = await this.fetchApi(`/libraries/${HARDCODED_LIBRARY_ID}/items?${query.toString()}`);
@@ -156,8 +157,8 @@ export class ABSService {
     if (params?.limit) query.append('limit', params.limit.toString());
     
     // Explicitly request progress (userProgress), metadata, series, and media (for duration)
-    // IMPORTANT: 'media' is critical for accurate total duration if userProgress duration is stale or missing
-    query.append('include', 'progress,metadata,series,media');
+    // 'userProgress' is required for the Continue Listening shelf to have data
+    query.append('include', 'progress,userProgress,metadata,series,media');
     
     query.append('_cb', Date.now().toString());
 
@@ -181,7 +182,7 @@ export class ABSService {
 
   async getItemsInProgress(): Promise<ABSLibraryItem[]> {
     // Also update here just in case, though personalized covers most
-    const data = await this.fetchApi(`/me/items-in-progress?include=progress,metadata,series,media&_cb=${Date.now()}`);
+    const data = await this.fetchApi(`/me/items-in-progress?include=progress,userProgress,metadata,series,media&_cb=${Date.now()}`);
     return Array.isArray(data) ? data : (data?.results || []);
   }
 
