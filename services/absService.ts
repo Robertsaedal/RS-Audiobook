@@ -260,7 +260,6 @@ export class ABSService {
 
     // Strategy B: Items Endpoint with Filter (Fallback)
     // filter=series.id.eq.SERIES_ID
-    // Note: Some servers require UUID matching string
     try {
       const response = await this.getLibraryItemsPaged({
         limit: 500,

@@ -38,23 +38,22 @@ const progressPercentage = computed(() => {
   // 1. Explicitly Finished
   if (p.isFinished) return 100;
 
-  // 2. Server Progress (Handle Decimal 0.5 vs Percent 50 vs 1.0)
+  // 2. Server Progress
   let pct = 0;
   if (typeof p.progress === 'number') {
-    pct = p.progress <= 1 ? p.progress * 100 : p.progress;
+    // ABS typically returns 0.0 to 1.0. If > 1, assume 0-100 scale.
+    pct = p.progress > 1 ? p.progress : p.progress * 100;
   }
 
   // 3. Fallback Calculation 
-  // Use duration from progress object or media object
+  // If progress is 0 but we have timestamps, force calculation
   const duration = p.duration || props.item.media?.duration || 0;
   const currentTime = p.currentTime || 0;
 
-  // If percentage is 0 but we have valid time data, calculate it manually
-  if ((pct === 0 || isNaN(pct)) && currentTime > 0 && duration > 0) {
+  if ((pct <= 0.1 || isNaN(pct)) && currentTime > 0 && duration > 0) {
     pct = (currentTime / duration) * 100;
   }
 
-  // Cap at 100
   return Math.min(100, Math.max(0, pct));
 });
 
@@ -73,23 +72,22 @@ const isFinished = computed(() => {
 
 const displaySequence = computed(() => {
   // 1. Explicit fallback passed from parent (SeriesView)
-  // Check against undefined/null strictly to allow '0' or 0
-  if (props.fallbackSequence !== undefined && props.fallbackSequence !== null && props.fallbackSequence !== '') {
+  if (props.fallbackSequence !== undefined && props.fallbackSequence !== null && String(props.fallbackSequence).trim() !== '') {
     return props.fallbackSequence;
   }
 
   const meta = props.item.media?.metadata;
   
-  // 2. Direct property on metadata
+  // 2. Direct property on metadata (common in expanded series view)
   let seq = meta?.seriesSequence ?? meta?.sequence;
 
-  // 3. Check root level sequence (Common in Series view data from API)
+  // 3. Check root level sequence (Series View Item structure often has this)
   if ((seq === undefined || seq === null) && (props.item as any).sequence !== undefined) {
     seq = (props.item as any).sequence;
   }
 
   // 4. Nested series array (Standard ABS item structure)
-  // Find the first sequence available if multiple series exist
+  // Attempt to find the first valid sequence if not found yet
   if ((seq === undefined || seq === null) && Array.isArray((meta as any).series) && (meta as any).series.length > 0) {
     const s = (meta as any).series[0];
     seq = s.sequence;

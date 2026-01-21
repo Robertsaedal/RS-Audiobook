@@ -62,7 +62,7 @@ const getSequence = (item: ABSLibraryItem) => {
     // Loose ID Match (string vs number)
     if (!s) s = seriesList.find((s: any) => s.id == localSeries.value.id);
 
-    // Name Match
+    // Name Match (Fallback if IDs don't align)
     if (!s && localSeries.value.name) {
        s = seriesList.find((s: any) => s.name === localSeries.value.name);
     }
@@ -86,9 +86,7 @@ const getSequence = (item: ABSLibraryItem) => {
 };
 
 const sortedBooks = computed(() => {
-  // Prefer fetched books, fallback to prop books
   const books = seriesBooks.value.length > 0 ? seriesBooks.value : (localSeries.value.books || []);
-  
   return [...books].sort((a, b) => {
     const seqA = parseFloat(getSequence(a) || '999999');
     const seqB = parseFloat(getSequence(b) || '999999');
@@ -139,14 +137,20 @@ const scanLibrary = async () => {
 watch(() => props.series.id, (newId) => {
   if (newId) {
     localSeries.value = { ...props.series };
-    seriesBooks.value = props.series.books || [];
+    // Always respect prop data first to avoid flicker
+    if (props.series.books && props.series.books.length > 0) {
+        seriesBooks.value = props.series.books;
+    } else {
+        seriesBooks.value = [];
+    }
     fetchBooks();
   }
 });
 
 onMounted(() => {
-  // Always fetch to ensure we have the latest sequence and progress data
-  fetchBooks();
+  if (seriesBooks.value.length === 0) {
+    fetchBooks();
+  }
   
   props.absService.onProgressUpdate((updated) => {
     const updateList = (list: ABSLibraryItem[]) => {
