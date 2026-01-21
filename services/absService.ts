@@ -260,20 +260,26 @@ export class ABSService {
 
     // Strategy B: Items Endpoint with Filter (Fallback)
     // filter=series.id.eq.SERIES_ID
-    try {
-      const response = await this.getLibraryItemsPaged({
-        limit: 500,
-        filter: `series.id.eq.${seriesId}`,
-        sort: 'series.sequence', // Try sorting by sequence
-        desc: 0
-      });
-      if (response && response.results.length > 0) {
-        return response.results;
-      }
-    } catch (e) {
-      console.warn('Series filter fallback failed', e);
+    // Also try just series.id.eq without quotes if UUID
+    const tryFilters = [`series.id.eq.${seriesId}`, `series.eq.${seriesId}`];
+    
+    for (const filter of tryFilters) {
+        try {
+          const response = await this.getLibraryItemsPaged({
+            limit: 500,
+            filter: filter,
+            sort: 'series.sequence', // Try sorting by sequence
+            desc: 0
+          });
+          if (response && response.results.length > 0) {
+            return response.results;
+          }
+        } catch (e) {
+          // Continue to next filter strategy
+        }
     }
 
+    console.warn(`[ABSService] Could not find books for series ${seriesId}`);
     return [];
   }
 

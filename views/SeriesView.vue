@@ -16,7 +16,7 @@ const emit = defineEmits<{
 }>();
 
 const localSeries = ref({ ...props.series });
-// Initialize with props data immediately
+// Initialize with props data immediately to prevent flash
 const seriesBooks = ref<ABSLibraryItem[]>(props.series.books || []);
 const isLoadingBooks = ref(false);
 const isScanning = ref(false);
@@ -42,33 +42,34 @@ const totalDurationPretty = computed(() => {
 const getSequence = (item: ABSLibraryItem) => {
   const meta = item.media.metadata;
   
-  // 1. Check root-level sequence on item (Most reliable for Series Response)
-  if ((item as any).sequence !== undefined && (item as any).sequence !== null) {
+  // 1. Check direct property on item (often populated by server in series view)
+  if ((item as any).sequence !== undefined && (item as any).sequence !== null && (item as any).sequence !== '') {
     return String((item as any).sequence);
   }
 
-  // 2. Check explicit seriesSequence in metadata (float or string)
+  // 2. Check explicit seriesSequence in metadata
   if (meta.seriesSequence !== undefined && meta.seriesSequence !== null) {
     return String(meta.seriesSequence);
   }
 
-  // 3. Check nested series array
-  if (Array.isArray((meta as any).series)) {
+  // 3. Check nested series array (Standard ABS item structure)
+  if (Array.isArray((meta as any).series) && (meta as any).series.length > 0) {
     const seriesList = (meta as any).series;
     
-    // Exact ID match
+    // A. Exact ID match (Best)
     let s = seriesList.find((s: any) => s.id === localSeries.value.id);
     
-    // Loose ID Match (string vs number)
+    // B. Loose ID Match (string vs number)
     if (!s) s = seriesList.find((s: any) => s.id == localSeries.value.id);
 
-    // Name Match (Fallback if IDs don't align)
+    // C. Name Match (Fallback)
     if (!s && localSeries.value.name) {
        s = seriesList.find((s: any) => s.name === localSeries.value.name);
     }
 
-    // Default: If only one series, assume it's this one
-    if (!s && seriesList.length === 1) {
+    // D. Aggressive Fallback: In Series View, assume the first series entry IS the sequence we want
+    // This fixes cases where Series ID in View doesn't match ID in Book Metadata perfectly
+    if (!s && seriesList.length > 0) {
        s = seriesList[0];
     }
 
@@ -86,7 +87,9 @@ const getSequence = (item: ABSLibraryItem) => {
 };
 
 const sortedBooks = computed(() => {
+  // Use localSeries.books if seriesBooks is empty to prevent flash of empty content
   const books = seriesBooks.value.length > 0 ? seriesBooks.value : (localSeries.value.books || []);
+  
   return [...books].sort((a, b) => {
     const seqA = parseFloat(getSequence(a) || '999999');
     const seqB = parseFloat(getSequence(b) || '999999');
@@ -97,11 +100,15 @@ const sortedBooks = computed(() => {
 const fetchBooks = async () => {
   if (!props.series.id) return;
   
-  isLoadingBooks.value = true;
+  // If props.series ALREADY has books, rely on it first, but fetch in background to get updates
+  // This prevents the "0 books" flash if data was passed correctly from Library
+  if (props.series.books && props.series.books.length > 0) {
+      seriesBooks.value = props.series.books;
+  } else {
+      isLoading.value = true;
+  }
   
   try {
-    // Force fetch from service to ensure we have full book objects
-    // This fixes the "0 books" issue when props.series is just a shell
     const books = await props.absService.getSeriesBooks(props.series.id);
     
     if (books && books.length > 0) {
@@ -112,7 +119,7 @@ const fetchBooks = async () => {
   } catch (e) {
     console.error("Failed to fetch series books", e);
   } finally {
-    isLoadingBooks.value = false;
+    isLoading.value = false;
   }
 };
 
@@ -137,20 +144,13 @@ const scanLibrary = async () => {
 watch(() => props.series.id, (newId) => {
   if (newId) {
     localSeries.value = { ...props.series };
-    // Always respect prop data first to avoid flicker
-    if (props.series.books && props.series.books.length > 0) {
-        seriesBooks.value = props.series.books;
-    } else {
-        seriesBooks.value = [];
-    }
+    seriesBooks.value = props.series.books || [];
     fetchBooks();
   }
 });
 
 onMounted(() => {
-  if (seriesBooks.value.length === 0) {
-    fetchBooks();
-  }
+  fetchBooks();
   
   props.absService.onProgressUpdate((updated) => {
     const updateList = (list: ABSLibraryItem[]) => {
@@ -230,7 +230,7 @@ onMounted(() => {
           <div class="text-[9px] font-black uppercase tracking-widest text-neutral-600">Sequential Order</div>
         </div>
 
-        <div v-if="isLoadingBooks && seriesBooks.length === 0" class="flex justify-center py-20">
+        <div v-if="isLoadingBooks && sortedBooks.length === 0" class="flex justify-center py-20">
            <Loader2 class="animate-spin text-purple-500" :size="32" />
         </div>
 

@@ -24,10 +24,10 @@ const isDownloaded = ref(false);
 const localCover = ref<string | null>(null);
 
 const progressData = computed(() => {
-  // Check root userProgress, then userMediaProgress, then media.userProgress (API variation coverage)
+  // Priority: 1. Root userProgress (Standard), 2. Nested in media (Some APIs), 3. userMediaProgress (Older APIs)
   return props.item.userProgress || 
-         (props.item as any).userMediaProgress || 
          (props.item.media as any)?.userProgress || 
+         (props.item as any).userMediaProgress || 
          null;
 });
 
@@ -35,66 +35,68 @@ const progressPercentage = computed(() => {
   const p = progressData.value;
   if (!p) return 0;
   
-  // 1. Explicitly Finished
+  // 1. Explicitly Finished Flag
   if (p.isFinished) return 100;
 
-  // 2. Server Progress
-  let pct = 0;
-  if (typeof p.progress === 'number') {
-    // ABS typically returns 0.0 to 1.0. If > 1, assume 0-100 scale.
-    pct = p.progress > 1 ? p.progress : p.progress * 100;
-  }
-
-  // 3. Fallback Calculation 
-  // If progress is 0 but we have timestamps, force calculation
+  // 2. Calculate from Timestamps (Most Reliable for "0%" issue)
   const duration = p.duration || props.item.media?.duration || 0;
   const currentTime = p.currentTime || 0;
+  let calculatedPct = 0;
 
-  if ((pct <= 0.1 || isNaN(pct)) && currentTime > 0 && duration > 0) {
-    pct = (currentTime / duration) * 100;
+  if (duration > 0 && currentTime > 0) {
+    calculatedPct = (currentTime / duration) * 100;
   }
 
-  return Math.min(100, Math.max(0, pct));
+  // 3. Server Provided Progress
+  let serverPct = 0;
+  if (typeof p.progress === 'number') {
+    // Handle 0.0-1.0 vs 0-100 scales
+    serverPct = p.progress <= 1 && p.progress > 0 ? p.progress * 100 : p.progress;
+  }
+
+  // Use the larger of the two (handles cases where server sends 0 but we have local timestamp updates)
+  let finalPct = Math.max(calculatedPct, serverPct);
+
+  // Cap at 100, floor at 0
+  return Math.min(100, Math.max(0, finalPct));
 });
 
 const isFinished = computed(() => {
   const p = progressData.value;
   if (!p) return false;
   
-  // Robust check: explicit flag OR progress is 100% OR progress is 1.0
   if (p.isFinished) return true;
   
-  // Floating point tolerance for 100%
-  if (progressPercentage.value >= 99) return true;
-  
-  return false;
+  // Auto-mark as finished if > 97% (Tolerance for credits)
+  return progressPercentage.value > 97;
 });
 
 const displaySequence = computed(() => {
-  // 1. Explicit fallback passed from parent (SeriesView)
+  // 1. Explicit fallback passed from parent (SeriesView context)
   if (props.fallbackSequence !== undefined && props.fallbackSequence !== null && String(props.fallbackSequence).trim() !== '') {
     return props.fallbackSequence;
   }
 
   const meta = props.item.media?.metadata;
+  if (!meta) return null;
   
-  // 2. Direct property on metadata (common in expanded series view)
-  let seq = meta?.seriesSequence ?? meta?.sequence;
+  // 2. Direct property on metadata
+  if (meta.seriesSequence !== undefined && meta.seriesSequence !== null) return meta.seriesSequence;
+  if (meta.sequence !== undefined && meta.sequence !== null) return meta.sequence;
 
-  // 3. Check root level sequence (Series View Item structure often has this)
-  if ((seq === undefined || seq === null) && (props.item as any).sequence !== undefined) {
-    seq = (props.item as any).sequence;
+  // 3. Root level sequence (Legacy/Compact views)
+  if ((props.item as any).sequence !== undefined && (props.item as any).sequence !== null) {
+    return (props.item as any).sequence;
   }
 
-  // 4. Nested series array (Standard ABS item structure)
-  // Attempt to find the first valid sequence if not found yet
-  if ((seq === undefined || seq === null) && Array.isArray((meta as any).series) && (meta as any).series.length > 0) {
+  // 4. Nested series array (Standard ABS structure)
+  // If multiple series, we can't guess which one, but usually taking the first is better than nothing
+  if (Array.isArray((meta as any).series) && (meta as any).series.length > 0) {
     const s = (meta as any).series[0];
-    seq = s.sequence;
+    if (s.sequence !== undefined && s.sequence !== null) return s.sequence;
   }
 
-  // Allow 0 as a valid sequence (prequels)
-  return (seq !== undefined && seq !== null && seq !== '') ? seq : null;
+  return null;
 });
 
 const handleImageLoad = () => {
@@ -134,7 +136,7 @@ onMounted(async () => {
         loading="lazy" 
       />
       
-      <!-- Book Sequence Badge (Supports 0) -->
+      <!-- Book Sequence Badge -->
       <div v-if="displaySequence !== null" class="absolute top-2 left-2 bg-neutral-900/90 backdrop-blur-md px-2 py-0.5 rounded-md flex items-center justify-center text-[10px] font-black text-white border border-white/10 shadow-xl z-[60] tracking-tight">
         #{{ displaySequence }}
       </div>
