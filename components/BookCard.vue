@@ -91,11 +91,22 @@ const displaySequence = computed(() => {
     return (props.item as any).sequence;
   }
 
-  // 4. Nested series array (Standard ABS structure)
+  // 4. Nested series array (Standard ABS structure) - Preferred
   // Check the 'series' array which contains { id, name, sequence } objects
   if (Array.isArray(meta.series) && meta.series.length > 0) {
     const s = meta.series[0]; // Default to first series
     if (s.sequence !== undefined && s.sequence !== null) return s.sequence;
+  }
+
+  // 5. Fallback: Parse from seriesName string (e.g. "Series Name #2")
+  // This handles flattened data structures where 'series' array is missing
+  if (meta.seriesName && typeof meta.seriesName === 'string') {
+    // Regex matches:
+    // # followed by optional space
+    // Capture: digits and optional dot digits
+    // Followed by end of string or space
+    const match = meta.seriesName.match(/#\s*([0-9]+(?:\.[0-9]+)?)(?:\s|$)/);
+    if (match) return match[1];
   }
 
   return null;

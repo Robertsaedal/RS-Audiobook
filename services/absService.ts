@@ -140,7 +140,8 @@ export class ABSService {
     if (params.filter) query.append('filter', params.filter);
     if (params.search) query.append('search', params.search);
     
-    query.append('include', 'progress,metadata');
+    // Explicitly request series to ensure sequence data is present
+    query.append('include', 'progress,metadata,series');
     query.append('_cb', Date.now().toString());
 
     const data = await this.fetchApi(`/libraries/${HARDCODED_LIBRARY_ID}/items?${query.toString()}`);
@@ -153,7 +154,10 @@ export class ABSService {
   async getPersonalizedShelves(params?: { limit?: number }): Promise<any> {
     const query = new URLSearchParams();
     if (params?.limit) query.append('limit', params.limit.toString());
-    query.append('include', 'progress');
+    
+    // Explicitly request progress, metadata, and series to ensure hydration and correct sequence numbers
+    query.append('include', 'progress,metadata,series');
+    
     query.append('_cb', Date.now().toString());
 
     const url = `/libraries/${HARDCODED_LIBRARY_ID}/personalized?${query.toString()}`;
@@ -175,7 +179,8 @@ export class ABSService {
   }
 
   async getItemsInProgress(): Promise<ABSLibraryItem[]> {
-    const data = await this.fetchApi(`/me/items-in-progress?_cb=${Date.now()}`);
+    // Also update here just in case, though personalized covers most
+    const data = await this.fetchApi(`/me/items-in-progress?include=progress,metadata,series&_cb=${Date.now()}`);
     return Array.isArray(data) ? data : (data?.results || []);
   }
 

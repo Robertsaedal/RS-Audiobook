@@ -82,8 +82,14 @@ const getSequence = (item: ABSLibraryItem) => {
     return String(meta.sequence);
   }
 
+  // 5. Fallback: Parse from seriesName string (e.g. "Series Name #2")
+  if (meta.seriesName && typeof meta.seriesName === 'string') {
+    const match = meta.seriesName.match(/#\s*([0-9.]+)\s*$/);
+    if (match) return String(match[1]);
+  }
+
   return null;
-};
+});
 
 const sortedBooks = computed(() => {
   // Use localSeries.books if seriesBooks is empty to prevent flash of empty content
