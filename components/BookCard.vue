@@ -32,35 +32,32 @@ const progressPercentage = computed(() => {
   // If explicitly finished, return 100%
   if (p?.isFinished) return 100;
   
-  if (!p) return 0;
-
   // Calculate percentage from timestamps if available
-  // We prioritize this over p.progress if p.progress is 0 but we have time
-  const currentTime = p.currentTime || 0;
-  const duration = p.duration || props.item.media?.duration || 0;
+  // We prioritize this over p.progress if p.progress is 0 but we have valid timestamps
+  const currentTime = p?.currentTime || 0;
+  const duration = p?.duration || props.item.media?.duration || 0;
   
   let calculated = 0;
   if (duration > 0 && currentTime > 0) {
     calculated = (currentTime / duration) * 100;
   }
 
-  // Use server progress if reasonable, otherwise use calculated
-  if (typeof p.progress === 'number' && p.progress > 0) {
-    // If server says 50% but calc says 0%, trust server. 
-    // If server says 0% but calc says 50%, trust calc.
+  // Use server progress if reasonable (and not 0 if calculated is > 0)
+  if (p && typeof p.progress === 'number' && p.progress > 0) {
     return Math.max(p.progress * 100, calculated);
   }
 
+  // Fallback to calculated
   return Math.min(100, Math.max(0, calculated));
 });
 
 const isFinished = computed(() => {
-  // Trust explicit flag, OR assume finished if > 97% complete
-  return progressData.value?.isFinished || progressPercentage.value > 97;
+  // Trust explicit flag, OR assume finished if > 95% complete to handle floating point issues
+  return progressData.value?.isFinished || progressPercentage.value > 95;
 });
 
 const displaySequence = computed(() => {
-  // 1. Explicit fallback passed from parent (SeriesView)
+  // 1. Explicit fallback passed from parent (SeriesView) - HIGHEST PRIORITY
   if (props.fallbackSequence !== undefined && props.fallbackSequence !== null && props.fallbackSequence !== '') {
     return props.fallbackSequence;
   }

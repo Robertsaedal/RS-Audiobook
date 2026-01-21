@@ -145,23 +145,43 @@ const handleChapterProgressClick = (e: MouseEvent) => {
 // --- Sleep Timer Logic ---
 const isSleepActive = computed(() => state.sleepChapters > 0 || !!state.sleepEndTime);
 
-// Formatted display for the "Sleep zZz" card
-const formattedSleepDisplay = computed(() => {
-  if (state.sleepChapters > 0) {
-    return `${state.sleepChapters} CH REMAINING`;
-  }
-  if (state.sleepEndTime) {
-    const diff = Math.max(0, state.sleepEndTime - liveTime.value);
-    if (diff <= 0) return 'OFF';
-    const totalSeconds = Math.floor(diff / 1000);
-    const h = Math.floor(totalSeconds / 3600);
-    const m = Math.floor((totalSeconds % 3600) / 60);
-    const s = totalSeconds % 60;
-    
-    if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')} REMAINING`;
-    return `${m}:${s.toString().padStart(2, '0')} REMAINING`;
-  }
+// Display logic for the CARD (Static setting)
+const cardSleepStatus = computed(() => {
+  if (state.sleepChapters > 0) return `${state.sleepChapters} CH`;
+  if (state.sleepEndTime) return 'TIMER ON';
   return 'OFF';
+});
+
+// Live countdown logic for the PROGRESS BAR (Dynamic)
+const liveSleepCountdown = computed(() => {
+  // 1. Time Mode
+  if (state.sleepEndTime) {
+    const diff = Math.max(0, state.sleepEndTime - liveTime.value) / 1000;
+    if (diff <= 0) return null;
+    return secondsToTimestamp(diff);
+  }
+
+  // 2. Chapter Mode
+  if (state.sleepChapters > 0) {
+    if (!chapters.value || currentChapterIndex.value === -1) return null;
+
+    // Remaining time in CURRENT chapter
+    let totalSeconds = Math.max(0, (currentChapter.value?.end || 0) - state.currentTime);
+    
+    // Add durations of SUBSEQUENT chapters (up to sleepChapters - 1)
+    for (let i = 1; i < state.sleepChapters; i++) {
+       const nextCh = chapters.value[currentChapterIndex.value + i];
+       if (nextCh) {
+         totalSeconds += (nextCh.end - nextCh.start);
+       }
+    }
+    
+    // Adjust for playback speed
+    const effectiveSeconds = totalSeconds / state.playbackRate;
+    return `${secondsToTimestamp(effectiveSeconds)} • ${state.sleepChapters} CH`;
+  }
+
+  return null;
 });
 
 // Dual Control Logic
@@ -171,7 +191,6 @@ const adjustSleepTime = (secondsToAdd: number) => {
     currentSeconds = Math.max(0, (state.sleepEndTime - liveTime.value) / 1000);
   }
   
-  // Adding/Subtracting Time clears Chapter mode implicitly via usePlayer setSleepTimer
   const newTime = Math.max(0, currentSeconds + secondsToAdd);
   if (newTime <= 5) {
      setSleepTimer(0);
@@ -181,7 +200,6 @@ const adjustSleepTime = (secondsToAdd: number) => {
 };
 
 const adjustSleepChapters = (delta: number) => {
-  // Adding/Subtracting Chapters clears Time mode implicitly via usePlayer setSleepChapters
   const newCount = Math.max(0, state.sleepChapters + delta);
   setSleepChapters(newCount);
 };
@@ -193,9 +211,7 @@ const setSleepToEndOfChapter = () => {
 const metadata = computed(() => activeItem.value?.media?.metadata || {});
 
 const derivedSeriesId = computed(() => {
-  // 1. Explicit property
   if (metadata.value.seriesId) return metadata.value.seriesId;
-  // 2. Nested series array
   if (Array.isArray((metadata.value as any).series) && (metadata.value as any).series.length > 0) {
     return (metadata.value as any).series[0].id;
   }
@@ -212,7 +228,6 @@ const handleSeriesClick = (e: Event) => {
 
 const handleToggleDownload = async () => {
   if (isDownloading.value) return;
-  
   if (isDownloaded.value) {
     if (confirm("Remove download from local storage?")) {
       await OfflineManager.removeBook(activeItem.value.id);
@@ -273,7 +288,6 @@ const infoRows = computed(() => {
           </div>
         </button>
         <div class="flex items-center gap-2">
-          <!-- Download Button with Progress -->
           <button @click="handleToggleDownload" class="p-2 relative transition-colors group" :class="isDownloaded ? 'text-purple-500' : 'text-neutral-600 hover:text-purple-400'">
             <div v-if="isDownloading" class="absolute inset-0 flex items-center justify-center">
                <svg class="w-full h-full -rotate-90" viewBox="0 0 36 36">
@@ -284,7 +298,6 @@ const infoRows = computed(() => {
             <CheckCircle v-else-if="isDownloaded" :size="22" stroke-width="1.5" />
             <Download v-else :size="22" stroke-width="1.5" />
           </button>
-
           <button @click="showInfo = true" class="p-2 text-neutral-600 hover:text-white transition-colors">
             <Info :size="22" stroke-width="1.5" />
           </button>
@@ -292,27 +305,19 @@ const infoRows = computed(() => {
       </header>
 
       <!-- Main Split Layout -->
-      <!-- Flex Col for Mobile, Row for Desktop/Landscape -->
       <div class="flex-1 w-full h-full flex flex-col lg:flex-row overflow-hidden relative z-10">
         
-        <!-- Left Column: Visuals & Metadata (40% Desktop) -->
+        <!-- Left Column: Visuals & Metadata -->
         <div class="flex-1 lg:flex-none lg:w-[40%] flex flex-col items-center justify-center px-8 pb-4 lg:pb-0 relative z-10 min-h-0">
-          <!-- Book Cover - Formatted as a Book (2:3 aspect) -->
-          <!-- Constrained max-h for landscape tablets to ensure metadata visibility -->
           <div @click="showInfo = true" class="relative w-full max-w-[260px] md:max-w-[340px] aspect-[2/3] group cursor-pointer perspective-1000 shrink-0 mb-6 lg:mb-10 max-h-[40vh] lg:max-h-[50vh]">
             <div class="absolute -inset-10 bg-purple-600/5 blur-[100px] rounded-full opacity-50" />
-            
             <div class="relative z-10 w-full h-full rounded-r-2xl rounded-l-sm overflow-hidden border-t border-r border-b border-white/10 shadow-[20px_20px_60px_-15px_rgba(0,0,0,0.8)] transition-transform duration-700 group-hover:scale-[1.02] group-hover:-translate-y-2 book-spine">
-               <!-- Spine Highlight -->
                <div class="absolute left-0 top-0 bottom-0 w-1.5 bg-gradient-to-r from-white/20 to-transparent z-20" />
                <div class="absolute left-1.5 top-0 bottom-0 w-px bg-black/40 z-20" />
-
                <img :src="coverUrl" class="w-full h-full object-contain bg-black" />
             </div>
           </div>
-
           <div class="text-center space-y-4 w-full max-w-md px-4 z-10">
-            <!-- Updated Typography for Metadata -->
             <div class="space-y-2">
               <div class="flex items-center justify-center gap-3">
                 <h1 class="text-2xl md:text-3xl font-black uppercase tracking-tight text-white leading-tight line-clamp-2" :title="metadata.title">
@@ -324,8 +329,6 @@ const infoRows = computed(() => {
                 {{ metadata.authorName }}
               </p>
             </div>
-            
-            <!-- Series Link (Visible and Clickable) - Moved/Styled as requested -->
             <button 
               v-if="metadata.seriesName" 
               @click="handleSeriesClick($event)"
@@ -336,16 +339,26 @@ const infoRows = computed(() => {
           </div>
         </div>
 
-        <!-- Right Column: Controls (60% Desktop) -->
+        <!-- Right Column: Controls -->
         <div class="shrink-0 lg:flex-1 lg:w-[60%] lg:h-full flex flex-col justify-end lg:justify-center px-8 pb-12 lg:pb-0 lg:px-24 space-y-10 lg:space-y-16 w-full max-w-xl lg:max-w-3xl mx-auto lg:mx-0 z-20">
           
           <!-- Progress Area -->
           <div class="space-y-4">
-            <div class="flex justify-between items-end mb-1">
+            <div class="flex justify-between items-end mb-1 h-5">
+               <!-- Left: Elapsed -->
                <div class="flex flex-col">
                  <span class="text-[8px] font-black text-neutral-600 uppercase tracking-widest">Chapter Elapsed</span>
                  <span class="text-lg font-black font-mono-timer tabular-nums tracking-tighter text-white">{{ secondsToTimestamp(state.currentTime - (currentChapter?.start || 0)) }}</span>
                </div>
+               
+               <!-- CENTER: Live Sleep Timer Display -->
+               <div v-if="liveSleepCountdown" class="flex flex-col items-center pb-1">
+                   <span class="text-[10px] font-black font-mono-timer tracking-widest text-purple-400 animate-pulse shadow-aether-glow">
+                       {{ liveSleepCountdown }} REMAINING
+                   </span>
+               </div>
+
+               <!-- Right: Remaining -->
                <div class="flex flex-col items-end">
                  <span class="text-[8px] font-black text-neutral-600 uppercase tracking-widest">Chapter Remaining</span>
                  <span class="text-lg font-black font-mono-timer tabular-nums tracking-tighter text-purple-500">-{{ secondsToTimestamp(chapterTimeRemaining) }}</span>
@@ -403,16 +416,16 @@ const infoRows = computed(() => {
                </div>
             </div>
 
-            <!-- Sleep Timer Card (Redesigned Dual-Control) -->
+            <!-- Sleep Timer Card (Redesigned) -->
             <div class="bg-neutral-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-4 flex flex-col justify-between gap-2 hover:border-white/10 transition-colors h-32 relative overflow-hidden group">
-               <!-- Header & Display -->
+               <!-- Header & Settings Display -->
                <div class="flex justify-between items-center px-1 mb-1">
                  <div class="flex items-center gap-2 text-neutral-500">
                     <Moon :size="14" />
                     <span class="text-[9px] font-black uppercase tracking-[0.2em]">SLEEP zZz</span>
                  </div>
-                 <span class="text-[10px] font-black font-mono tracking-tighter" :class="isSleepActive ? 'text-purple-400 animate-pulse' : 'text-neutral-600'">
-                   {{ formattedSleepDisplay }}
+                 <span class="text-[10px] font-black font-mono tracking-tighter" :class="isSleepActive ? 'text-purple-400' : 'text-neutral-600'">
+                   {{ cardSleepStatus }}
                  </span>
                </div>
 
@@ -458,7 +471,6 @@ const infoRows = computed(() => {
       @seek="handleChapterSeek"
     />
 
-    <!-- Info Sheet -->
     <Transition name="slide-up">
       <div v-if="showInfo" class="fixed inset-0 bg-black/95 backdrop-blur-3xl z-[160] flex flex-col">
         <header class="p-10 flex justify-between items-center bg-transparent shrink-0">
