@@ -15,8 +15,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (e: 'click', item: ABSLibraryItem): void,
-  (e: 'finish', item: ABSLibraryItem): void
+  (e: 'click', item: ABSLibraryItem): void
 }>();
 
 const imageReady = ref(false);
@@ -110,11 +109,6 @@ const handleImageLoad = () => {
   imageReady.value = true;
 };
 
-const handleMarkFinished = (e: Event) => {
-  e.stopPropagation();
-  emit('finish', props.item);
-};
-
 onMounted(async () => {
   if (await OfflineManager.isDownloaded(props.item.id)) {
     isDownloaded.value = true;
@@ -165,20 +159,6 @@ onMounted(async () => {
         <Check :size="12" />
       </div>
 
-      <!-- Mark Finished Button (Hover) -->
-      <div 
-        v-if="!isFinished && !hideProgress && (showProgress || progressPercentage > 0)" 
-        class="absolute bottom-12 right-2 z-40 opacity-0 group-hover:opacity-100 transition-opacity"
-      >
-        <button 
-          @click="handleMarkFinished"
-          class="p-1.5 bg-black/60 hover:bg-green-600 rounded-full backdrop-blur-sm border border-white/20 hover:border-green-400 text-white transition-all shadow-lg active:scale-90"
-          title="Mark as Finished"
-        >
-          <Check :size="14" />
-        </button>
-      </div>
-
       <!-- Finished Indicator Overlay -->
       <div v-if="isFinished" class="absolute inset-0 flex items-center justify-center z-40 bg-black/40 backdrop-grayscale-[0.5] pointer-events-none">
          <div class="px-3 py-1 bg-purple-600/90 backdrop-blur-md border border-purple-400/30 rounded-full flex items-center gap-2 shadow-xl transform -rotate-12">
@@ -195,16 +175,16 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- Progress Bar -->
-      <div v-if="!hideProgress && !isFinished && (progressPercentage > 0 || showProgress)" class="absolute bottom-0 left-0 w-full z-30 bg-neutral-900/50">
+      <!-- Progress Bar (Only show if > 0) -->
+      <div v-if="!hideProgress && !isFinished && progressPercentage > 0" class="absolute bottom-0 left-0 w-full z-30 bg-neutral-900/50">
          <div 
           class="h-1 bg-gradient-to-r from-purple-600 to-purple-400 shadow-[0_0_8px_rgba(168,85,247,0.8)]" 
-          :style="{ width: Math.max(progressPercentage, showProgress && progressPercentage === 0 ? 5 : progressPercentage) + '%' }" 
+          :style="{ width: progressPercentage + '%' }" 
         />
       </div>
       
-      <!-- Percentage Text Overlay -->
-      <div v-if="!hideProgress && !isFinished && (progressPercentage > 0 || showProgress)" 
+      <!-- Percentage Text Overlay (Only show if > 0) -->
+      <div v-if="!hideProgress && !isFinished && progressPercentage > 0" 
         class="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur-md px-2 py-1 rounded text-[9px] font-black text-white uppercase tracking-widest z-30 transition-opacity pointer-events-none border border-white/10"
         :class="showProgress ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'"
       >

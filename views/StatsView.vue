@@ -50,9 +50,8 @@ const fetchStats = async () => {
     stats.value = data;
 
     // Fetch finished books client-side for accuracy
-    // API filtering can be unreliable for specific "finished" states or date ranges on some servers
     try {
-        // Fetch a large chunk WITHOUT server-side filter to ensure we get raw data
+        // Fetch a large chunk to calculate client side
         const response = await props.absService.getLibraryItemsPaged({ 
             limit: 1000, 
             sort: 'updatedAt',
@@ -62,14 +61,22 @@ const fetchStats = async () => {
         const currentYear = new Date().getFullYear();
         const items = response.results || [];
         
-        // Strict client-side filter: Must have explicit isFinished flag
+        // Strict client-side filter
         const finishedItems = items.filter(item => {
             const p = item.userProgress;
-            // Check existence and finished state
-            if (!p || p.isFinished !== true) return false;
+            if (!p) return false;
+
+            // Definition of finished: explicitly marked OR > 99% progress
+            const isFinished = p.isFinished === true || (p.progress && p.progress >= 0.99);
             
-            // Check if finished this year (approximate using lastUpdate)
-            const finishedDate = new Date(p.lastUpdate);
+            if (!isFinished) return false;
+            
+            // Priority: finishedAt > lastUpdate
+            // finishedAt is more accurate for when it was actually completed
+            const timestamp = (p as any).finishedAt || p.lastUpdate;
+            if (!timestamp) return false;
+
+            const finishedDate = new Date(timestamp);
             return finishedDate.getFullYear() === currentYear;
         });
 
