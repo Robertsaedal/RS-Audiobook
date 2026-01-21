@@ -138,6 +138,44 @@ const handleOfflineFallback = async () => {
   recentSeries.value = [];
 };
 
+/**
+ * Mapping Strategy:
+ * Maps the detailed progress from the User object (mediaProgress) to the Library Items
+ * if the items themselves are missing the userProgress object.
+ */
+const attachProgressFromAuth = (items: ABSLibraryItem[]): ABSLibraryItem[] => {
+  const userMediaProgress = props.auth.user?.mediaProgress;
+  
+  // If no detailed progress map exists, return original items
+  if (!userMediaProgress || !Array.isArray(userMediaProgress)) return items;
+
+  return items.map(item => {
+    // If the item already has progress data, use it
+    if (item.userProgress) return item;
+
+    // Otherwise, find matching progress in the auth state
+    // Note: The auth object uses 'libraryItemId', while ABSLibraryItem uses 'id'
+    const match = userMediaProgress.find((p: any) => p.libraryItemId === item.id);
+    
+    if (match) {
+      // Map the user object progress format to ABSProgress format
+      const mappedProgress: ABSProgress = {
+        itemId: match.libraryItemId,
+        currentTime: match.currentTime,
+        duration: match.duration,
+        progress: match.progress,
+        isFinished: match.isFinished,
+        lastUpdate: match.lastUpdate,
+        hideFromContinueListening: match.hideFromContinueListening
+      };
+      
+      return { ...item, userProgress: mappedProgress };
+    }
+    
+    return item;
+  });
+};
+
 const fetchDashboardData = async () => {
   if (!navigator.onLine) {
     await handleOfflineFallback();
@@ -158,7 +196,8 @@ const fetchDashboardData = async () => {
     shelves.forEach((shelf: any) => {
       switch (shelf.id) {
         case 'continue-listening':
-          currentlyReading.value = shelf.entities;
+          // Apply mapping strategy here
+          currentlyReading.value = attachProgressFromAuth(shelf.entities);
           break;
         case 'continue-series':
           continueSeries.value = shelf.entities;

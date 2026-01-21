@@ -21,9 +21,24 @@ onMounted(async () => {
       const auth = JSON.parse(savedAuth) as AuthState;
       if (auth.user?.token) {
         processing.value = true;
+        // Verify token and get fresh user data (including mediaProgress)
         const authorizeRes = await ABSService.authorize(auth.serverUrl, auth.user.token);
+        
         if (authorizeRes) {
-          emit('login', auth);
+          // Construct fresh auth state with latest data from server
+          const freshAuth: AuthState = {
+            serverUrl: auth.serverUrl,
+            user: {
+              id: authorizeRes.user.id,
+              username: authorizeRes.user.username,
+              token: auth.user.token, // Keep existing token if valid
+              mediaProgress: authorizeRes.user.mediaProgress || [] // Capture the mediaProgress array
+            }
+          };
+
+          // Update storage with fresh data
+          localStorage.setItem('rs_auth', JSON.stringify(freshAuth));
+          emit('login', freshAuth);
         }
       }
     } catch (e: any) {
@@ -57,7 +72,8 @@ const submitForm = async () => {
         user: { 
           id: authorizeRes.user.id, 
           username: authorizeRes.user.username, 
-          token: token
+          token: token,
+          mediaProgress: authorizeRes.user.mediaProgress || [] // Capture mediaProgress
         }
       };
 
