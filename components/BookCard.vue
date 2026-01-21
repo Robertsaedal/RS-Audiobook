@@ -41,16 +41,21 @@ const progressPercentage = computed(() => {
     pct = p.progress <= 1 ? p.progress * 100 : p.progress;
   }
 
-  // 3. Fallback Calculation if server says 0 but we have timestamps
-  if ((!pct || pct === 0) && p.currentTime > 0 && p.duration > 0) {
-    pct = (p.currentTime / p.duration) * 100;
+  // 3. Fallback Calculation 
+  // IMPORTANT: Use item.media.duration as fallback if userProgress.duration is missing
+  const duration = p.duration || props.item.media?.duration || 0;
+  const currentTime = p.currentTime || 0;
+
+  if ((!pct || pct === 0) && currentTime > 0 && duration > 0) {
+    pct = (currentTime / duration) * 100;
   }
 
   return Math.min(100, Math.max(0, pct));
 });
 
 const isFinished = computed(() => {
-  return progressData.value?.isFinished || progressPercentage.value >= 99; // Treat >= 99% as finished visually
+  // Trust explicit flag, OR assume finished if > 97% complete
+  return progressData.value?.isFinished || progressPercentage.value > 97;
 });
 
 const displaySequence = computed(() => {

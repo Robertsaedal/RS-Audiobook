@@ -101,6 +101,9 @@ const fetchBooks = async () => {
     const books = await props.absService.getSeriesBooks(props.series.id);
     if (books && books.length > 0) {
       seriesBooks.value = books;
+    } else if (localSeries.value.books && localSeries.value.books.length > 0) {
+        // Fallback: If fetch returned empty (e.g. server filter error) but we have props data, use props data
+        seriesBooks.value = localSeries.value.books;
     }
   } catch (e) {
     console.error("Failed to fetch series books", e);
@@ -131,7 +134,12 @@ const scanLibrary = async () => {
 watch(() => props.series.id, (newId) => {
   if (newId) {
     localSeries.value = { ...props.series };
-    seriesBooks.value = props.series.books || []; // Reset to new props
+    // If the new series prop has books, use them immediately while fetching
+    if (props.series.books && props.series.books.length > 0) {
+        seriesBooks.value = props.series.books;
+    } else {
+        seriesBooks.value = [];
+    }
     fetchBooks();
   }
 });
