@@ -16,13 +16,13 @@ const emit = defineEmits<{
 }>();
 
 const localSeries = ref({ ...props.series });
-const seriesBooks = ref<ABSLibraryItem[]>([]);
-const isLoadingBooks = ref(true);
+// Initialize with props data to prevent empty flash
+const seriesBooks = ref<ABSLibraryItem[]>(props.series.books || []);
+const isLoadingBooks = ref(false);
 const isScanning = ref(false);
 const scanFeedback = ref('');
 
 const firstBookCover = computed(() => {
-  // Use the fetched books if available, otherwise fallback to prop data
   const books = seriesBooks.value.length > 0 ? seriesBooks.value : localSeries.value.books;
   if (books && books.length > 0) {
     return props.absService.getCoverUrl(books[0].id);
@@ -41,12 +41,13 @@ const totalDurationPretty = computed(() => {
 // Helper to reliably get sequence for sorting and display
 const getSequence = (item: ABSLibraryItem) => {
   const meta = item.media.metadata;
-  // 1. Check explicit seriesSequence (often present in flattened responses)
+  
+  // 1. Check explicit seriesSequence (Standard Item)
   if (meta.seriesSequence !== undefined && meta.seriesSequence !== null) {
     return String(meta.seriesSequence);
   }
-  
-  // 2. Check nested series array for this specific series ID
+
+  // 2. Check nested series array for this specific series ID (Full Metadata)
   if (Array.isArray((meta as any).series)) {
     const s = (meta as any).series.find((s: any) => s.id === localSeries.value.id);
     if (s && s.sequence !== undefined && s.sequence !== null) {
@@ -54,19 +55,21 @@ const getSequence = (item: ABSLibraryItem) => {
     }
   }
 
-  // 3. Fallback to generic sequence property
+  // 3. Check simple sequence property (Fallback)
   if (meta.sequence !== undefined && meta.sequence !== null) {
     return String(meta.sequence);
+  }
+  
+  // 4. Check root-level sequence (Often found in Series Object children)
+  if ((item as any).sequence !== undefined) {
+    return String((item as any).sequence);
   }
 
   return null;
 };
 
-// Sort logic that handles floating point sequences correctly
 const sortedBooks = computed(() => {
-  // Prefer the freshly fetched books which have full metadata and progress
   const books = seriesBooks.value.length > 0 ? seriesBooks.value : (localSeries.value.books || []);
-  
   return [...books].sort((a, b) => {
     const seqA = parseFloat(getSequence(a) || '999999');
     const seqB = parseFloat(getSequence(b) || '999999');
@@ -78,16 +81,15 @@ const fetchBooks = async () => {
   if (!props.series.id) return;
   
   isLoadingBooks.value = true;
-  seriesBooks.value = []; // Clear previous
   
   try {
-    // Fetch books via the Item endpoint to ensure we get userProgress and full metadata
     const books = await props.absService.getSeriesBooks(props.series.id);
     if (books && books.length > 0) {
       seriesBooks.value = books;
     }
   } catch (e) {
     console.error("Failed to fetch series books", e);
+    // If fetch fails, we retain the prop data
   } finally {
     isLoadingBooks.value = false;
   }
@@ -111,19 +113,19 @@ const scanLibrary = async () => {
   }
 };
 
-// React to series prop changes (e.g. navigation from player)
 watch(() => props.series.id, (newId) => {
   if (newId) {
     localSeries.value = { ...props.series };
+    seriesBooks.value = props.series.books || []; // Reset to new props
     fetchBooks();
   }
 });
 
 onMounted(() => {
+  // If we only have partial data, fetch full
   fetchBooks();
   
   props.absService.onProgressUpdate((updated) => {
-    // Update both localSeries ref and seriesBooks ref
     const updateList = (list: ABSLibraryItem[]) => {
       const idx = list.findIndex(b => b.id === updated.itemId);
       if (idx !== -1) {

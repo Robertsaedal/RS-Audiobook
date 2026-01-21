@@ -260,7 +260,7 @@ export class ABSService {
   async getSeriesBooks(seriesId: string): Promise<ABSLibraryItem[]> {
     const response = await this.getLibraryItemsPaged({
         limit: 500, // Fetch all books in series
-        filter: `series.${seriesId}`,
+        filter: `series.id=${seriesId}`, // Corrected Filter for ABS API
         sort: 'series.sequence', // Backend sort by sequence
         desc: 0
     });

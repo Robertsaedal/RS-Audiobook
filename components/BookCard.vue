@@ -26,54 +26,49 @@ const progressData = computed(() => {
   return props.item.userProgress || (props.item as any).userMediaProgress;
 });
 
-const progressPercentage = computed(() => {
-  const p = progressData.value;
-  if (!p) return 0;
-
-  // 1. If explicit finished flag, return 100%
-  if (p.isFinished) return 100;
-
-  let val = p.progress;
-
-  // 2. If progress is missing/zero but we have timestamps, calculate it
-  if ((val === undefined || val === null || val === 0) && p.currentTime > 0) {
-    const duration = p.duration || props.item.media.duration || 0;
-    if (duration > 0) {
-      val = p.currentTime / duration;
-    }
-  }
-
-  if (!val) return 0;
-
-  // 3. Normalize: ABS sends float 0-1 for progress usually. 
-  // If it's <= 1.0, convert to percentage. If > 1, assume it's already a percentage
-  if (val <= 1.0) {
-    return val * 100;
-  }
-  
-  return Math.min(100, val);
+const isFinished = computed(() => {
+  return progressData.value?.isFinished || false;
 });
 
-const isFinished = computed(() => {
+const progressPercentage = computed(() => {
   const p = progressData.value;
-  // Use explicit flag first, fallback to > 97% completion
-  return p?.isFinished || progressPercentage.value >= 97;
+  
+  // 1. If explicitly finished, force 100%
+  if (p?.isFinished) return 100;
+  
+  if (!p) return 0;
+
+  // 2. Use direct progress (0.0 - 1.0) provided by ABS
+  if (typeof p.progress === 'number' && p.progress > 0) {
+    return p.progress * 100;
+  }
+
+  // 3. Fallback: Calculate from Time / Duration
+  const currentTime = p.currentTime || 0;
+  const duration = p.duration || props.item.media?.duration || 0;
+  
+  if (duration > 0 && currentTime > 0) {
+    const pct = (currentTime / duration) * 100;
+    return Math.min(100, Math.max(0, pct));
+  }
+
+  return 0;
 });
 
 const displaySequence = computed(() => {
-  // If fallback is provided (from SeriesView), use it
+  // 1. Explicit fallback passed from parent (SeriesView)
   if (props.fallbackSequence !== undefined && props.fallbackSequence !== null && props.fallbackSequence !== '') {
     return props.fallbackSequence;
   }
 
   const meta = props.item.media?.metadata;
   
-  // 1. Direct property (most common for items endpoint)
+  // 2. Direct property on metadata
   let seq = meta?.seriesSequence ?? meta?.sequence;
 
-  // 2. Nested series array (common for books nested in other objects)
-  // ABS structure: media.metadata.series = [{ name: "SeriesName", sequence: "1.5" }]
+  // 3. Nested series array (standard ABS item structure)
   if ((seq === undefined || seq === null) && Array.isArray((meta as any).series) && (meta as any).series.length > 0) {
+    // If we have series data, try to grab the first sequence found
     const s = (meta as any).series[0];
     seq = s.sequence;
   }
@@ -160,16 +155,16 @@ onMounted(async () => {
       </div>
 
       <!-- Progress Bar (4px height) -->
-      <!-- Only shown if progress > 0 OR if showProgress is explicitly true (Continue Listening shelf) -->
-      <div v-if="(progressPercentage > 0 || showProgress) && !isFinished" class="absolute bottom-0 left-0 w-full z-30 bg-neutral-900/50">
+      <!-- Display condition: If progress > 0 OR showProgress is forced (Continue Listening) OR item is finished (100% bar) -->
+      <div v-if="!isFinished && (progressPercentage > 0 || showProgress)" class="absolute bottom-0 left-0 w-full z-30 bg-neutral-900/50">
          <div 
           class="h-1 bg-gradient-to-r from-purple-600 to-purple-400 shadow-[0_0_8px_rgba(168,85,247,0.8)]" 
-          :style="{ width: Math.max(progressPercentage, showProgress && progressPercentage === 0 ? 2 : progressPercentage) + '%' }" 
+          :style="{ width: Math.max(progressPercentage, showProgress && progressPercentage === 0 ? 5 : progressPercentage) + '%' }" 
         />
       </div>
       
       <!-- Percentage Text Overlay -->
-      <div v-if="(progressPercentage > 0 || showProgress) && !isFinished" 
+      <div v-if="!isFinished && (progressPercentage > 0 || showProgress)" 
         class="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur-md px-2 py-1 rounded text-[9px] font-black text-white uppercase tracking-widest z-30 transition-opacity pointer-events-none border border-white/10"
         :class="showProgress ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'"
       >

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { AuthState, ABSLibraryItem } from '../types';
 import { usePlayer } from '../composables/usePlayer';
 import { ABSService } from '../services/absService';
@@ -7,7 +7,7 @@ import { OfflineManager } from '../services/offlineManager';
 import ChapterEditor from '../components/ChapterEditor.vue';
 import { 
   ChevronDown, Play, Pause, Info, X, SkipBack, SkipForward,
-  RotateCcw, RotateCw, ChevronRight, Moon, Plus, Minus, Mic, Clock, Layers, Download, CheckCircle, Loader2, BookOpen
+  RotateCcw, RotateCw, ChevronRight, Moon, Plus, Minus, Mic, Clock, Layers, Download, CheckCircle, BookOpen
 } from 'lucide-vue-next';
 
 const props = defineProps<{
@@ -30,6 +30,9 @@ const isDownloaded = ref(false);
 const isDownloading = ref(false);
 const downloadProgress = ref(0);
 const sleepMode = ref<'time' | 'chapter'>('time');
+const liveTime = ref(Date.now()); // Local reactive ticker for smooth UI updates
+
+let tickerInterval: any = null;
 
 const activeItem = computed(() => state.activeItem || props.item);
 
@@ -87,6 +90,11 @@ const secondsToTimestamp = (s: number) => {
 onMounted(async () => {
   load(props.item, props.auth);
   checkDownloadStatus();
+  
+  // Start local ticker for live countdowns
+  tickerInterval = setInterval(() => {
+    liveTime.value = Date.now();
+  }, 1000);
 });
 
 const checkDownloadStatus = async () => {
@@ -96,6 +104,7 @@ const checkDownloadStatus = async () => {
 };
 
 onUnmounted(() => {
+  if (tickerInterval) clearInterval(tickerInterval);
   destroy();
 });
 
@@ -141,53 +150,56 @@ const toggleSleepMode = () => {
 
 const isSleepActive = computed(() => state.sleepChapters > 0 || !!state.sleepEndTime);
 
-const formattedSleepTime = computed(() => {
+// Formatted display for the "Sleep zZz" card
+const formattedSleepDisplay = computed(() => {
   if (state.sleepChapters > 0) {
-    return `${state.sleepChapters} CH REMAINING`;
+    return `${state.sleepChapters} CH`;
   }
   if (state.sleepEndTime) {
-    const diff = Math.max(0, state.sleepEndTime - state.currentRealtime);
-    if (diff === 0) return 'OFF';
+    const diff = Math.max(0, state.sleepEndTime - liveTime.value);
+    if (diff <= 0) return 'OFF';
     const totalSeconds = Math.floor(diff / 1000);
-    const m = Math.floor(totalSeconds / 60);
+    const h = Math.floor(totalSeconds / 3600);
+    const m = Math.floor((totalSeconds % 3600) / 60);
     const s = totalSeconds % 60;
-    return `${m}:${s.toString().padStart(2, '0')} REMAINING`;
+    
+    if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    return `${m}:${s.toString().padStart(2, '0')}`;
   }
   return 'OFF';
 });
 
-const increaseSleep = () => {
+const adjustSleep = (direction: number) => {
   if (sleepMode.value === 'chapter') {
-    // Increment chapters
-    setSleepChapters(state.sleepChapters + 1);
+    // Chapter Mode: +/- 1 Chapter
+    const newCount = Math.max(0, state.sleepChapters + direction);
+    if (newCount === 0) {
+       setSleepChapters(0); // Turn off if 0
+    } else {
+       setSleepChapters(newCount);
+    }
   } else {
-    // Increment minutes (15m blocks)
+    // Time Mode: +/- 15 Minutes (900 seconds)
     let currentSeconds = 0;
     if (state.sleepEndTime) {
-      currentSeconds = Math.max(0, (state.sleepEndTime - state.currentRealtime) / 1000);
+      currentSeconds = Math.max(0, (state.sleepEndTime - liveTime.value) / 1000);
     }
-    setSleepTimer(currentSeconds + 900);
+    
+    // If direction is positive, just add
+    // If direction is negative, subtract, but clamp to 0
+    let newTime = currentSeconds + (direction * 900);
+    
+    if (newTime <= 10) { 
+      setSleepTimer(0);
+    } else {
+      setSleepTimer(newTime);
+    }
   }
 };
 
-const decreaseSleep = () => {
-  if (sleepMode.value === 'chapter') {
-    // Decrement chapters
-    if (state.sleepChapters > 0) {
-      setSleepChapters(state.sleepChapters - 1);
-    }
-  } else {
-    // Decrement minutes
-    if (state.sleepEndTime) {
-      const currentSeconds = Math.max(0, (state.sleepEndTime - state.currentRealtime) / 1000);
-      const newTime = currentSeconds - 900;
-      if (newTime <= 10) { 
-        setSleepTimer(0);
-      } else {
-        setSleepTimer(newTime);
-      }
-    }
-  }
+const setSleepToEndOfChapter = () => {
+  setSleepChapters(1);
+  sleepMode.value = 'chapter';
 };
 
 const metadata = computed(() => activeItem.value?.media?.metadata || {});
@@ -385,13 +397,13 @@ const infoRows = computed(() => {
           <div class="grid grid-cols-2 gap-4 w-full">
             
             <!-- Speed Card -->
-            <div class="bg-neutral-900/80 backdrop-blur-md border border-white/5 rounded-2xl p-4 flex flex-col items-center justify-between gap-2 hover:border-white/10 transition-colors h-32">
+            <div class="bg-neutral-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-4 flex flex-col items-center justify-between gap-2 hover:border-white/10 transition-colors h-32">
                <div class="flex items-center gap-2 text-neutral-500">
                  <Clock :size="14" />
                  <span class="text-[9px] font-black uppercase tracking-[0.2em]">Speed</span>
                </div>
                
-               <span class="text-2xl font-black font-mono tracking-tighter text-white">{{ state.playbackRate.toFixed(1) }}x</span>
+               <span class="text-3xl font-black font-mono tracking-tighter text-white">{{ state.playbackRate.toFixed(1) }}x</span>
 
                <div class="flex items-center gap-4 w-full justify-center">
                  <button @click="setPlaybackRate(Math.max(0.5, state.playbackRate - 0.1))" class="p-2 bg-white/5 rounded-full text-neutral-400 hover:text-white hover:bg-white/10 transition-colors active:scale-90">
@@ -404,22 +416,31 @@ const infoRows = computed(() => {
             </div>
 
             <!-- Sleep Timer Card -->
-            <div class="bg-neutral-900/80 backdrop-blur-md border border-white/5 rounded-2xl p-4 flex flex-col items-center justify-between gap-2 hover:border-white/10 transition-colors h-32 relative overflow-hidden">
+            <div class="bg-neutral-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-4 flex flex-col items-center justify-between gap-2 hover:border-white/10 transition-colors h-32 relative overflow-hidden group">
                <!-- Toggle Header -->
-               <button @click="toggleSleepMode" class="flex items-center gap-2 text-neutral-500 hover:text-white transition-colors z-10">
-                 <Moon :size="14" :class="isSleepActive ? 'text-purple-500' : ''" />
-                 <span class="text-[9px] font-black uppercase tracking-[0.2em]">{{ sleepMode === 'time' ? 'Sleep (Min)' : 'Sleep (Ch)' }}</span>
+               <button @click="toggleSleepMode" class="flex items-center gap-2 z-20 transition-colors w-full justify-center" :class="isSleepActive ? 'text-purple-500' : 'text-neutral-500 hover:text-white'">
+                 <Moon :size="14" fill="currentColor" class="opacity-50" />
+                 <span class="text-[9px] font-black uppercase tracking-[0.2em]">SLEEP zZz</span>
                </button>
                
-               <div class="flex flex-col items-center z-10">
-                 <span class="text-xl font-black font-mono tracking-tighter" :class="isSleepActive ? 'text-purple-400' : 'text-neutral-500'">{{ formattedSleepTime }}</span>
+               <div class="flex flex-col items-center z-20 space-y-1">
+                 <span class="text-2xl font-black font-mono tracking-tighter" :class="isSleepActive ? 'text-purple-400' : 'text-white'">{{ formattedSleepDisplay }}</span>
+                 <span v-if="isSleepActive" class="text-[8px] font-bold uppercase tracking-widest text-purple-500/60" :class="sleepMode === 'chapter' ? 'hidden' : ''">REMAINING</span>
                </div>
 
-               <div class="flex items-center gap-4 w-full justify-center z-10">
-                 <button @click="decreaseSleep" class="p-2 bg-white/5 rounded-full text-neutral-400 hover:text-white hover:bg-white/10 transition-colors active:scale-90">
+               <div class="flex items-center gap-3 w-full justify-center z-20">
+                 <!-- Decrease -->
+                 <button @click="adjustSleep(-1)" class="p-2 bg-white/5 rounded-full text-neutral-400 hover:text-white hover:bg-white/10 transition-colors active:scale-90">
                    <Minus :size="16" />
                  </button>
-                 <button @click="increaseSleep" class="p-2 bg-white/5 rounded-full text-neutral-400 hover:text-white hover:bg-white/10 transition-colors active:scale-90">
+                 
+                 <!-- Mode Indicator / Middle Action -->
+                 <button @click="setSleepToEndOfChapter" class="p-2 rounded-full transition-colors active:scale-90" :class="state.sleepChapters === 1 ? 'text-purple-400 bg-purple-500/20' : 'text-neutral-600 hover:text-white'" title="End of Chapter">
+                    <BookOpen :size="14" />
+                 </button>
+
+                 <!-- Increase -->
+                 <button @click="adjustSleep(1)" class="p-2 bg-white/5 rounded-full text-neutral-400 hover:text-white hover:bg-white/10 transition-colors active:scale-90">
                    <Plus :size="16" />
                  </button>
                </div>
