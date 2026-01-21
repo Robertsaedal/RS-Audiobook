@@ -60,9 +60,14 @@ const getSequence = (item: ABSLibraryItem) => {
     return String(meta.sequence);
   }
   
-  // 4. Check root-level sequence (Often found in Series Object children)
-  if ((item as any).sequence !== undefined) {
+  // 4. Check root-level sequence on item (often found in series responses)
+  if ((item as any).sequence !== undefined && (item as any).sequence !== null) {
     return String((item as any).sequence);
+  }
+
+  // 5. Check if item has a 'rel' object or similar (Edge cases)
+  if ((item as any).rel && (item as any).rel.sequence) {
+     return String((item as any).rel.sequence);
   }
 
   return null;
@@ -214,6 +219,7 @@ onMounted(() => {
             :item="book" 
             :coverUrl="absService.getCoverUrl(book.id)" 
             show-metadata
+            hide-progress
             :fallbackSequence="getSequence(book)"
             @click="emit('select-item', book)" 
           />

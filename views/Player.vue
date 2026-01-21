@@ -29,7 +29,6 @@ const showInfo = ref(false);
 const isDownloaded = ref(false);
 const isDownloading = ref(false);
 const downloadProgress = ref(0);
-const sleepMode = ref<'time' | 'chapter'>('time');
 const liveTime = ref(Date.now()); // Local reactive ticker for smooth UI updates
 
 let tickerInterval: any = null;
@@ -144,16 +143,12 @@ const handleChapterProgressClick = (e: MouseEvent) => {
 };
 
 // --- Sleep Timer Logic ---
-const toggleSleepMode = () => {
-  sleepMode.value = sleepMode.value === 'time' ? 'chapter' : 'time';
-};
-
 const isSleepActive = computed(() => state.sleepChapters > 0 || !!state.sleepEndTime);
 
 // Formatted display for the "Sleep zZz" card
 const formattedSleepDisplay = computed(() => {
   if (state.sleepChapters > 0) {
-    return `${state.sleepChapters} CH`;
+    return `${state.sleepChapters} CH REMAINING`;
   }
   if (state.sleepEndTime) {
     const diff = Math.max(0, state.sleepEndTime - liveTime.value);
@@ -163,43 +158,36 @@ const formattedSleepDisplay = computed(() => {
     const m = Math.floor((totalSeconds % 3600) / 60);
     const s = totalSeconds % 60;
     
-    if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-    return `${m}:${s.toString().padStart(2, '0')}`;
+    if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')} REMAINING`;
+    return `${m}:${s.toString().padStart(2, '0')} REMAINING`;
   }
   return 'OFF';
 });
 
-const adjustSleep = (direction: number) => {
-  if (sleepMode.value === 'chapter') {
-    // Chapter Mode: +/- 1 Chapter
-    const newCount = Math.max(0, state.sleepChapters + direction);
-    if (newCount === 0) {
-       setSleepChapters(0); // Turn off if 0
-    } else {
-       setSleepChapters(newCount);
-    }
-  } else {
-    // Time Mode: +/- 15 Minutes (900 seconds)
-    let currentSeconds = 0;
-    if (state.sleepEndTime) {
-      currentSeconds = Math.max(0, (state.sleepEndTime - liveTime.value) / 1000);
-    }
-    
-    // If direction is positive, just add
-    // If direction is negative, subtract, but clamp to 0
-    let newTime = currentSeconds + (direction * 900);
-    
-    if (newTime <= 10) { 
-      setSleepTimer(0);
-    } else {
-      setSleepTimer(newTime);
-    }
+// Dual Control Logic
+const adjustSleepTime = (secondsToAdd: number) => {
+  let currentSeconds = 0;
+  if (state.sleepEndTime) {
+    currentSeconds = Math.max(0, (state.sleepEndTime - liveTime.value) / 1000);
   }
+  
+  // Adding/Subtracting Time clears Chapter mode implicitly via usePlayer setSleepTimer
+  const newTime = Math.max(0, currentSeconds + secondsToAdd);
+  if (newTime <= 5) {
+     setSleepTimer(0);
+  } else {
+     setSleepTimer(newTime);
+  }
+};
+
+const adjustSleepChapters = (delta: number) => {
+  // Adding/Subtracting Chapters clears Time mode implicitly via usePlayer setSleepChapters
+  const newCount = Math.max(0, state.sleepChapters + delta);
+  setSleepChapters(newCount);
 };
 
 const setSleepToEndOfChapter = () => {
   setSleepChapters(1);
-  sleepMode.value = 'chapter';
 };
 
 const metadata = computed(() => activeItem.value?.media?.metadata || {});
@@ -415,34 +403,40 @@ const infoRows = computed(() => {
                </div>
             </div>
 
-            <!-- Sleep Timer Card -->
-            <div class="bg-neutral-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-4 flex flex-col items-center justify-between gap-2 hover:border-white/10 transition-colors h-32 relative overflow-hidden group">
-               <!-- Toggle Header -->
-               <button @click="toggleSleepMode" class="flex items-center gap-2 z-20 transition-colors w-full justify-center" :class="isSleepActive ? 'text-purple-500' : 'text-neutral-500 hover:text-white'">
-                 <Moon :size="14" fill="currentColor" class="opacity-50" />
-                 <span class="text-[9px] font-black uppercase tracking-[0.2em]">SLEEP zZz</span>
-               </button>
-               
-               <div class="flex flex-col items-center z-20 space-y-1">
-                 <span class="text-2xl font-black font-mono tracking-tighter" :class="isSleepActive ? 'text-purple-400' : 'text-white'">{{ formattedSleepDisplay }}</span>
-                 <span v-if="isSleepActive" class="text-[8px] font-bold uppercase tracking-widest text-purple-500/60" :class="sleepMode === 'chapter' ? 'hidden' : ''">REMAINING</span>
+            <!-- Sleep Timer Card (Redesigned Dual-Control) -->
+            <div class="bg-neutral-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-4 flex flex-col justify-between gap-2 hover:border-white/10 transition-colors h-32 relative overflow-hidden group">
+               <!-- Header & Display -->
+               <div class="flex justify-between items-center px-1 mb-1">
+                 <div class="flex items-center gap-2 text-neutral-500">
+                    <Moon :size="14" />
+                    <span class="text-[9px] font-black uppercase tracking-[0.2em]">SLEEP zZz</span>
+                 </div>
+                 <span class="text-[10px] font-black font-mono tracking-tighter" :class="isSleepActive ? 'text-purple-400 animate-pulse' : 'text-neutral-600'">
+                   {{ formattedSleepDisplay }}
+                 </span>
                </div>
 
-               <div class="flex items-center gap-3 w-full justify-center z-20">
-                 <!-- Decrease -->
-                 <button @click="adjustSleep(-1)" class="p-2 bg-white/5 rounded-full text-neutral-400 hover:text-white hover:bg-white/10 transition-colors active:scale-90">
-                   <Minus :size="16" />
-                 </button>
-                 
-                 <!-- Mode Indicator / Middle Action -->
-                 <button @click="setSleepToEndOfChapter" class="p-2 rounded-full transition-colors active:scale-90" :class="state.sleepChapters === 1 ? 'text-purple-400 bg-purple-500/20' : 'text-neutral-600 hover:text-white'" title="End of Chapter">
-                    <BookOpen :size="14" />
-                 </button>
+               <!-- Controls Container -->
+               <div class="flex-1 flex flex-col justify-end gap-2">
+                 <!-- Time Row -->
+                 <div class="flex items-center justify-between bg-white/5 rounded-lg p-1.5 px-2">
+                    <span class="text-[8px] font-bold uppercase text-neutral-500 w-8">MINUTES</span>
+                    <div class="flex items-center gap-2">
+                       <button @click="adjustSleepTime(-900)" class="w-6 h-6 flex items-center justify-center bg-white/5 rounded hover:bg-white/10 text-neutral-400 hover:text-white transition-colors active:scale-90"><Minus :size="12" /></button>
+                       <span class="text-[9px] font-black w-6 text-center text-white select-none">15</span>
+                       <button @click="adjustSleepTime(900)" class="w-6 h-6 flex items-center justify-center bg-white/5 rounded hover:bg-white/10 text-neutral-400 hover:text-white transition-colors active:scale-90"><Plus :size="12" /></button>
+                    </div>
+                 </div>
 
-                 <!-- Increase -->
-                 <button @click="adjustSleep(1)" class="p-2 bg-white/5 rounded-full text-neutral-400 hover:text-white hover:bg-white/10 transition-colors active:scale-90">
-                   <Plus :size="16" />
-                 </button>
+                 <!-- Chapter Row -->
+                 <div class="flex items-center justify-between bg-white/5 rounded-lg p-1.5 px-2">
+                    <span class="text-[8px] font-bold uppercase text-neutral-500 w-8">CHAPTER</span>
+                    <div class="flex items-center gap-2">
+                       <button @click="adjustSleepChapters(-1)" class="w-6 h-6 flex items-center justify-center bg-white/5 rounded hover:bg-white/10 text-neutral-400 hover:text-white transition-colors active:scale-90"><Minus :size="12" /></button>
+                       <button @click="setSleepToEndOfChapter" class="w-6 text-center text-neutral-500 hover:text-purple-400 transition-colors active:scale-90" title="End of Chapter"><BookOpen :size="14" /></button>
+                       <button @click="adjustSleepChapters(1)" class="w-6 h-6 flex items-center justify-center bg-white/5 rounded hover:bg-white/10 text-neutral-400 hover:text-white transition-colors active:scale-90"><Plus :size="12" /></button>
+                    </div>
+                 </div>
                </div>
                
                <!-- Active Glow -->
