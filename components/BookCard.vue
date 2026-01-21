@@ -24,7 +24,6 @@ const isDownloaded = ref(false);
 const localCover = ref<string | null>(null);
 
 const progressData = computed(() => {
-  // Handle both standard userProgress and the nested structure sometimes returned by search/series
   return props.item.userProgress || (props.item as any).userMediaProgress || null;
 });
 
@@ -32,17 +31,16 @@ const progressPercentage = computed(() => {
   const p = progressData.value;
   if (!p) return 0;
   
-  // 1. Explicitly Finished
+  // FORCE 100% if flagged as finished, regardless of timestamps
   if (p.isFinished) return 100;
 
-  // 2. Server Progress (Handle Decimal 0.5 vs Percent 50)
+  // Server Progress
   let pct = 0;
   if (typeof p.progress === 'number' && p.progress > 0) {
     pct = p.progress <= 1 ? p.progress * 100 : p.progress;
   }
 
-  // 3. Fallback Calculation 
-  // IMPORTANT: Use item.media.duration as fallback if userProgress.duration is missing
+  // Fallback Calculation
   const duration = p.duration || props.item.media?.duration || 0;
   const currentTime = p.currentTime || 0;
 
@@ -54,22 +52,24 @@ const progressPercentage = computed(() => {
 });
 
 const isFinished = computed(() => {
-  // Trust explicit flag, OR assume finished if > 97% complete
-  return progressData.value?.isFinished || progressPercentage.value > 97;
+  // If API says finished, it's finished.
+  if (progressData.value?.isFinished) return true;
+  // If calculated > 97%, assume finished visually
+  return progressPercentage.value > 97;
 });
 
 const displaySequence = computed(() => {
-  // 1. Explicit fallback passed from parent (SeriesView) - HIGHEST PRIORITY
+  // 1. Explicit fallback passed from parent (SeriesView)
   if (props.fallbackSequence !== undefined && props.fallbackSequence !== null && props.fallbackSequence !== '') {
     return props.fallbackSequence;
   }
 
   const meta = props.item.media?.metadata;
   
-  // 2. Direct property on metadata
+  // 2. Direct property
   let seq = meta?.seriesSequence ?? meta?.sequence;
 
-  // 3. Nested series array (standard ABS item structure)
+  // 3. Nested series array
   if ((seq === undefined || seq === null) && Array.isArray((meta as any).series) && (meta as any).series.length > 0) {
     const s = (meta as any).series[0];
     seq = s.sequence;
@@ -115,17 +115,17 @@ onMounted(async () => {
         loading="lazy" 
       />
       
-      <!-- Book Sequence Badge (Top Left - Per User Request) -->
+      <!-- Book Sequence Badge -->
       <div v-if="displaySequence !== null" class="absolute top-2 left-2 bg-neutral-900/90 backdrop-blur-md px-2 py-0.5 rounded-md flex items-center justify-center text-[10px] font-black text-white border border-white/10 shadow-xl z-[60] tracking-tight">
         #{{ displaySequence }}
       </div>
       
-      <!-- Finished Checkmark (Top Right - Purple) -->
+      <!-- Finished Checkmark -->
       <div v-if="isFinished" class="absolute top-2 right-2 bg-purple-600 rounded-full p-1 shadow-lg z-50 border border-black/20">
         <CheckCircle :size="14" class="text-white" fill="currentColor" stroke="white" />
       </div>
 
-      <!-- Downloaded Badge (Top Right or shifted left if finished) -->
+      <!-- Downloaded Badge -->
       <div v-if="isDownloaded && !isFinished" class="absolute top-2 right-2 z-30 text-purple-400 bg-black/60 rounded-full backdrop-blur-sm p-0.5 border border-white/10">
         <CheckCircle :size="14" fill="currentColor" class="text-white" />
       </div>
@@ -133,7 +133,7 @@ onMounted(async () => {
         <Check :size="12" />
       </div>
 
-      <!-- Mark Finished Button (Visible on hover if not finished) -->
+      <!-- Mark Finished Button (Hover) -->
       <div 
         v-if="!isFinished && !hideProgress && (showProgress || progressPercentage > 0)" 
         class="absolute bottom-12 right-2 z-40 opacity-0 group-hover:opacity-100 transition-opacity"
@@ -147,7 +147,7 @@ onMounted(async () => {
         </button>
       </div>
 
-      <!-- Finished Indicator Overlay (Prominent Center - Only if explicitly finished state) -->
+      <!-- Finished Indicator Overlay -->
       <div v-if="isFinished" class="absolute inset-0 flex items-center justify-center z-40 bg-black/40 backdrop-grayscale-[0.5] pointer-events-none">
          <div class="px-3 py-1 bg-purple-600/90 backdrop-blur-md border border-purple-400/30 rounded-full flex items-center gap-2 shadow-xl transform -rotate-12">
             <Check :size="12" class="text-white" stroke-width="4" />
@@ -163,8 +163,7 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- Progress Bar (4px height) -->
-      <!-- Only show if NOT hiding progress AND NOT finished AND there is some progress -->
+      <!-- Progress Bar -->
       <div v-if="!hideProgress && !isFinished && (progressPercentage > 0 || showProgress)" class="absolute bottom-0 left-0 w-full z-30 bg-neutral-900/50">
          <div 
           class="h-1 bg-gradient-to-r from-purple-600 to-purple-400 shadow-[0_0_8px_rgba(168,85,247,0.8)]" 

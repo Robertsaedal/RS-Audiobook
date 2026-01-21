@@ -63,7 +63,6 @@ export class ABSService {
       } catch (e: any) {
         clearTimeout(id);
         lastError = e;
-        // Optimized retry delay (500ms base) to recover quickly from protocol errors (QUIC)
         if (i < retries - 1) await new Promise(resolve => setTimeout(resolve, 500 * (i + 1)));
       }
     }
@@ -141,7 +140,6 @@ export class ABSService {
     if (params.filter) query.append('filter', params.filter);
     if (params.search) query.append('search', params.search);
     
-    // IMPORTANT: Include progress so we get read status/timestamps
     query.append('include', 'progress,metadata');
     query.append('_cb', Date.now().toString());
 
@@ -160,7 +158,6 @@ export class ABSService {
 
     const url = `/libraries/${HARDCODED_LIBRARY_ID}/personalized?${query.toString()}`;
 
-    // Explicit Retry Wrapper for Personalized Shelves (Resilience against ERR_QUIC_PROTOCOL_ERROR)
     let retries = 3;
     for (let i = 0; i < retries; i++) {
       try {
@@ -170,8 +167,7 @@ export class ABSService {
         }
         throw new Error("Invalid response");
       } catch (e) {
-        if (i === retries - 1) return []; // Fail gracefully
-        // Wait 500ms before retrying to allow protocol to reset or network to stabilize
+        if (i === retries - 1) return [];
         await new Promise(resolve => setTimeout(resolve, 500));
       }
     }
@@ -198,7 +194,6 @@ export class ABSService {
     if (sort) query.append('sort', sort);
     if (params.desc !== undefined) query.append('desc', params.desc.toString());
     
-    // Add search support for series
     if (params.search) query.append('search', params.search);
 
     query.append('include', 'books'); 
@@ -226,10 +221,6 @@ export class ABSService {
     return { books, series };
   }
 
-  /**
-   * Fetches listening stats from the server.
-   * Matches ABS endpoint: /api/me/listening-stats
-   */
   async getListeningStats(): Promise<{
     totalTime: number;
     days: Record<string, number>;
@@ -246,25 +237,22 @@ export class ABSService {
   }
 
   async getSeries(seriesId: string): Promise<ABSSeries | null> {
-    // Note: The /series/{id} endpoint often returns books WITHOUT user progress or full metadata.
-    // For the UI, we should fetch the series metadata here, then fetch items separately via getSeriesBooks.
     const data = await this.fetchApi(`/libraries/${HARDCODED_LIBRARY_ID}/series/${seriesId}?include=books,progress,rssfeed&_cb=${Date.now()}`);
     if (!data) return null;
     return data;
   }
 
   /**
-   * Fetches all books for a series using the Library Items endpoint.
-   * This ensures we get the FULL item object including User Progress and correct Sequence metadata.
+   * Fetches all books for a series.
+   * FIX: Uses direct series endpoint instead of filtering items endpoint, 
+   * which resolves issues with 'series.id' filter syntax on different ABS versions.
    */
   async getSeriesBooks(seriesId: string): Promise<ABSLibraryItem[]> {
-    const response = await this.getLibraryItemsPaged({
-        limit: 500, // Fetch all books in series
-        filter: `series.id.eq.${seriesId}`, // Corrected Filter for ABS API (series.id.eq.VALUE)
-        sort: 'series.sequence', // Backend sort by sequence
-        desc: 0
-    });
-    return response.results || [];
+    const seriesData = await this.getSeries(seriesId);
+    if (seriesData && Array.isArray(seriesData.books)) {
+      return seriesData.books;
+    }
+    return [];
   }
 
   async getProgress(itemId: string): Promise<ABSProgress | null> {
@@ -286,11 +274,7 @@ export class ABSService {
     });
   }
 
-  /**
-   * Fallback for raw stats if needed, but getListeningStats is preferred.
-   */
   async getUserStatsForYear(year: number): Promise<any> {
-    // Redirect to main stats endpoint as it returns global stats
     return this.getListeningStats();
   }
 

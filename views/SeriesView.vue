@@ -16,7 +16,7 @@ const emit = defineEmits<{
 }>();
 
 const localSeries = ref({ ...props.series });
-// Initialize with props data to prevent empty flash
+// Initialize with props data immediately
 const seriesBooks = ref<ABSLibraryItem[]>(props.series.books || []);
 const isLoadingBooks = ref(false);
 const isScanning = ref(false);
@@ -47,20 +47,19 @@ const getSequence = (item: ABSLibraryItem) => {
     return String(meta.seriesSequence);
   }
 
-  // 2. Check nested series array for this specific series (Complex case)
-  // ABS often nests the sequence inside the series object in the 'series' array
+  // 2. Check nested series array
   if (Array.isArray((meta as any).series)) {
     const seriesList = (meta as any).series;
     
-    // 2a. Try to match by ID of the current view's series
-    let s = seriesList.find((s: any) => s.id === localSeries.value.id);
+    // Loose equality check (==) to handle string/number ID mismatch from API
+    let s = seriesList.find((s: any) => s.id == localSeries.value.id);
     
-    // 2b. If no ID match, try to match by Name (Fallback)
+    // Fallback: Name match
     if (!s && localSeries.value.name) {
        s = seriesList.find((s: any) => s.name === localSeries.value.name);
     }
 
-    // 2c. If still nothing and there's only one series in the array, assume it's this one
+    // Fallback: If only one series, assume it's this one
     if (!s && seriesList.length === 1) {
        s = seriesList[0];
     }
@@ -70,12 +69,12 @@ const getSequence = (item: ABSLibraryItem) => {
     }
   }
 
-  // 3. Check root-level sequence on item (Common in flattened responses from series endpoint)
+  // 3. Check root-level sequence on item 
   if ((item as any).sequence !== undefined && (item as any).sequence !== null) {
     return String((item as any).sequence);
   }
 
-  // 4. Check simple sequence property (Legacy/Fallback)
+  // 4. Check simple sequence property
   if (meta.sequence !== undefined && meta.sequence !== null) {
     return String(meta.sequence);
   }
@@ -101,13 +100,9 @@ const fetchBooks = async () => {
     const books = await props.absService.getSeriesBooks(props.series.id);
     if (books && books.length > 0) {
       seriesBooks.value = books;
-    } else if (localSeries.value.books && localSeries.value.books.length > 0) {
-        // Fallback: If fetch returned empty (e.g. server filter error) but we have props data, use props data
-        seriesBooks.value = localSeries.value.books;
     }
   } catch (e) {
     console.error("Failed to fetch series books", e);
-    // If fetch fails, we retain the prop data
   } finally {
     isLoadingBooks.value = false;
   }
@@ -134,7 +129,7 @@ const scanLibrary = async () => {
 watch(() => props.series.id, (newId) => {
   if (newId) {
     localSeries.value = { ...props.series };
-    // If the new series prop has books, use them immediately while fetching
+    // Always respect prop data first to avoid flicker
     if (props.series.books && props.series.books.length > 0) {
         seriesBooks.value = props.series.books;
     } else {
@@ -145,8 +140,9 @@ watch(() => props.series.id, (newId) => {
 });
 
 onMounted(() => {
-  // If we only have partial data, fetch full
-  fetchBooks();
+  if (seriesBooks.value.length === 0) {
+    fetchBooks();
+  }
   
   props.absService.onProgressUpdate((updated) => {
     const updateList = (list: ABSLibraryItem[]) => {
