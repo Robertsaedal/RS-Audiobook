@@ -156,6 +156,7 @@ export class ABSService {
     if (params?.limit) query.append('limit', params.limit.toString());
     
     // Explicitly request progress (userProgress), metadata, series, and media (for duration)
+    // IMPORTANT: 'media' is critical for accurate total duration if userProgress duration is stale or missing
     query.append('include', 'progress,metadata,series,media');
     
     query.append('_cb', Date.now().toString());

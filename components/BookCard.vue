@@ -39,12 +39,12 @@ const progressPercentage = computed(() => {
   if (p?.isFinished) return 100;
 
   // 2. "Heartbeat" Calculation (currentTime / duration)
-  // This is the most accurate method. We fallback to media.duration if the progress object lacks it.
-  const duration = p?.duration || media?.duration || 0;
+  // We prioritize media.duration (source of truth) over progress.duration (snapshot)
+  const totalDuration = media?.duration || p?.duration || 0;
   const currentTime = p?.currentTime || 0;
 
-  if (duration > 0 && currentTime > 0) {
-    const calculatedPct = (currentTime / duration) * 100;
+  if (totalDuration > 0 && currentTime > 0) {
+    const calculatedPct = (currentTime / totalDuration) * 100;
     return Math.min(100, Math.max(0, calculatedPct));
   }
 
@@ -98,10 +98,6 @@ const displaySequence = computed(() => {
   // 5. Fallback: Parse from seriesName string (e.g. "Series Name #2")
   // This handles flattened data structures where 'series' array is missing
   if (meta.seriesName && typeof meta.seriesName === 'string') {
-    // Regex matches:
-    // # followed by optional space
-    // Capture: digits and optional dot digits
-    // Followed by end of string or space
     const match = meta.seriesName.match(/#\s*([0-9]+(?:\.[0-9]+)?)(?:\s|$)/);
     if (match) return match[1];
   }
