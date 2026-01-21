@@ -244,14 +244,32 @@ export class ABSService {
 
   /**
    * Fetches all books for a series.
-   * FIX: Uses direct series endpoint instead of filtering items endpoint, 
-   * which resolves issues with 'series.id' filter syntax on different ABS versions.
+   * Hybrid Strategy: Try getSeries first, then fallback to filtering items.
+   * This handles differences in ABS server versions where /series/{id} might not return full item details.
    */
   async getSeriesBooks(seriesId: string): Promise<ABSLibraryItem[]> {
+    // Strategy A: Direct Series Endpoint (Preferred)
     const seriesData = await this.getSeries(seriesId);
-    if (seriesData && Array.isArray(seriesData.books)) {
+    if (seriesData && Array.isArray(seriesData.books) && seriesData.books.length > 0) {
       return seriesData.books;
     }
+
+    // Strategy B: Items Endpoint with Filter (Fallback)
+    // filter=series.id.eq.SERIES_ID
+    try {
+      const response = await this.getLibraryItemsPaged({
+        limit: 500,
+        filter: `series.id.eq.${seriesId}`,
+        sort: 'series.sequence', // Try sorting by sequence
+        desc: 0
+      });
+      if (response && response.results.length > 0) {
+        return response.results;
+      }
+    } catch (e) {
+      console.warn('Series filter fallback failed', e);
+    }
+
     return [];
   }
 

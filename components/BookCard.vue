@@ -24,27 +24,31 @@ const isDownloaded = ref(false);
 const localCover = ref<string | null>(null);
 
 const progressData = computed(() => {
-  return props.item.userProgress || (props.item as any).userMediaProgress || null;
+  // Check root userProgress, then userMediaProgress, then media.userProgress (API variation coverage)
+  return props.item.userProgress || 
+         (props.item as any).userMediaProgress || 
+         (props.item.media as any)?.userProgress || 
+         null;
 });
 
 const progressPercentage = computed(() => {
   const p = progressData.value;
   if (!p) return 0;
   
-  // FORCE 100% if flagged as finished, regardless of timestamps
+  // 1. Explicitly Finished
   if (p.isFinished) return 100;
 
-  // Server Progress
+  // 2. Server Progress (Handle Decimal 0.5 vs Percent 50 vs 1.0)
   let pct = 0;
   if (typeof p.progress === 'number' && p.progress > 0) {
     pct = p.progress <= 1 ? p.progress * 100 : p.progress;
   }
 
-  // Fallback Calculation
+  // 3. Fallback Calculation 
   const duration = p.duration || props.item.media?.duration || 0;
   const currentTime = p.currentTime || 0;
 
-  if ((!pct || pct === 0) && currentTime > 0 && duration > 0) {
+  if ((!pct || pct < 1) && currentTime > 0 && duration > 0) {
     pct = (currentTime / duration) * 100;
   }
 
@@ -52,9 +56,13 @@ const progressPercentage = computed(() => {
 });
 
 const isFinished = computed(() => {
-  // If API says finished, it's finished.
-  if (progressData.value?.isFinished) return true;
-  // If calculated > 97%, assume finished visually
+  const p = progressData.value;
+  if (!p) return false;
+  
+  // Robust check: explicit flag OR progress is 100% OR progress is 1.0
+  if (p.isFinished) return true;
+  if (p.progress === 1 || p.progress === 100) return true;
+  
   return progressPercentage.value > 97;
 });
 
@@ -66,15 +74,21 @@ const displaySequence = computed(() => {
 
   const meta = props.item.media?.metadata;
   
-  // 2. Direct property
+  // 2. Direct property on metadata
   let seq = meta?.seriesSequence ?? meta?.sequence;
 
-  // 3. Nested series array
+  // 3. Check root level sequence (Series View Item structure)
+  if ((seq === undefined || seq === null) && (props.item as any).sequence !== undefined) {
+    seq = (props.item as any).sequence;
+  }
+
+  // 4. Nested series array (standard ABS item structure)
   if ((seq === undefined || seq === null) && Array.isArray((meta as any).series) && (meta as any).series.length > 0) {
     const s = (meta as any).series[0];
     seq = s.sequence;
   }
 
+  // Allow 0 as a valid sequence (prequels)
   return (seq !== undefined && seq !== null && seq !== '') ? seq : null;
 });
 
@@ -115,7 +129,7 @@ onMounted(async () => {
         loading="lazy" 
       />
       
-      <!-- Book Sequence Badge -->
+      <!-- Book Sequence Badge (Supports 0) -->
       <div v-if="displaySequence !== null" class="absolute top-2 left-2 bg-neutral-900/90 backdrop-blur-md px-2 py-0.5 rounded-md flex items-center justify-center text-[10px] font-black text-white border border-white/10 shadow-xl z-[60] tracking-tight">
         #{{ displaySequence }}
       </div>

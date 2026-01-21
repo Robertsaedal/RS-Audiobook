@@ -47,7 +47,12 @@ const getSequence = (item: ABSLibraryItem) => {
     return String(meta.seriesSequence);
   }
 
-  // 2. Check nested series array
+  // 2. Check root-level sequence on item (Very common in Series view data)
+  if ((item as any).sequence !== undefined && (item as any).sequence !== null) {
+    return String((item as any).sequence);
+  }
+
+  // 3. Check nested series array
   if (Array.isArray((meta as any).series)) {
     const seriesList = (meta as any).series;
     
@@ -67,11 +72,6 @@ const getSequence = (item: ABSLibraryItem) => {
     if (s && s.sequence !== undefined && s.sequence !== null) {
       return String(s.sequence);
     }
-  }
-
-  // 3. Check root-level sequence on item 
-  if ((item as any).sequence !== undefined && (item as any).sequence !== null) {
-    return String((item as any).sequence);
   }
 
   // 4. Check simple sequence property
@@ -233,6 +233,7 @@ onMounted(() => {
             :item="book" 
             :coverUrl="absService.getCoverUrl(book.id)" 
             show-metadata
+            show-progress
             :fallbackSequence="getSequence(book)"
             @click="emit('select-item', book)" 
           />
