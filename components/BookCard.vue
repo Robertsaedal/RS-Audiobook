@@ -9,7 +9,7 @@ const props = defineProps<{
   coverUrl: string,
   isSelected?: boolean,
   showMetadata?: boolean,
-  fallbackSequence?: number | string,
+  fallbackSequence?: number | string | null,
   showProgress?: boolean
 }>();
 
@@ -37,14 +37,16 @@ const progressPercentage = computed(() => {
 
   // 2. If progress is missing/zero but we have timestamps, calculate it
   if ((val === undefined || val === null || val === 0) && p.currentTime > 0) {
-    const duration = p.duration || props.item.media.duration || 1;
-    val = p.currentTime / duration;
+    const duration = p.duration || props.item.media.duration || 0;
+    if (duration > 0) {
+      val = p.currentTime / duration;
+    }
   }
 
   if (!val) return 0;
 
   // 3. Normalize: ABS sends float 0-1 for progress usually. 
-  // If it's <= 1.0, convert to percentage. If > 1, assume it's already a percentage (rare but possible in some legacy apis)
+  // If it's <= 1.0, convert to percentage. If > 1, assume it's already a percentage
   if (val <= 1.0) {
     return val * 100;
   }
@@ -59,6 +61,11 @@ const isFinished = computed(() => {
 });
 
 const displaySequence = computed(() => {
+  // If fallback is provided (from SeriesView), use it
+  if (props.fallbackSequence !== undefined && props.fallbackSequence !== null && props.fallbackSequence !== '') {
+    return props.fallbackSequence;
+  }
+
   const meta = props.item.media?.metadata;
   
   // 1. Direct property (most common for items endpoint)
@@ -69,11 +76,6 @@ const displaySequence = computed(() => {
   if ((seq === undefined || seq === null) && Array.isArray((meta as any).series) && (meta as any).series.length > 0) {
     const s = (meta as any).series[0];
     seq = s.sequence;
-  }
-
-  // 3. Fallback prop
-  if (seq === undefined || seq === null || seq === '') {
-    seq = props.fallbackSequence;
   }
 
   return (seq !== undefined && seq !== null && seq !== '') ? seq : null;
@@ -158,6 +160,7 @@ onMounted(async () => {
       </div>
 
       <!-- Progress Bar (4px height) -->
+      <!-- Only shown if progress > 0 OR if showProgress is explicitly true (Continue Listening shelf) -->
       <div v-if="(progressPercentage > 0 || showProgress) && !isFinished" class="absolute bottom-0 left-0 w-full z-30 bg-neutral-900/50">
          <div 
           class="h-1 bg-gradient-to-r from-purple-600 to-purple-400 shadow-[0_0_8px_rgba(168,85,247,0.8)]" 

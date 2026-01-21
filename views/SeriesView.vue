@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { ABSSeries, ABSLibraryItem } from '../types';
 import { ABSService } from '../services/absService';
 import BookCard from '../components/BookCard.vue';
@@ -38,36 +38,51 @@ const totalDurationPretty = computed(() => {
   return `${h}h ${m}m`;
 });
 
+// Helper to reliably get sequence for sorting and display
+const getSequence = (item: ABSLibraryItem) => {
+  const meta = item.media.metadata;
+  // 1. Check explicit seriesSequence (often present in flattened responses)
+  if (meta.seriesSequence !== undefined && meta.seriesSequence !== null) {
+    return String(meta.seriesSequence);
+  }
+  
+  // 2. Check nested series array for this specific series ID
+  if (Array.isArray((meta as any).series)) {
+    const s = (meta as any).series.find((s: any) => s.id === localSeries.value.id);
+    if (s && s.sequence !== undefined && s.sequence !== null) {
+      return String(s.sequence);
+    }
+  }
+
+  // 3. Fallback to generic sequence property
+  if (meta.sequence !== undefined && meta.sequence !== null) {
+    return String(meta.sequence);
+  }
+
+  return null;
+};
+
 // Sort logic that handles floating point sequences correctly
 const sortedBooks = computed(() => {
   // Prefer the freshly fetched books which have full metadata and progress
   const books = seriesBooks.value.length > 0 ? seriesBooks.value : (localSeries.value.books || []);
   
   return [...books].sort((a, b) => {
-    // Access sequence from flat property or nested series array
-    const getSeq = (item: ABSLibraryItem) => {
-      const meta = item.media.metadata;
-      // 1. Try explicit seriesSequence
-      if (meta.seriesSequence !== undefined && meta.seriesSequence !== null) return parseFloat(String(meta.seriesSequence));
-      // 2. Try sequence property
-      if (meta.sequence !== undefined && meta.sequence !== null) return parseFloat(String(meta.sequence));
-      // 3. Look inside series array if available
-      if (Array.isArray((meta as any).series) && (meta as any).series.length > 0) {
-         const match = (meta as any).series.find((s: any) => s.id === localSeries.value.id);
-         if (match && match.sequence) return parseFloat(String(match.sequence));
-      }
-      return 999999;
-    };
-
-    return getSeq(a) - getSeq(b);
+    const seqA = parseFloat(getSequence(a) || '999999');
+    const seqB = parseFloat(getSequence(b) || '999999');
+    return seqA - seqB;
   });
 });
 
 const fetchBooks = async () => {
+  if (!props.series.id) return;
+  
   isLoadingBooks.value = true;
+  seriesBooks.value = []; // Clear previous
+  
   try {
     // Fetch books via the Item endpoint to ensure we get userProgress and full metadata
-    const books = await props.absService.getSeriesBooks(localSeries.value.id);
+    const books = await props.absService.getSeriesBooks(props.series.id);
     if (books && books.length > 0) {
       seriesBooks.value = books;
     }
@@ -95,6 +110,14 @@ const scanLibrary = async () => {
     isScanning.value = false;
   }
 };
+
+// React to series prop changes (e.g. navigation from player)
+watch(() => props.series.id, (newId) => {
+  if (newId) {
+    localSeries.value = { ...props.series };
+    fetchBooks();
+  }
+});
 
 onMounted(() => {
   fetchBooks();
@@ -189,7 +212,7 @@ onMounted(() => {
             :item="book" 
             :coverUrl="absService.getCoverUrl(book.id)" 
             show-metadata
-            show-progress
+            :fallbackSequence="getSequence(book)"
             @click="emit('select-item', book)" 
           />
         </div>
