@@ -486,7 +486,10 @@ const infoRows = computed(() => {
           <div class="space-y-4">
             <div class="flex items-center gap-2 text-neutral-700"><Layers :size="14" /><span class="text-[9px] font-black uppercase tracking-[0.4em]">Artifact Summary</span></div>
             <h3 class="text-3xl font-black uppercase tracking-tighter text-white leading-tight">{{ metadata.title }}</h3>
-            <p class="text-neutral-500 text-sm leading-relaxed">{{ metadata.description || 'No summary retrieved from repository.' }}</p>
+            <div 
+              class="text-neutral-500 text-sm leading-relaxed [&>p]:mb-4 last:[&>p]:mb-0" 
+              v-html="metadata.description || 'No summary retrieved from repository.'"
+            ></div>
           </div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-8 border-t border-white/5 pt-12">
             <div v-for="row in infoRows" :key="row.label" class="flex flex-col gap-2">

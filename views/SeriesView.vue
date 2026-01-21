@@ -42,29 +42,32 @@ const totalDurationPretty = computed(() => {
 const getSequence = (item: ABSLibraryItem) => {
   const meta = item.media.metadata;
   
-  // 1. Check explicit seriesSequence (Best case, simple float)
-  if (meta.seriesSequence !== undefined && meta.seriesSequence !== null) {
-    return String(meta.seriesSequence);
-  }
-
-  // 2. Check root-level sequence on item (Very common in Series view data)
+  // 1. Check root-level sequence on item (Most reliable for Series Response)
   if ((item as any).sequence !== undefined && (item as any).sequence !== null) {
     return String((item as any).sequence);
+  }
+
+  // 2. Check explicit seriesSequence in metadata (float or string)
+  if (meta.seriesSequence !== undefined && meta.seriesSequence !== null) {
+    return String(meta.seriesSequence);
   }
 
   // 3. Check nested series array
   if (Array.isArray((meta as any).series)) {
     const seriesList = (meta as any).series;
     
-    // Loose equality check (==) to handle string/number ID mismatch from API
-    let s = seriesList.find((s: any) => s.id == localSeries.value.id);
+    // Exact ID match
+    let s = seriesList.find((s: any) => s.id === localSeries.value.id);
     
-    // Fallback: Name match
+    // Loose ID Match (string vs number)
+    if (!s) s = seriesList.find((s: any) => s.id == localSeries.value.id);
+
+    // Name Match
     if (!s && localSeries.value.name) {
        s = seriesList.find((s: any) => s.name === localSeries.value.name);
     }
 
-    // Fallback: If only one series, assume it's this one
+    // Default: If only one series, assume it's this one
     if (!s && seriesList.length === 1) {
        s = seriesList[0];
     }
@@ -74,7 +77,7 @@ const getSequence = (item: ABSLibraryItem) => {
     }
   }
 
-  // 4. Check simple sequence property
+  // 4. Check simple sequence property on metadata
   if (meta.sequence !== undefined && meta.sequence !== null) {
     return String(meta.sequence);
   }
@@ -83,7 +86,9 @@ const getSequence = (item: ABSLibraryItem) => {
 };
 
 const sortedBooks = computed(() => {
+  // Prefer fetched books, fallback to prop books
   const books = seriesBooks.value.length > 0 ? seriesBooks.value : (localSeries.value.books || []);
+  
   return [...books].sort((a, b) => {
     const seqA = parseFloat(getSequence(a) || '999999');
     const seqB = parseFloat(getSequence(b) || '999999');
@@ -97,9 +102,14 @@ const fetchBooks = async () => {
   isLoadingBooks.value = true;
   
   try {
+    // Force fetch from service to ensure we have full book objects
+    // This fixes the "0 books" issue when props.series is just a shell
     const books = await props.absService.getSeriesBooks(props.series.id);
+    
     if (books && books.length > 0) {
       seriesBooks.value = books;
+    } else {
+        console.warn(`[SeriesView] No books returned for series ${props.series.id}`);
     }
   } catch (e) {
     console.error("Failed to fetch series books", e);
@@ -129,20 +139,14 @@ const scanLibrary = async () => {
 watch(() => props.series.id, (newId) => {
   if (newId) {
     localSeries.value = { ...props.series };
-    // Always respect prop data first to avoid flicker
-    if (props.series.books && props.series.books.length > 0) {
-        seriesBooks.value = props.series.books;
-    } else {
-        seriesBooks.value = [];
-    }
+    seriesBooks.value = props.series.books || [];
     fetchBooks();
   }
 });
 
 onMounted(() => {
-  if (seriesBooks.value.length === 0) {
-    fetchBooks();
-  }
+  // Always fetch to ensure we have the latest sequence and progress data
+  fetchBooks();
   
   props.absService.onProgressUpdate((updated) => {
     const updateList = (list: ABSLibraryItem[]) => {

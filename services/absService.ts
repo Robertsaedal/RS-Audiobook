@@ -249,13 +249,18 @@ export class ABSService {
    */
   async getSeriesBooks(seriesId: string): Promise<ABSLibraryItem[]> {
     // Strategy A: Direct Series Endpoint (Preferred)
-    const seriesData = await this.getSeries(seriesId);
-    if (seriesData && Array.isArray(seriesData.books) && seriesData.books.length > 0) {
-      return seriesData.books;
+    try {
+        const seriesData = await this.getSeries(seriesId);
+        if (seriesData && Array.isArray(seriesData.books) && seriesData.books.length > 0) {
+            return seriesData.books;
+        }
+    } catch (e) {
+        console.warn('Series endpoint fetch failed, trying filter fallback', e);
     }
 
     // Strategy B: Items Endpoint with Filter (Fallback)
     // filter=series.id.eq.SERIES_ID
+    // Note: Some servers require UUID matching string
     try {
       const response = await this.getLibraryItemsPaged({
         limit: 500,
