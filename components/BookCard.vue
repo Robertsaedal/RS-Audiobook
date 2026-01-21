@@ -30,33 +30,27 @@ const progressData = computed(() => {
 
 const progressPercentage = computed(() => {
   const p = progressData.value;
+  if (!p) return 0;
   
-  // 1. If explicitly finished, return 100% immediately
-  if (p?.isFinished) return 100;
-  
-  // 2. Calculate based on timestamps (Source of Truth for 0% bug)
-  const currentTime = p?.currentTime || 0;
-  const duration = p?.duration || props.item.media?.duration || 0;
-  
-  let calculatedPct = 0;
-  if (duration > 0 && currentTime > 0) {
-    calculatedPct = (currentTime / duration) * 100;
+  // 1. Explicitly Finished
+  if (p.isFinished) return 100;
+
+  // 2. Server Progress (Handle Decimal 0.5 vs Percent 50)
+  let pct = 0;
+  if (typeof p.progress === 'number' && p.progress > 0) {
+    pct = p.progress <= 1 ? p.progress * 100 : p.progress;
   }
 
-  // 3. Get Server Progress
-  const serverPct = (p?.progress || 0) * 100;
+  // 3. Fallback Calculation if server says 0 but we have timestamps
+  if ((!pct || pct === 0) && p.currentTime > 0 && p.duration > 0) {
+    pct = (p.currentTime / p.duration) * 100;
+  }
 
-  // 4. Decision Logic:
-  // If server says > 0, trust it (it handles floating point better). 
-  // If server says 0 but we have calculated time, trust calculation.
-  const finalPct = Math.max(serverPct, calculatedPct);
-  
-  return Math.min(100, Math.max(0, finalPct));
+  return Math.min(100, Math.max(0, pct));
 });
 
 const isFinished = computed(() => {
-  // Trust explicit flag, OR assume finished if > 97% complete (handles almost-finished states)
-  return progressData.value?.isFinished || progressPercentage.value > 97;
+  return progressData.value?.isFinished || progressPercentage.value >= 99; // Treat >= 99% as finished visually
 });
 
 const displaySequence = computed(() => {
@@ -71,9 +65,7 @@ const displaySequence = computed(() => {
   let seq = meta?.seriesSequence ?? meta?.sequence;
 
   // 3. Nested series array (standard ABS item structure)
-  // Sometimes the sequence is hidden inside the series array for the specific series
   if ((seq === undefined || seq === null) && Array.isArray((meta as any).series) && (meta as any).series.length > 0) {
-    // If we can't identify which series, just take the first one
     const s = (meta as any).series[0];
     seq = s.sequence;
   }
@@ -118,21 +110,28 @@ onMounted(async () => {
         loading="lazy" 
       />
       
-      <!-- Book Sequence Badge (Top Right Pill) -->
-      <div v-if="displaySequence !== null" class="absolute top-2 right-2 bg-purple-600/95 backdrop-blur-md px-2 py-0.5 rounded-md flex items-center justify-center text-[10px] font-black text-white border border-white/20 shadow-xl z-[60] tracking-tight">
+      <!-- Book Sequence Badge (Top Left - Per User Request) -->
+      <div v-if="displaySequence !== null" class="absolute top-2 left-2 bg-neutral-900/90 backdrop-blur-md px-2 py-0.5 rounded-md flex items-center justify-center text-[10px] font-black text-white border border-white/10 shadow-xl z-[60] tracking-tight">
         #{{ displaySequence }}
       </div>
       
-      <!-- Downloaded Badge (Top Left) -->
-      <div v-if="isDownloaded" class="absolute top-2 left-2 z-30 text-purple-400 bg-black/60 rounded-full backdrop-blur-sm p-0.5 border border-white/10">
+      <!-- Finished Checkmark (Top Right - Purple) -->
+      <div v-if="isFinished" class="absolute top-2 right-2 bg-purple-600 rounded-full p-1 shadow-lg z-50 border border-black/20">
+        <CheckCircle :size="14" class="text-white" fill="currentColor" stroke="white" />
+      </div>
+
+      <!-- Downloaded Badge (Top Right or shifted left if finished) -->
+      <div v-if="isDownloaded && !isFinished" class="absolute top-2 right-2 z-30 text-purple-400 bg-black/60 rounded-full backdrop-blur-sm p-0.5 border border-white/10">
         <CheckCircle :size="14" fill="currentColor" class="text-white" />
+      </div>
+      <div v-if="isDownloaded && isFinished" class="absolute top-2 right-8 z-30 text-neutral-400 bg-black/60 rounded-full backdrop-blur-sm p-0.5 border border-white/10">
+        <Check :size="12" />
       </div>
 
       <!-- Mark Finished Button (Visible on hover if not finished) -->
       <div 
         v-if="!isFinished && !hideProgress && (showProgress || progressPercentage > 0)" 
-        class="absolute top-2 left-2 z-40 opacity-0 group-hover:opacity-100 transition-opacity"
-        :class="{ 'left-8': isDownloaded }"
+        class="absolute bottom-12 right-2 z-40 opacity-0 group-hover:opacity-100 transition-opacity"
       >
         <button 
           @click="handleMarkFinished"
@@ -143,14 +142,14 @@ onMounted(async () => {
         </button>
       </div>
 
-      <!-- Finished Indicator Overlay (Prominent - Overrides everything) -->
-      <div v-if="isFinished" class="absolute inset-0 flex items-center justify-center z-40 bg-black/40 backdrop-grayscale-[0.5]">
-         <div class="px-3 py-1 bg-green-600/90 backdrop-blur-md border border-green-400/30 rounded-full flex items-center gap-2 shadow-xl transform -rotate-12">
+      <!-- Finished Indicator Overlay (Prominent Center - Only if explicitly finished state) -->
+      <div v-if="isFinished" class="absolute inset-0 flex items-center justify-center z-40 bg-black/40 backdrop-grayscale-[0.5] pointer-events-none">
+         <div class="px-3 py-1 bg-purple-600/90 backdrop-blur-md border border-purple-400/30 rounded-full flex items-center gap-2 shadow-xl transform -rotate-12">
             <Check :size="12" class="text-white" stroke-width="4" />
-            <span class="text-[9px] font-black text-white uppercase tracking-widest">FINISHED</span>
+            <span class="text-[9px] font-black text-white uppercase tracking-widest">COMPLETE</span>
          </div>
       </div>
-      <div v-if="isFinished" class="absolute bottom-0 left-0 h-1.5 w-full bg-green-500 z-30 shadow-[0_0_10px_rgba(34,197,94,0.5)]" />
+      <div v-if="isFinished" class="absolute bottom-0 left-0 h-1.5 w-full bg-purple-500 z-30 shadow-[0_0_10px_rgba(168,85,247,0.5)]" />
 
       <!-- Play Overlay -->
       <div v-if="!isFinished" class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex items-center justify-center pointer-events-none">
@@ -160,7 +159,7 @@ onMounted(async () => {
       </div>
 
       <!-- Progress Bar (4px height) -->
-      <!-- HIDDEN if hideProgress is true OR item is finished -->
+      <!-- Only show if NOT hiding progress AND NOT finished AND there is some progress -->
       <div v-if="!hideProgress && !isFinished && (progressPercentage > 0 || showProgress)" class="absolute bottom-0 left-0 w-full z-30 bg-neutral-900/50">
          <div 
           class="h-1 bg-gradient-to-r from-purple-600 to-purple-400 shadow-[0_0_8px_rgba(168,85,247,0.8)]" 

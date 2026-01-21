@@ -229,7 +229,6 @@ onMounted(() => {
             :item="book" 
             :coverUrl="absService.getCoverUrl(book.id)" 
             show-metadata
-            hide-progress
             :fallbackSequence="getSequence(book)"
             @click="emit('select-item', book)" 
           />
