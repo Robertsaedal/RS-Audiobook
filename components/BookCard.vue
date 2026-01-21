@@ -26,44 +26,57 @@ const progressData = computed(() => {
   return props.item.userProgress || (props.item as any).userMediaProgress;
 });
 
-const isFinished = computed(() => {
-  const p = progressData.value;
-  // Official client logic: check explicit flag OR high completion
-  // Some servers auto-flag at 90%, some don't. We force visual finish at 97%.
-  if (p?.isFinished) return true;
-  if (progressPercentage.value >= 97) return true;
-  return false;
-});
-
 const progressPercentage = computed(() => {
-  if (progressData.value?.isFinished) return 100;
-
   const p = progressData.value;
   if (!p) return 0;
 
-  let pct = p.progress;
+  // 1. If explicit finished flag, return 100%
+  if (p.isFinished) return 100;
 
-  // Recalculate if progress is 0 but we have timestamps (Fix for 0% stuck issue)
-  if ((!pct || pct === 0) && p.currentTime > 0) {
+  let val = p.progress;
+
+  // 2. If progress is missing/zero but we have timestamps, calculate it
+  if ((val === undefined || val === null || val === 0) && p.currentTime > 0) {
     const duration = p.duration || props.item.media.duration || 1;
-    pct = p.currentTime / duration;
+    val = p.currentTime / duration;
   }
 
-  if (!pct) return 0;
+  if (!val) return 0;
 
-  // Handle 0-1 vs 0-100 normalization
-  if (pct <= 1.0) return pct * 100;
-  return Math.min(100, pct);
+  // 3. Normalize: ABS sends float 0-1 for progress usually. 
+  // If it's <= 1.0, convert to percentage. If > 1, assume it's already a percentage (rare but possible in some legacy apis)
+  if (val <= 1.0) {
+    return val * 100;
+  }
+  
+  return Math.min(100, val);
+});
+
+const isFinished = computed(() => {
+  const p = progressData.value;
+  // Use explicit flag first, fallback to > 97% completion
+  return p?.isFinished || progressPercentage.value >= 97;
 });
 
 const displaySequence = computed(() => {
   const meta = props.item.media?.metadata;
-  // Priority: Metadata Series Sequence -> Item Sequence -> Fallback
-  // Ensure we accept 0 or decimals like 1.5
-  let seq = meta?.seriesSequence ?? meta?.sequence ?? props.fallbackSequence;
   
-  if (seq === undefined || seq === null || seq === '') return null;
-  return seq;
+  // 1. Direct property (most common for items endpoint)
+  let seq = meta?.seriesSequence ?? meta?.sequence;
+
+  // 2. Nested series array (common for books nested in other objects)
+  // ABS structure: media.metadata.series = [{ name: "SeriesName", sequence: "1.5" }]
+  if ((seq === undefined || seq === null) && Array.isArray((meta as any).series) && (meta as any).series.length > 0) {
+    const s = (meta as any).series[0];
+    seq = s.sequence;
+  }
+
+  // 3. Fallback prop
+  if (seq === undefined || seq === null || seq === '') {
+    seq = props.fallbackSequence;
+  }
+
+  return (seq !== undefined && seq !== null && seq !== '') ? seq : null;
 });
 
 const handleImageLoad = () => {

@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { ABSSeries, ABSLibraryItem } from '../types';
 import { ABSService } from '../services/absService';
 import BookCard from '../components/BookCard.vue';
-import { ChevronLeft, Clock, Layers, RotateCw, Play } from 'lucide-vue-next';
+import { ChevronLeft, Layers, RotateCw, Play, Loader2 } from 'lucide-vue-next';
 
 const props = defineProps<{
   series: ABSSeries,
@@ -16,32 +16,67 @@ const emit = defineEmits<{
 }>();
 
 const localSeries = ref({ ...props.series });
+const seriesBooks = ref<ABSLibraryItem[]>([]);
+const isLoadingBooks = ref(true);
 const isScanning = ref(false);
 const scanFeedback = ref('');
 
 const firstBookCover = computed(() => {
-  if (localSeries.value.books && localSeries.value.books.length > 0) {
-    return props.absService.getCoverUrl(localSeries.value.books[0].id);
+  // Use the fetched books if available, otherwise fallback to prop data
+  const books = seriesBooks.value.length > 0 ? seriesBooks.value : localSeries.value.books;
+  if (books && books.length > 0) {
+    return props.absService.getCoverUrl(books[0].id);
   }
   return '';
 });
 
 const totalDurationPretty = computed(() => {
-  const totalSeconds = localSeries.value.books.reduce((acc, book) => acc + (book.media.duration || 0), 0);
+  const books = seriesBooks.value.length > 0 ? seriesBooks.value : localSeries.value.books;
+  const totalSeconds = books?.reduce((acc, book) => acc + (book.media.duration || 0), 0) || 0;
   const h = Math.floor(totalSeconds / 3600);
   const m = Math.floor((totalSeconds % 3600) / 60);
   return `${h}h ${m}m`;
 });
 
+// Sort logic that handles floating point sequences correctly
 const sortedBooks = computed(() => {
-  return [...localSeries.value.books].sort((a, b) => {
-    // Priority: seriesSequence (numeric/float) -> sequence (numeric/float) -> huge number
-    // parseFloat handles "1.5" correctly.
-    const seqA = parseFloat(String(a.media.metadata.seriesSequence || a.media.metadata.sequence || '999999'));
-    const seqB = parseFloat(String(b.media.metadata.seriesSequence || b.media.metadata.sequence || '999999'));
-    return seqA - seqB;
+  // Prefer the freshly fetched books which have full metadata and progress
+  const books = seriesBooks.value.length > 0 ? seriesBooks.value : (localSeries.value.books || []);
+  
+  return [...books].sort((a, b) => {
+    // Access sequence from flat property or nested series array
+    const getSeq = (item: ABSLibraryItem) => {
+      const meta = item.media.metadata;
+      // 1. Try explicit seriesSequence
+      if (meta.seriesSequence !== undefined && meta.seriesSequence !== null) return parseFloat(String(meta.seriesSequence));
+      // 2. Try sequence property
+      if (meta.sequence !== undefined && meta.sequence !== null) return parseFloat(String(meta.sequence));
+      // 3. Look inside series array if available
+      if (Array.isArray((meta as any).series) && (meta as any).series.length > 0) {
+         const match = (meta as any).series.find((s: any) => s.id === localSeries.value.id);
+         if (match && match.sequence) return parseFloat(String(match.sequence));
+      }
+      return 999999;
+    };
+
+    return getSeq(a) - getSeq(b);
   });
 });
+
+const fetchBooks = async () => {
+  isLoadingBooks.value = true;
+  try {
+    // Fetch books via the Item endpoint to ensure we get userProgress and full metadata
+    const books = await props.absService.getSeriesBooks(localSeries.value.id);
+    if (books && books.length > 0) {
+      seriesBooks.value = books;
+    }
+  } catch (e) {
+    console.error("Failed to fetch series books", e);
+  } finally {
+    isLoadingBooks.value = false;
+  }
+};
 
 const scanLibrary = async () => {
   if (isScanning.value) return;
@@ -62,14 +97,18 @@ const scanLibrary = async () => {
 };
 
 onMounted(() => {
+  fetchBooks();
+  
   props.absService.onProgressUpdate((updated) => {
-    const bookIndex = localSeries.value.books.findIndex(b => b.id === updated.itemId);
-    if (bookIndex !== -1) {
-      localSeries.value.books[bookIndex] = { 
-        ...localSeries.value.books[bookIndex], 
-        userProgress: updated 
-      };
-    }
+    // Update both localSeries ref and seriesBooks ref
+    const updateList = (list: ABSLibraryItem[]) => {
+      const idx = list.findIndex(b => b.id === updated.itemId);
+      if (idx !== -1) {
+        list[idx] = { ...list[idx], userProgress: updated };
+      }
+    };
+    if (localSeries.value.books) updateList(localSeries.value.books);
+    updateList(seriesBooks.value);
   });
 });
 </script>
@@ -118,7 +157,7 @@ onMounted(() => {
             <div class="flex items-center gap-3">
               <div class="w-1.5 h-1.5 bg-purple-500 rounded-full shadow-[0_0_8px_#A855F7]" />
               <span class="text-[11px] font-black uppercase tracking-[0.2em] text-neutral-300">
-                Series • {{ localSeries.books.length }} Items • {{ totalDurationPretty }}
+                Series • {{ sortedBooks.length }} Items • {{ totalDurationPretty }}
               </span>
             </div>
             <button class="flex items-center gap-2 px-6 py-3 bg-purple-600 hover:bg-purple-500 rounded-full shadow-lg shadow-purple-600/20 transition-all active:scale-95">
@@ -138,15 +177,19 @@ onMounted(() => {
           <div class="h-px flex-1 bg-white/5 mx-8 hidden md:block" />
           <div class="text-[9px] font-black uppercase tracking-widest text-neutral-600">Sequential Order</div>
         </div>
-        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-x-8 gap-y-16">
-          <!-- Pass sequence explicitly to allow decimals -->
+
+        <div v-if="isLoadingBooks && seriesBooks.length === 0" class="flex justify-center py-20">
+           <Loader2 class="animate-spin text-purple-500" :size="32" />
+        </div>
+
+        <div v-else class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-x-8 gap-y-16">
           <BookCard 
             v-for="(book) in sortedBooks" 
             :key="book.id" 
             :item="book" 
             :coverUrl="absService.getCoverUrl(book.id)" 
             show-metadata
-            :fallback-sequence="book.media.metadata.seriesSequence || book.media.metadata.sequence"
+            show-progress
             @click="emit('select-item', book)" 
           />
         </div>

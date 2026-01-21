@@ -7,7 +7,7 @@ import { OfflineManager } from '../services/offlineManager';
 import ChapterEditor from '../components/ChapterEditor.vue';
 import { 
   ChevronDown, Play, Pause, Info, X, SkipBack, SkipForward,
-  RotateCcw, RotateCw, ChevronRight, Gauge, Moon, Plus, Minus, Mic, Clock, Layers, Download, CheckCircle, Loader2
+  RotateCcw, RotateCw, ChevronRight, Moon, Plus, Minus, Mic, Clock, Layers, Download, CheckCircle, Loader2, BookOpen
 } from 'lucide-vue-next';
 
 const props = defineProps<{
@@ -157,14 +157,63 @@ const handleChapterProgressClick = (e: MouseEvent) => {
   seek(targetTime);
 };
 
-const adjustSleepTimer = (count: number) => {
-  setSleepChapters(state.sleepChapters + count);
+// --- Sleep Timer Logic ---
+const increaseSleep = () => {
+  // If we are currently in chapter mode or off, start 15m timer
+  // If already in time mode, add 15m
+  let currentSeconds = 0;
+  if (state.sleepEndTime) {
+    currentSeconds = Math.max(0, (state.sleepEndTime - state.currentRealtime) / 1000);
+  }
+  
+  // Add 15 minutes (900 seconds)
+  setSleepTimer(currentSeconds + 900);
 };
+
+const decreaseSleep = () => {
+  if (state.sleepChapters > 0) {
+    // If in chapter mode, just turn off
+    setSleepTimer(0);
+    return;
+  }
+  
+  if (state.sleepEndTime) {
+    const currentSeconds = Math.max(0, (state.sleepEndTime - state.currentRealtime) / 1000);
+    const newTime = currentSeconds - 900;
+    if (newTime <= 10) { // Buffer of 10s to just turn off
+      setSleepTimer(0);
+    } else {
+      setSleepTimer(newTime);
+    }
+  }
+};
+
+const toggleChapterSleep = () => {
+  // If currently in chapter mode (1 chapter), turn off
+  if (state.sleepChapters > 0) {
+    setSleepChapters(0);
+  } else {
+    // Set to End of Current Chapter (1 chapter)
+    setSleepChapters(1);
+  }
+};
+
+const metadata = computed(() => activeItem.value?.media?.metadata || {});
+
+const derivedSeriesId = computed(() => {
+  // 1. Explicit property
+  if (metadata.value.seriesId) return metadata.value.seriesId;
+  // 2. Nested series array
+  if (Array.isArray((metadata.value as any).series) && (metadata.value as any).series.length > 0) {
+    return (metadata.value as any).series[0].id;
+  }
+  return null;
+});
 
 const handleSeriesClick = (e: Event) => {
   e.stopPropagation(); // Explicitly prevent propagation
-  if (metadata.value.seriesId) {
-    emit('select-series', metadata.value.seriesId);
+  if (derivedSeriesId.value) {
+    emit('select-series', derivedSeriesId.value);
     showInfo.value = false;
   }
 };
@@ -195,12 +244,10 @@ const handleToggleDownload = async () => {
   }
 };
 
-const metadata = computed(() => activeItem.value?.media?.metadata || {});
-
 const infoRows = computed(() => {
   return [
     { label: 'Narrator', value: metadata.value.narratorName || 'Unknown', icon: Mic },
-    { label: 'Series', value: metadata.value.seriesName || 'Standalone', icon: Layers, isClickable: !!metadata.value.seriesId },
+    { label: 'Series', value: metadata.value.seriesName || 'Standalone', icon: Layers, isClickable: !!derivedSeriesId.value },
     { label: 'Duration', value: secondsToTimestamp(state.duration), icon: Clock },
     { label: 'Year', value: metadata.value.publishedYear || 'Unknown', icon: Clock }
   ];
@@ -259,7 +306,8 @@ const infoRows = computed(() => {
         <!-- Left Column: Visuals & Metadata (40% Desktop) -->
         <div class="flex-1 lg:flex-none lg:w-[40%] flex flex-col items-center justify-center px-8 pb-4 lg:pb-0 relative z-10 min-h-0">
           <!-- Book Cover - Formatted as a Book (2:3 aspect) -->
-          <div @click="showInfo = true" class="relative w-full max-w-[260px] md:max-w-[340px] aspect-[2/3] group cursor-pointer perspective-1000 shrink-0 mb-6 lg:mb-10 max-h-[50vh] lg:max-h-none">
+          <!-- Constrained max-h for landscape tablets to ensure metadata visibility -->
+          <div @click="showInfo = true" class="relative w-full max-w-[260px] md:max-w-[340px] aspect-[2/3] group cursor-pointer perspective-1000 shrink-0 mb-6 lg:mb-10 max-h-[45vh] lg:max-h-[65vh]">
             <div class="absolute -inset-10 bg-purple-600/5 blur-[100px] rounded-full opacity-50" />
             
             <div class="relative z-10 w-full h-full rounded-r-2xl rounded-l-sm overflow-hidden border-t border-r border-b border-white/10 shadow-[20px_20px_60px_-15px_rgba(0,0,0,0.8)] transition-transform duration-700 group-hover:scale-[1.02] group-hover:-translate-y-2 book-spine">
@@ -341,50 +389,63 @@ const infoRows = computed(() => {
             <button @click="skipToNextChapter" class="p-3 text-neutral-700 hover:text-purple-400 transition-colors active:scale-90"><SkipForward :size="20" /></button>
           </div>
 
-          <!-- Speed & Sleep -->
-          <div class="grid grid-cols-2 gap-4">
-            <div class="bg-neutral-900/40 border border-white/5 rounded-[24px] p-5 flex flex-col items-center gap-4 hover:border-white/10 transition-colors">
-              <div class="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-neutral-500"><Gauge :size="12" /><span>Speed</span></div>
-              <div class="flex items-center justify-between w-full px-2">
-                <button @click="setPlaybackRate(Math.max(0.5, state.playbackRate - 0.1))" class="p-1 text-neutral-600 hover:text-white"><Minus :size="14" /></button>
-                <span class="text-base font-black font-mono text-white">{{ state.playbackRate.toFixed(1) }}x</span>
-                <button @click="setPlaybackRate(Math.min(2.5, state.playbackRate + 0.1))" class="p-1 text-neutral-600 hover:text-white"><Plus :size="14" /></button>
-              </div>
-            </div>
+          <!-- Speed & Sleep: Redesigned as requested -->
+          <div class="flex flex-col gap-4 w-full">
             
-            <div class="bg-neutral-900/40 border border-white/5 rounded-[24px] p-5 flex flex-col items-center gap-3 hover:border-white/10 transition-colors">
-              <!-- Header Row -->
-              <div class="flex items-center justify-between w-full px-1">
-                <div class="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-neutral-500"><Moon :size="12" /><span>Sleep</span></div>
-                
-                <!-- Quick Timers moved here -->
-                <div class="flex gap-2">
-                   <button 
-                    @click="setSleepTimer(900)" 
-                    class="text-[10px] font-bold px-1.5 py-0.5 rounded border border-neutral-800 text-neutral-500 hover:text-white hover:border-neutral-600 transition-all"
-                    :class="{ 'text-purple-400 border-purple-500/30': state.sleepEndTime && (state.sleepEndTime - state.currentRealtime) <= 900000 && (state.sleepEndTime - state.currentRealtime) > 0 }"
-                   >15m</button>
-                   <button 
-                    @click="setSleepTimer(1800)" 
-                    class="text-[10px] font-bold px-1.5 py-0.5 rounded border border-neutral-800 text-neutral-500 hover:text-white hover:border-neutral-600 transition-all"
-                    :class="{ 'text-purple-400 border-purple-500/30': state.sleepEndTime && (state.sleepEndTime - state.currentRealtime) > 900000 }"
-                   >30m</button>
-                </div>
-              </div>
-
-              <!-- Main Control -->
-              <div class="flex items-center justify-between w-full px-2 mt-1">
-                <button @click="adjustSleepTimer(-1)" class="p-1 text-neutral-600 hover:text-white"><Minus :size="14" /></button>
-                <div class="flex flex-col items-center min-w-[60px]">
-                   <span v-if="state.sleepChapters > 0 || state.sleepEndTime" class="text-xs font-black text-purple-400 tracking-tighter text-center leading-none">
-                     {{ state.sleepChapters > 0 ? `${state.sleepChapters} ch` : 'Time' }}
-                   </span>
-                   <span v-if="state.sleepChapters > 0 || state.sleepEndTime" class="text-sm font-black font-mono text-white mt-1 drop-shadow-md">{{ secondsToTimestamp(sleepTimeRemaining) }}</span>
-                   <span v-else class="text-sm font-black font-mono text-neutral-600 uppercase">OFF</span>
-                </div>
-                <button @click="adjustSleepTimer(1)" class="p-1 text-neutral-600 hover:text-white"><Plus :size="14" /></button>
-              </div>
+            <!-- Speed Control Row -->
+            <div class="flex items-center justify-between bg-neutral-900/40 border border-white/5 rounded-2xl px-4 py-3 hover:border-white/10 transition-colors">
+               <div class="flex items-center gap-3 text-neutral-500">
+                 <Clock :size="16" />
+                 <span class="text-[9px] font-black uppercase tracking-[0.2em]">Speed</span>
+               </div>
+               
+               <div class="flex items-center gap-6">
+                 <button @click="setPlaybackRate(Math.max(0.5, state.playbackRate - 0.1))" class="p-2 text-neutral-400 hover:text-white transition-colors active:scale-90">
+                   <Minus :size="16" />
+                 </button>
+                 <span class="text-sm font-black font-mono w-12 text-center text-white">{{ state.playbackRate.toFixed(1) }}x</span>
+                 <button @click="setPlaybackRate(Math.min(3.0, state.playbackRate + 0.1))" class="p-2 text-neutral-400 hover:text-white transition-colors active:scale-90">
+                   <Plus :size="16" />
+                 </button>
+               </div>
             </div>
+
+            <!-- Sleep Timer Row -->
+            <div class="flex items-center justify-between bg-neutral-900/40 border border-white/5 rounded-2xl px-4 py-3 hover:border-white/10 transition-colors">
+               <div class="flex items-center gap-3 text-neutral-500">
+                 <Moon :size="16" />
+                 <span class="text-[9px] font-black uppercase tracking-[0.2em]">Sleep</span>
+               </div>
+
+               <div class="flex items-center gap-3">
+                 <div class="flex items-center gap-4 border-r border-white/10 pr-4 mr-1">
+                    <button @click="decreaseSleep" class="p-2 text-neutral-400 hover:text-white transition-colors active:scale-90">
+                      <Minus :size="16" />
+                    </button>
+                    
+                    <div class="flex flex-col items-center min-w-[70px]">
+                        <span v-if="state.sleepChapters > 0" class="text-[10px] font-black text-purple-400 uppercase tracking-widest">End of Ch</span>
+                        <span v-else-if="state.sleepEndTime" class="text-sm font-black font-mono text-white">{{ secondsToTimestamp(sleepTimeRemaining) }}</span>
+                        <span v-else class="text-xs font-black text-neutral-600 uppercase tracking-widest">OFF</span>
+                    </div>
+
+                    <button @click="increaseSleep" class="p-2 text-neutral-400 hover:text-white transition-colors active:scale-90">
+                      <Plus :size="16" />
+                    </button>
+                 </div>
+
+                 <!-- Chapter Toggle Button -->
+                 <button 
+                   @click="toggleChapterSleep"
+                   class="flex flex-col items-center justify-center p-2 rounded-lg transition-all"
+                   :class="state.sleepChapters > 0 ? 'text-purple-400 bg-purple-500/10' : 'text-neutral-500 hover:text-white'"
+                   title="Stop at End of Chapter"
+                 >
+                   <BookOpen :size="18" />
+                 </button>
+               </div>
+            </div>
+
           </div>
 
         </div>

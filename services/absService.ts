@@ -141,6 +141,7 @@ export class ABSService {
     if (params.filter) query.append('filter', params.filter);
     if (params.search) query.append('search', params.search);
     
+    // IMPORTANT: Include progress so we get read status/timestamps
     query.append('include', 'progress,metadata');
     query.append('_cb', Date.now().toString());
 
@@ -245,15 +246,25 @@ export class ABSService {
   }
 
   async getSeries(seriesId: string): Promise<ABSSeries | null> {
-    // IMPORTANT: 'include=books,progress' ensures we get read status for books in the series view
-    const data = await this.fetchApi(`/libraries/${HARDCODED_LIBRARY_ID}/series/${seriesId}?include=books,progress&_cb=${Date.now()}`);
+    // Note: The /series/{id} endpoint often returns books WITHOUT user progress or full metadata.
+    // For the UI, we should fetch the series metadata here, then fetch items separately via getSeriesBooks.
+    const data = await this.fetchApi(`/libraries/${HARDCODED_LIBRARY_ID}/series/${seriesId}?include=books,progress,rssfeed&_cb=${Date.now()}`);
     if (!data) return null;
     return data;
   }
 
-  async getSeriesItems(seriesId: string): Promise<ABSLibraryItem[]> {
-    const data = await this.fetchApi(`/libraries/${HARDCODED_LIBRARY_ID}/series/${seriesId}?include=progress&_cb=${Date.now()}`);
-    return data?.books || data?.results || data?.items || [];
+  /**
+   * Fetches all books for a series using the Library Items endpoint.
+   * This ensures we get the FULL item object including User Progress and correct Sequence metadata.
+   */
+  async getSeriesBooks(seriesId: string): Promise<ABSLibraryItem[]> {
+    const response = await this.getLibraryItemsPaged({
+        limit: 500, // Fetch all books in series
+        filter: `series.${seriesId}`,
+        sort: 'series.sequence', // Backend sort by sequence
+        desc: 0
+    });
+    return response.results || [];
   }
 
   async getProgress(itemId: string): Promise<ABSProgress | null> {
