@@ -48,10 +48,11 @@ const getSequence = (item: ABSLibraryItem) => {
   }
 
   // 2. Check nested series array for this specific series (Complex case)
+  // ABS often nests the sequence inside the series object in the 'series' array
   if (Array.isArray((meta as any).series)) {
     const seriesList = (meta as any).series;
     
-    // 2a. Try to match by ID
+    // 2a. Try to match by ID of the current view's series
     let s = seriesList.find((s: any) => s.id === localSeries.value.id);
     
     // 2b. If no ID match, try to match by Name (Fallback)
@@ -59,7 +60,7 @@ const getSequence = (item: ABSLibraryItem) => {
        s = seriesList.find((s: any) => s.name === localSeries.value.name);
     }
 
-    // 2c. If still nothing and there's only one series, assume it's this one
+    // 2c. If still nothing and there's only one series in the array, assume it's this one
     if (!s && seriesList.length === 1) {
        s = seriesList[0];
     }
@@ -69,19 +70,14 @@ const getSequence = (item: ABSLibraryItem) => {
     }
   }
 
-  // 3. Check simple sequence property (Legacy/Fallback)
-  if (meta.sequence !== undefined && meta.sequence !== null) {
-    return String(meta.sequence);
-  }
-  
-  // 4. Check root-level sequence on item (Common in flattened responses)
+  // 3. Check root-level sequence on item (Common in flattened responses from series endpoint)
   if ((item as any).sequence !== undefined && (item as any).sequence !== null) {
     return String((item as any).sequence);
   }
 
-  // 5. Check 'rel' object (Edge cases)
-  if ((item as any).rel && (item as any).rel.sequence) {
-     return String((item as any).rel.sequence);
+  // 4. Check simple sequence property (Legacy/Fallback)
+  if (meta.sequence !== undefined && meta.sequence !== null) {
+    return String(meta.sequence);
   }
 
   return null;

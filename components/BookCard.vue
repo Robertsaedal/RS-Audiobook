@@ -71,7 +71,9 @@ const displaySequence = computed(() => {
   let seq = meta?.seriesSequence ?? meta?.sequence;
 
   // 3. Nested series array (standard ABS item structure)
+  // Sometimes the sequence is hidden inside the series array for the specific series
   if ((seq === undefined || seq === null) && Array.isArray((meta as any).series) && (meta as any).series.length > 0) {
+    // If we can't identify which series, just take the first one
     const s = (meta as any).series[0];
     seq = s.sequence;
   }

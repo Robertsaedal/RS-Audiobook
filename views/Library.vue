@@ -231,11 +231,9 @@ onUnmounted(() => {
 const handleJumpToSeries = async (seriesId: string) => {
   if (!absService.value || isOfflineMode.value) return;
   
-  // Force Tab Switch Immediately
-  activeTab.value = 'SERIES';
-  
-  // Check if we already have it
+  // Check if we are already viewing this series to prevent redundant fetches
   if (selectedSeries.value?.id === seriesId) {
+    activeTab.value = 'SERIES'; // Ensure tab is correct
     emit('clear-initial-series');
     return;
   }
@@ -244,6 +242,7 @@ const handleJumpToSeries = async (seriesId: string) => {
     const series = await absService.value.getSeries(seriesId);
     if (series) {
       selectedSeries.value = series;
+      activeTab.value = 'SERIES'; // Force Tab Switch
       emit('clear-initial-series');
     }
   } catch (e) {
