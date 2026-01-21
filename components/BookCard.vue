@@ -22,45 +22,48 @@ const imageReady = ref(false);
 const isDownloaded = ref(false);
 const localCover = ref<string | null>(null);
 
-const progress = computed(() => {
-  const p = props.item.userProgress || (props.item as any).userMediaProgress;
-  
-  if (!p) return 0;
-  
-  // 1. Try explicit progress value
-  let pct = p.progress;
-
-  // 2. If progress is missing or 0, try to calculate from timestamps
-  if ((pct === undefined || pct === null || pct === 0) && p.currentTime > 0) {
-     const duration = props.item.media.duration || p.duration || 1;
-     pct = p.currentTime / duration;
-  }
-
-  // 3. Fallback to 0
-  if (!pct) pct = 0;
-
-  // 4. Normalize (0-1 -> 0-100)
-  if (pct <= 1.0) {
-    return pct * 100;
-  }
-  
-  // Cap at 100
-  return Math.min(100, pct);
+const progressData = computed(() => {
+  return props.item.userProgress || (props.item as any).userMediaProgress;
 });
 
 const isFinished = computed(() => {
-  const p = props.item.userProgress || (props.item as any).userMediaProgress;
-  // Check explicit flag OR if progress is basically complete (>= 99%)
-  return p?.isFinished === true || progress.value >= 99;
+  const p = progressData.value;
+  // Official client logic: check explicit flag OR high completion
+  // Some servers auto-flag at 90%, some don't. We force visual finish at 97%.
+  if (p?.isFinished) return true;
+  if (progressPercentage.value >= 97) return true;
+  return false;
+});
+
+const progressPercentage = computed(() => {
+  if (progressData.value?.isFinished) return 100;
+
+  const p = progressData.value;
+  if (!p) return 0;
+
+  let pct = p.progress;
+
+  // Recalculate if progress is 0 but we have timestamps (Fix for 0% stuck issue)
+  if ((!pct || pct === 0) && p.currentTime > 0) {
+    const duration = p.duration || props.item.media.duration || 1;
+    pct = p.currentTime / duration;
+  }
+
+  if (!pct) return 0;
+
+  // Handle 0-1 vs 0-100 normalization
+  if (pct <= 1.0) return pct * 100;
+  return Math.min(100, pct);
 });
 
 const displaySequence = computed(() => {
   const meta = props.item.media?.metadata;
-  // Priority: Metadata Series Sequence -> Item Sequence -> Fallback Prop
-  // Returns raw value to support decimals (e.g. 1.5)
-  // Ensure we don't accidentally return 0 as false if sequence is literally 0
-  const seq = meta?.seriesSequence ?? meta?.sequence ?? props.fallbackSequence;
-  return seq !== undefined && seq !== null ? seq : null;
+  // Priority: Metadata Series Sequence -> Item Sequence -> Fallback
+  // Ensure we accept 0 or decimals like 1.5
+  let seq = meta?.seriesSequence ?? meta?.sequence ?? props.fallbackSequence;
+  
+  if (seq === undefined || seq === null || seq === '') return null;
+  return seq;
 });
 
 const handleImageLoad = () => {
@@ -100,8 +103,8 @@ onMounted(async () => {
         loading="lazy" 
       />
       
-      <!-- Book Sequence Badge (Top Right Pill) - High Z-index -->
-      <div v-if="displaySequence !== null && displaySequence !== ''" class="absolute top-2 right-2 bg-purple-600/95 backdrop-blur-md px-2 py-0.5 rounded-md flex items-center justify-center text-[10px] font-black text-white border border-white/20 shadow-xl z-[60] tracking-tight">
+      <!-- Book Sequence Badge (Top Right Pill) -->
+      <div v-if="displaySequence !== null" class="absolute top-2 right-2 bg-purple-600/95 backdrop-blur-md px-2 py-0.5 rounded-md flex items-center justify-center text-[10px] font-black text-white border border-white/20 shadow-xl z-[60] tracking-tight">
         #{{ displaySequence }}
       </div>
       
@@ -112,7 +115,7 @@ onMounted(async () => {
 
       <!-- Mark Finished Button (Top Left - Hover or if in progress) -->
       <div 
-        v-if="!isFinished && (showProgress || progress > 0)" 
+        v-if="!isFinished && (showProgress || progressPercentage > 0)" 
         class="absolute top-2 left-2 z-40 opacity-0 group-hover:opacity-100 transition-opacity"
         :class="{ 'left-8': isDownloaded }"
       >
@@ -141,20 +144,20 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- Progress Bar (4px height) - Force show if showProgress is true even if calculated 0% -->
-      <div v-if="(progress > 0 || showProgress) && !isFinished" class="absolute bottom-0 left-0 w-full z-30 bg-neutral-900/50">
+      <!-- Progress Bar (4px height) -->
+      <div v-if="(progressPercentage > 0 || showProgress) && !isFinished" class="absolute bottom-0 left-0 w-full z-30 bg-neutral-900/50">
          <div 
           class="h-1 bg-gradient-to-r from-purple-600 to-purple-400 shadow-[0_0_8px_rgba(168,85,247,0.8)]" 
-          :style="{ width: Math.max(progress, showProgress && progress === 0 ? 2 : progress) + '%' }" 
+          :style="{ width: Math.max(progressPercentage, showProgress && progressPercentage === 0 ? 2 : progressPercentage) + '%' }" 
         />
       </div>
       
       <!-- Percentage Text Overlay -->
-      <div v-if="(progress > 0 || showProgress) && !isFinished" 
+      <div v-if="(progressPercentage > 0 || showProgress) && !isFinished" 
         class="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur-md px-2 py-1 rounded text-[9px] font-black text-white uppercase tracking-widest z-30 transition-opacity pointer-events-none border border-white/10"
         :class="showProgress ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'"
       >
-        {{ Math.round(progress) }}%
+        {{ Math.round(progressPercentage) }}%
       </div>
     </div>
     

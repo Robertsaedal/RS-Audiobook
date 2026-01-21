@@ -231,9 +231,11 @@ onUnmounted(() => {
 const handleJumpToSeries = async (seriesId: string) => {
   if (!absService.value || isOfflineMode.value) return;
   
-  // If we are already viewing this series, check if we need to refresh, otherwise just switch tab
+  // Force Tab Switch Immediately
+  activeTab.value = 'SERIES';
+  
+  // Check if we already have it
   if (selectedSeries.value?.id === seriesId) {
-    activeTab.value = 'SERIES';
     emit('clear-initial-series');
     return;
   }
@@ -242,7 +244,6 @@ const handleJumpToSeries = async (seriesId: string) => {
     const series = await absService.value.getSeries(seriesId);
     if (series) {
       selectedSeries.value = series;
-      activeTab.value = 'SERIES'; // Force tab switch
       emit('clear-initial-series');
     }
   } catch (e) {

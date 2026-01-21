@@ -245,7 +245,8 @@ export class ABSService {
   }
 
   async getSeries(seriesId: string): Promise<ABSSeries | null> {
-    const data = await this.fetchApi(`/libraries/${HARDCODED_LIBRARY_ID}/series/${seriesId}?include=books&_cb=${Date.now()}`);
+    // IMPORTANT: 'include=books,progress' ensures we get read status for books in the series view
+    const data = await this.fetchApi(`/libraries/${HARDCODED_LIBRARY_ID}/series/${seriesId}?include=books,progress&_cb=${Date.now()}`);
     if (!data) return null;
     return data;
   }

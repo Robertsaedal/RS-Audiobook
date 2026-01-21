@@ -35,9 +35,10 @@ const totalDurationPretty = computed(() => {
 
 const sortedBooks = computed(() => {
   return [...localSeries.value.books].sort((a, b) => {
-    // Priority: seriesSequence (numeric) -> sequence (numeric) -> 0
-    const seqA = parseFloat(String(a.media.metadata.seriesSequence || a.media.metadata.sequence || '9999'));
-    const seqB = parseFloat(String(b.media.metadata.seriesSequence || b.media.metadata.sequence || '9999'));
+    // Priority: seriesSequence (numeric/float) -> sequence (numeric/float) -> huge number
+    // parseFloat handles "1.5" correctly.
+    const seqA = parseFloat(String(a.media.metadata.seriesSequence || a.media.metadata.sequence || '999999'));
+    const seqB = parseFloat(String(b.media.metadata.seriesSequence || b.media.metadata.sequence || '999999'));
     return seqA - seqB;
   });
 });
@@ -138,7 +139,7 @@ onMounted(() => {
           <div class="text-[9px] font-black uppercase tracking-widest text-neutral-600">Sequential Order</div>
         </div>
         <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-x-8 gap-y-16">
-          <!-- Explicitly passing fallback-sequence to ensure #1.5 works -->
+          <!-- Pass sequence explicitly to allow decimals -->
           <BookCard 
             v-for="(book) in sortedBooks" 
             :key="book.id" 
