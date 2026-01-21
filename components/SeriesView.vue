@@ -89,7 +89,7 @@ const getSequence = (item: ABSLibraryItem) => {
   }
 
   return null;
-});
+};
 
 const sortedBooks = computed(() => {
   // Use localSeries.books if seriesBooks is empty to prevent flash of empty content
