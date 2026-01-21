@@ -140,8 +140,8 @@ export class ABSService {
     if (params.filter) query.append('filter', params.filter);
     if (params.search) query.append('search', params.search);
     
-    // Explicitly request series to ensure sequence data is present
-    query.append('include', 'progress,metadata,series');
+    // Explicitly request progress and media (for duration fallback) and series (for sequence)
+    query.append('include', 'progress,metadata,series,media');
     query.append('_cb', Date.now().toString());
 
     const data = await this.fetchApi(`/libraries/${HARDCODED_LIBRARY_ID}/items?${query.toString()}`);
@@ -155,8 +155,8 @@ export class ABSService {
     const query = new URLSearchParams();
     if (params?.limit) query.append('limit', params.limit.toString());
     
-    // Explicitly request progress, metadata, and series to ensure hydration and correct sequence numbers
-    query.append('include', 'progress,metadata,series');
+    // Explicitly request progress (userProgress), metadata, series, and media (for duration)
+    query.append('include', 'progress,metadata,series,media');
     
     query.append('_cb', Date.now().toString());
 
@@ -180,7 +180,7 @@ export class ABSService {
 
   async getItemsInProgress(): Promise<ABSLibraryItem[]> {
     // Also update here just in case, though personalized covers most
-    const data = await this.fetchApi(`/me/items-in-progress?include=progress,metadata,series&_cb=${Date.now()}`);
+    const data = await this.fetchApi(`/me/items-in-progress?include=progress,metadata,series,media&_cb=${Date.now()}`);
     return Array.isArray(data) ? data : (data?.results || []);
   }
 

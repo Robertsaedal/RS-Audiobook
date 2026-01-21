@@ -33,32 +33,29 @@ const progressData = computed(() => {
 
 const progressPercentage = computed(() => {
   const p = progressData.value;
-  if (!p) return 0;
-  
-  // 1. Explicitly Finished Flag
-  if (p.isFinished) return 100;
+  const media = props.item.media;
 
-  // 2. Calculate from Timestamps (Most Reliable for "0%" issue or live updates)
-  const duration = p.duration || props.item.media?.duration || 0;
-  const currentTime = p.currentTime || 0;
-  let calculatedPct = 0;
+  // 1. Explicitly Finished Flag (Instant 100%)
+  if (p?.isFinished) return 100;
+
+  // 2. "Heartbeat" Calculation (currentTime / duration)
+  // This is the most accurate method. We fallback to media.duration if the progress object lacks it.
+  const duration = p?.duration || media?.duration || 0;
+  const currentTime = p?.currentTime || 0;
 
   if (duration > 0 && currentTime > 0) {
-    calculatedPct = (currentTime / duration) * 100;
+    const calculatedPct = (currentTime / duration) * 100;
+    return Math.min(100, Math.max(0, calculatedPct));
   }
 
-  // 3. Server Provided Progress
-  let serverPct = 0;
-  if (typeof p.progress === 'number') {
-    // Handle 0.0-1.0 vs 0-100 scales
-    serverPct = p.progress <= 1 && p.progress > 0 ? p.progress * 100 : p.progress;
+  // 3. Server Provided Pre-calculated Progress (Fallback)
+  // ABS sends this as a float 0.0 to 1.0
+  if (typeof p?.progress === 'number' && p.progress > 0) {
+    const serverPct = p.progress <= 1 ? p.progress * 100 : p.progress;
+    return Math.min(100, Math.max(0, serverPct));
   }
 
-  // Use the larger of the two (handles cases where server sends 0 but we have local timestamp updates)
-  let finalPct = Math.max(calculatedPct, serverPct);
-
-  // Cap at 100, floor at 0
-  return Math.min(100, Math.max(0, finalPct));
+  return 0;
 });
 
 const isFinished = computed(() => {
