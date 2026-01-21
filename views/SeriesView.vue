@@ -42,30 +42,44 @@ const totalDurationPretty = computed(() => {
 const getSequence = (item: ABSLibraryItem) => {
   const meta = item.media.metadata;
   
-  // 1. Check explicit seriesSequence (Standard Item)
+  // 1. Check explicit seriesSequence (Best case, simple float)
   if (meta.seriesSequence !== undefined && meta.seriesSequence !== null) {
     return String(meta.seriesSequence);
   }
 
-  // 2. Check nested series array for this specific series ID (Full Metadata)
+  // 2. Check nested series array for this specific series (Complex case)
   if (Array.isArray((meta as any).series)) {
-    const s = (meta as any).series.find((s: any) => s.id === localSeries.value.id);
+    const seriesList = (meta as any).series;
+    
+    // 2a. Try to match by ID
+    let s = seriesList.find((s: any) => s.id === localSeries.value.id);
+    
+    // 2b. If no ID match, try to match by Name (Fallback)
+    if (!s && localSeries.value.name) {
+       s = seriesList.find((s: any) => s.name === localSeries.value.name);
+    }
+
+    // 2c. If still nothing and there's only one series, assume it's this one
+    if (!s && seriesList.length === 1) {
+       s = seriesList[0];
+    }
+
     if (s && s.sequence !== undefined && s.sequence !== null) {
       return String(s.sequence);
     }
   }
 
-  // 3. Check simple sequence property (Fallback)
+  // 3. Check simple sequence property (Legacy/Fallback)
   if (meta.sequence !== undefined && meta.sequence !== null) {
     return String(meta.sequence);
   }
   
-  // 4. Check root-level sequence on item (often found in series responses)
+  // 4. Check root-level sequence on item (Common in flattened responses)
   if ((item as any).sequence !== undefined && (item as any).sequence !== null) {
     return String((item as any).sequence);
   }
 
-  // 5. Check if item has a 'rel' object or similar (Edge cases)
+  // 5. Check 'rel' object (Edge cases)
   if ((item as any).rel && (item as any).rel.sequence) {
      return String((item as any).rel.sequence);
   }

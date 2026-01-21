@@ -169,6 +169,8 @@ const liveSleepCountdown = computed(() => {
     let totalSeconds = Math.max(0, (currentChapter.value?.end || 0) - state.currentTime);
     
     // Add durations of SUBSEQUENT chapters (up to sleepChapters - 1)
+    // Example: sleepChapters = 1 means finish current. 
+    // sleepChapters = 2 means finish current + next one.
     for (let i = 1; i < state.sleepChapters; i++) {
        const nextCh = chapters.value[currentChapterIndex.value + i];
        if (nextCh) {
@@ -352,7 +354,7 @@ const infoRows = computed(() => {
                </div>
                
                <!-- CENTER: Live Sleep Timer Display -->
-               <div v-if="liveSleepCountdown" class="flex flex-col items-center pb-1">
+               <div v-if="liveSleepCountdown" class="flex flex-col items-center pb-1 absolute left-1/2 -translate-x-1/2 bottom-12 md:static md:translate-x-0 md:pb-0">
                    <span class="text-[10px] font-black font-mono-timer tracking-widest text-purple-400 animate-pulse shadow-aether-glow">
                        {{ liveSleepCountdown }} REMAINING
                    </span>

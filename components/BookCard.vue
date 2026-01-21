@@ -24,36 +24,39 @@ const isDownloaded = ref(false);
 const localCover = ref<string | null>(null);
 
 const progressData = computed(() => {
-  return props.item.userProgress || (props.item as any).userMediaProgress;
+  // Handle both standard userProgress and the nested structure sometimes returned by search/series
+  return props.item.userProgress || (props.item as any).userMediaProgress || null;
 });
 
 const progressPercentage = computed(() => {
   const p = progressData.value;
-  // If explicitly finished, return 100%
+  
+  // 1. If explicitly finished, return 100% immediately
   if (p?.isFinished) return 100;
   
-  // Calculate percentage from timestamps if available
-  // We prioritize this over p.progress if p.progress is 0 but we have valid timestamps
+  // 2. Calculate based on timestamps (Source of Truth for 0% bug)
   const currentTime = p?.currentTime || 0;
   const duration = p?.duration || props.item.media?.duration || 0;
   
-  let calculated = 0;
+  let calculatedPct = 0;
   if (duration > 0 && currentTime > 0) {
-    calculated = (currentTime / duration) * 100;
+    calculatedPct = (currentTime / duration) * 100;
   }
 
-  // Use server progress if reasonable (and not 0 if calculated is > 0)
-  if (p && typeof p.progress === 'number' && p.progress > 0) {
-    return Math.max(p.progress * 100, calculated);
-  }
+  // 3. Get Server Progress
+  const serverPct = (p?.progress || 0) * 100;
 
-  // Fallback to calculated
-  return Math.min(100, Math.max(0, calculated));
+  // 4. Decision Logic:
+  // If server says > 0, trust it (it handles floating point better). 
+  // If server says 0 but we have calculated time, trust calculation.
+  const finalPct = Math.max(serverPct, calculatedPct);
+  
+  return Math.min(100, Math.max(0, finalPct));
 });
 
 const isFinished = computed(() => {
-  // Trust explicit flag, OR assume finished if > 95% complete to handle floating point issues
-  return progressData.value?.isFinished || progressPercentage.value > 95;
+  // Trust explicit flag, OR assume finished if > 97% complete (handles almost-finished states)
+  return progressData.value?.isFinished || progressPercentage.value > 97;
 });
 
 const displaySequence = computed(() => {
@@ -138,8 +141,8 @@ onMounted(async () => {
         </button>
       </div>
 
-      <!-- Finished Indicator Overlay (Prominent) -->
-      <div v-if="isFinished" class="absolute inset-0 flex items-center justify-center z-40 bg-black/40">
+      <!-- Finished Indicator Overlay (Prominent - Overrides everything) -->
+      <div v-if="isFinished" class="absolute inset-0 flex items-center justify-center z-40 bg-black/40 backdrop-grayscale-[0.5]">
          <div class="px-3 py-1 bg-green-600/90 backdrop-blur-md border border-green-400/30 rounded-full flex items-center gap-2 shadow-xl transform -rotate-12">
             <Check :size="12" class="text-white" stroke-width="4" />
             <span class="text-[9px] font-black text-white uppercase tracking-widest">FINISHED</span>
@@ -155,7 +158,7 @@ onMounted(async () => {
       </div>
 
       <!-- Progress Bar (4px height) -->
-      <!-- HIDDEN if hideProgress is true, otherwise follows standard logic -->
+      <!-- HIDDEN if hideProgress is true OR item is finished -->
       <div v-if="!hideProgress && !isFinished && (progressPercentage > 0 || showProgress)" class="absolute bottom-0 left-0 w-full z-30 bg-neutral-900/50">
          <div 
           class="h-1 bg-gradient-to-r from-purple-600 to-purple-400 shadow-[0_0_8px_rgba(168,85,247,0.8)]" 
