@@ -45,8 +45,8 @@ export class ABSService {
       timeout: 10000,
     });
 
-    // CRITICAL FIX: The server expects an explicit 'auth' event immediately after connection.
-    // Without this, the server treats the socket as unauthenticated and sends no user events.
+    // CRITICAL: The server expects an explicit 'auth' event after connection.
+    // Handshake auth alone is often insufficient for the custom socket handler.
     this.socket.on('connect', () => {
       console.log('[ABSService] Socket connected, authenticating...');
       this.emitAuth();
