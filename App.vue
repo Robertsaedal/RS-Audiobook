@@ -105,6 +105,13 @@ const initAbsService = () => {
         }
      }
   });
+
+  // Initial Fetch of all progress to populate stats and resume points
+  absService.value.getAllUserProgress().then(items => {
+      items.forEach(p => {
+          progressMap.set(p.itemId, p);
+      });
+  });
 };
 
 onMounted(() => {
@@ -215,7 +222,7 @@ const closePlayer = (shouldPopState = true) => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-[#0d0d0d] text-white selection:bg-purple-900 flex flex-col font-sans overflow-hidden">
+  <div class="min-h-screen bg-[#0d0d0d] bg-noise text-white selection:bg-purple-900 flex flex-col font-sans overflow-hidden">
     <!-- Loader -->
     <div v-if="isInitializing" class="fixed inset-0 bg-[#0d0d0d] flex flex-col items-center justify-center gap-6 z-[200]">
       <div class="w-16 h-16 border-4 border-purple-600/10 border-t-purple-600 rounded-full animate-spin" />

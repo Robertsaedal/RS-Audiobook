@@ -3,7 +3,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { ABSService } from '../services/absService';
 import { ABSProgress } from '../types';
-import { BookOpen, Calendar, BarChart2, AlertCircle, PlayCircle, Trophy } from 'lucide-vue-next';
+import { BarChart2, AlertCircle, PlayCircle, Trophy, ChevronLeft, ChevronRight } from 'lucide-vue-next';
 
 const props = defineProps<{
   absService: ABSService,
@@ -18,7 +18,10 @@ const stats = ref<{
   recentSessions: any[];
 } | null>(null);
 
-// Calculate books finished directly from the reactive map if available
+const currentYear = new Date().getFullYear();
+const selectedYear = ref(currentYear);
+
+// Calculate books finished directly from the reactive map if available (Lifetime/Library Context)
 const totalBooksFinished = computed(() => {
   if (props.progressMap && props.progressMap.size > 0) {
     let count = 0;
@@ -30,13 +33,14 @@ const totalBooksFinished = computed(() => {
   return 0;
 });
 
+// Filter days data by selected year
 const monthlyData = computed(() => {
   const months = new Array(12).fill(0);
   if (!stats.value?.days) return months;
 
   Object.entries(stats.value.days).forEach(([dateStr, seconds]) => {
     const date = new Date(dateStr);
-    if (!isNaN(date.getTime())) {
+    if (!isNaN(date.getTime()) && date.getFullYear() === selectedYear.value) {
       months[date.getMonth()] += seconds;
     }
   });
@@ -57,7 +61,6 @@ const fetchStats = async () => {
   error.value = null;
   
   try {
-    // 1. Fetch overall listening stats
     const data = await props.absService.getListeningStats();
     if (!data) throw new Error("No stats available.");
     stats.value = data;
@@ -69,22 +72,39 @@ const fetchStats = async () => {
   }
 };
 
+const changeYear = (delta: number) => {
+  selectedYear.value += delta;
+};
+
 onMounted(() => {
   fetchStats();
 });
 
 const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const currentYear = new Date().getFullYear();
 </script>
 
 <template>
   <div class="h-full flex flex-col overflow-hidden animate-fade-in relative bg-[#0d0d0d] -mx-4 md:-mx-8">
     <div class="flex-1 overflow-y-auto custom-scrollbar px-4 md:px-8 pb-40">
       
-      <!-- Header -->
-      <div class="pt-8 pb-12">
-        <h1 class="text-4xl md:text-5xl font-black uppercase tracking-tighter text-white mb-2">My Analytics</h1>
-        <p class="text-[10px] font-black uppercase tracking-[0.4em] text-purple-500">{{ currentYear }} Year in Review</p>
+      <!-- Header with Year Selector -->
+      <div class="pt-8 pb-12 flex items-end justify-between">
+        <div>
+          <h1 class="text-4xl md:text-5xl font-black uppercase tracking-tighter text-white mb-2">My Analytics</h1>
+          <p class="text-[10px] font-black uppercase tracking-[0.4em] text-purple-500">Year in Review</p>
+        </div>
+        
+        <div class="flex items-center gap-4 bg-neutral-900/50 rounded-full px-4 py-2 border border-white/5">
+          <button @click="changeYear(-1)" class="p-1 hover:text-purple-400 transition-colors"><ChevronLeft :size="16" /></button>
+          <span class="text-sm font-black font-mono text-white">{{ selectedYear }}</span>
+          <button 
+            @click="changeYear(1)" 
+            class="p-1 hover:text-purple-400 transition-colors disabled:opacity-30 disabled:hover:text-white"
+            :disabled="selectedYear >= currentYear"
+          >
+            <ChevronRight :size="16" />
+          </button>
+        </div>
       </div>
 
       <div v-if="isLoading" class="flex flex-col items-center justify-center py-40 gap-6">
@@ -123,7 +143,7 @@ const currentYear = new Date().getFullYear();
            <div class="bg-neutral-900/40 border border-white/5 rounded-3xl p-8 flex flex-col gap-4 md:col-span-2">
              <div class="flex items-center gap-3 text-green-400">
                <BarChart2 :size="20" />
-               <span class="text-[9px] font-black uppercase tracking-[0.3em]">Listening Volume ({{ currentYear }})</span>
+               <span class="text-[9px] font-black uppercase tracking-[0.3em]">Listening Volume ({{ selectedYear }})</span>
              </div>
              <div class="flex-1 flex items-end justify-between gap-2 pt-6 h-32">
                  <div 
@@ -132,7 +152,7 @@ const currentYear = new Date().getFullYear();
                    class="flex-1 bg-neutral-800 rounded-t-sm hover:bg-green-500 transition-colors relative group"
                    :style="{ height: `${(val / maxMonthlyValue) * 100}%`, minHeight: '4px' }"
                  >
-                    <div class="absolute -top-8 left-1/2 -translate-x-1/2 bg-white text-black text-[9px] font-bold px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                    <div class="absolute -top-8 left-1/2 -translate-x-1/2 bg-white text-black text-[9px] font-bold px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
                         {{ Math.round(val / 3600) }} hrs
                     </div>
                  </div>

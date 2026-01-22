@@ -1,9 +1,10 @@
+
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { ABSSeries, ABSLibraryItem, AuthState, ABSProgress } from '../types';
 import { ABSService } from '../services/absService';
 import BookCard from '../components/BookCard.vue';
-import { ChevronLeft, Layers, RotateCw, Play, Loader2 } from 'lucide-vue-next';
+import { ChevronLeft, Layers, RotateCw, Loader2 } from 'lucide-vue-next';
 
 const props = defineProps<{
   series: ABSSeries,
@@ -240,10 +241,6 @@ onMounted(() => {
                 Series • {{ sortedBooks.length }} Items • {{ totalDurationPretty }}
               </span>
             </div>
-            <button class="flex items-center gap-2 px-6 py-3 bg-purple-600 hover:bg-purple-500 rounded-full shadow-lg shadow-purple-600/20 transition-all active:scale-95">
-              <Play :size="16" fill="currentColor" />
-              <span class="text-[10px] font-black uppercase tracking-[0.3em]">Play Sequence</span>
-            </button>
           </div>
         </div>
       </section>

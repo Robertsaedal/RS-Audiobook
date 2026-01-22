@@ -44,6 +44,17 @@ export class ABSService {
       reconnection: true,
       timeout: 10000,
     });
+
+    // CRITICAL FIX: The server expects an explicit 'auth' event immediately after connection.
+    // Without this, the server treats the socket as unauthenticated and sends no user events.
+    this.socket.on('connect', () => {
+      console.log('[ABSService] Socket connected, authenticating...');
+      this.emitAuth();
+    });
+
+    this.socket.on('connect_error', (err) => {
+      console.warn('[ABSService] Socket connection error:', err.message);
+    });
   }
 
   public reconnect() {
@@ -53,10 +64,8 @@ export class ABSService {
   }
 
   public emitAuth() {
-    if (this.socket && this.socket.connected) {
-      this.socket.emit('auth', { token: this.token });
-    } else {
-      this.reconnect();
+    if (this.socket) {
+      this.socket.emit('auth', this.token);
     }
   }
 

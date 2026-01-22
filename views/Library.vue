@@ -115,9 +115,6 @@ const initService = async () => {
     }
   }
 
-  // Only setup local listeners if we created the service OR if we want redundant local handling
-  // If service is provided, App.vue handles global map updates.
-  // However, we still need to know when shelves should update (item_added etc)
   setupListeners();
 };
 
@@ -321,7 +318,10 @@ const updateOnlineStatus = () => {
 
 onMounted(async () => {
   await initService();
-  await initProgressMap(); 
+  // Don't need initProgressMap here if we are using the global one
+  if (!props.providedService) {
+      await initProgressMap(); 
+  }
   await fetchDashboardData();
   if (props.initialSeriesId) await nextTick(() => handleJumpToSeries(props.initialSeriesId!));
   window.addEventListener('online', updateOnlineStatus);
