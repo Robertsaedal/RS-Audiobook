@@ -26,6 +26,19 @@ const handlePopState = (event: PopStateEvent) => {
   }
 };
 
+const handleInstallPrompt = (e: Event) => {
+  // Prevent Chrome 67 and earlier from automatically showing the prompt
+  e.preventDefault();
+  // Stash the event so it can be triggered later.
+  deferredPrompt.value = e;
+  
+  // Check if user has dismissed it recently
+  const dismissed = localStorage.getItem('rs_pwa_dismissed');
+  if (!dismissed) {
+    showPwaBanner.value = true;
+  }
+};
+
 onMounted(() => {
   const savedAuth = localStorage.getItem('rs_auth');
   if (savedAuth) {
@@ -44,21 +57,19 @@ onMounted(() => {
   isIOS.value = isIosDevice;
 
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true;
-  const dismissed = localStorage.getItem('rs_pwa_dismissed');
+  
+  // Check for existing deferred prompt (captured in main.ts)
+  const earlyPrompt = (window as any).deferredPrompt;
+  if (earlyPrompt) {
+    handleInstallPrompt(earlyPrompt);
+    (window as any).deferredPrompt = null;
+  }
 
-  if (!isStandalone && !dismissed) {
-    if (isIosDevice) {
-      setTimeout(() => {
-        showPwaBanner.value = true;
-      }, 2000);
-    } else {
-      const earlyPrompt = (window as any).deferredPrompt;
-      if (earlyPrompt) {
-        deferredPrompt.value = earlyPrompt;
-        showPwaBanner.value = true;
-        (window as any).deferredPrompt = null;
-      }
-    }
+  // IOS Banner Logic (No event, just timeout)
+  if (isIosDevice && !isStandalone && !localStorage.getItem('rs_pwa_dismissed')) {
+    setTimeout(() => {
+      showPwaBanner.value = true;
+    }, 3000);
   }
 
   window.addEventListener('popstate', handlePopState);
@@ -69,15 +80,6 @@ onUnmounted(() => {
   window.removeEventListener('popstate', handlePopState);
   window.removeEventListener('beforeinstallprompt', handleInstallPrompt);
 });
-
-const handleInstallPrompt = (e: Event) => {
-  e.preventDefault();
-  const dismissed = localStorage.getItem('rs_pwa_dismissed');
-  if (!dismissed) {
-    deferredPrompt.value = e;
-    showPwaBanner.value = true;
-  }
-};
 
 const installApp = async () => {
   if (!deferredPrompt.value) return;

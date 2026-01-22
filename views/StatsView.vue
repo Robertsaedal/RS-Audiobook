@@ -56,18 +56,23 @@ const fetchStats = async () => {
         const response = await props.absService.getLibraryItemsPaged({ 
             limit: 1000, 
             sort: 'updatedAt',
-            desc: 1
+            desc: 1,
+            filter: 'progress.isFinished.eq.true' // Try server side filter if supported, otherwise fetch all
         });
         
-        const items = response.results || [];
+        let items = response.results || [];
         
-        // Count ALL finished books regardless of year
+        // If the server filter didn't work effectively (or we want to double check), we filter manually.
+        // Also check "progress" property if it wasn't filtered by the API.
+        
         const finishedItems = items.filter(item => {
-            const p = item.userProgress;
+            // Robust check for user progress in various locations
+            const p = item.userProgress || (item.media as any)?.userProgress || (item as any).userMediaProgress;
+            
             if (!p) return false;
 
             // Definition of finished: explicitly marked OR > 99% progress
-            return p.isFinished === true || (p.progress && p.progress >= 0.99);
+            return p.isFinished === true || (p.isCompleted === true) || (p.progress && p.progress >= 0.99);
         });
 
         totalBooksFinished.value = finishedItems.length;

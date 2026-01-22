@@ -102,18 +102,32 @@ const setupListeners = () => {
   absService.value.onLibraryUpdate(() => fetchDashboardData());
 };
 
-const handleProgressUpdate = (progress: ABSProgress) => {
+const handleProgressUpdate = async (progress: ABSProgress) => {
   // 1. Update the central source of truth (Reactivity will propagate to Computed Props)
   progressMap.set(progress.itemId, progress);
 
-  // 2. Check if this is a "New Start" (i.e., not already in Currently Reading)
-  // If it's already there, the computed property `hydratedCurrentlyReading` will auto-update.
-  // If it's NOT there, we need to re-fetch the dashboard to pull it in from the server.
-  const isInReading = currentlyReadingRaw.value.some(i => i.id === progress.itemId);
+  // 2. Check if this is a "New Start"
+  // If it's ALREADY in currently reading, the computed 'hydratedCurrentlyReading' handles it via progressMap.
+  // If it's NOT in currently reading, we need to inject it so the user sees it immediately.
+  const idx = currentlyReadingRaw.value.findIndex(i => i.id === progress.itemId);
   
-  // If we are online, not tracking it yet, and it's active progress: Refresh Dashboard
-  if (!isInReading && !progress.isFinished && !progress.hideFromContinueListening && !isOfflineMode.value) {
-    fetchDashboardData();
+  if (idx === -1 && !progress.isFinished && !progress.hideFromContinueListening && !isOfflineMode.value && absService.value) {
+    try {
+      // Optimistically fetch just this item to inject it
+      const response = await absService.value.getLibraryItemsPaged({
+        filter: `id.eq.${progress.itemId}`,
+        limit: 1
+      });
+      
+      if (response.results && response.results.length > 0) {
+        // Prepend to the raw list. computed property will pick up the progress from progressMap
+        const newItem = response.results[0];
+        currentlyReadingRaw.value = [newItem, ...currentlyReadingRaw.value];
+      }
+    } catch (e) {
+      // If fetching single item fails, fall back to full dashboard refresh
+      fetchDashboardData();
+    }
   }
 };
 
@@ -171,6 +185,7 @@ const handleOfflineFallback = async () => {
 const hydrateList = (list: ABSLibraryItem[]) => {
   return list.map(item => {
     const live = progressMap.get(item.id);
+    // If we have live progress, overlay it. Otherwise return item as is.
     return live ? { ...item, userProgress: live } : item;
   });
 };
