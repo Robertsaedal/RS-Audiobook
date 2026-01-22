@@ -105,6 +105,13 @@ const recentSessions = computed(() => {
     return stats.value?.recentSessions || [];
 });
 
+// Helper to format tooltip duration
+const formatTooltipDuration = (seconds: number) => {
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
+  return `${(seconds / 3600).toFixed(1)}h`;
+};
+
 const fetchStats = async () => {
   if (!props.absService) return;
   isLoading.value = true;
@@ -236,7 +243,7 @@ const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep
                     :style="{ height: val > 0 ? `${(val / maxMonthlyValue) * 100}%` : '2px', opacity: val > 0 ? 1 : 0.1 }"
                   >
                     <div class="absolute -top-8 left-1/2 -translate-x-1/2 bg-white text-black text-[9px] font-bold px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none shadow-lg">
-                        {{ Math.round(val / 3600) }} hrs
+                        {{ formatTooltipDuration(val) }}
                     </div>
                   </div>
                </div>
