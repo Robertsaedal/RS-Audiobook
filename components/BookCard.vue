@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
 import { ABSLibraryItem, ABSProgress } from '../types';
-import { Play, CheckCircle } from 'lucide-vue-next';
+import { Play, CheckCircle, Smartphone } from 'lucide-vue-next';
 import { OfflineManager } from '../services/offlineManager';
 import { getDominantColor } from '../services/colorUtils';
 
@@ -79,7 +79,6 @@ const isFinished = computed(() => {
   const p = progressData.value;
   if (!p) return false;
   if (p.isFinished || (p as any).isCompleted) return true;
-  // Relaxed threshold to preventing hiding 98-99% progress if not explicitly marked finished
   return progressPercentage.value >= 99.5;
 });
 
@@ -95,18 +94,9 @@ const displaySequence = computed(() => {
   if (meta.seriesSequence !== undefined && meta.seriesSequence !== null) return meta.seriesSequence;
   if (meta.sequence !== undefined && meta.sequence !== null) return meta.sequence;
 
-  if ((props.item as any).sequence !== undefined && (props.item as any).sequence !== null) {
-    return (props.item as any).sequence;
-  }
-
   if (Array.isArray(meta.series) && meta.series.length > 0) {
     const s = meta.series[0];
     if (s.sequence !== undefined && s.sequence !== null) return s.sequence;
-  }
-
-  if (meta.seriesName && typeof meta.seriesName === 'string') {
-    const match = meta.seriesName.match(/#\s*([0-9]+(?:\.[0-9]+)?)(?:\s|$)/);
-    if (match) return match[1];
   }
 
   return null;
@@ -128,7 +118,6 @@ const toggleProgressDisplay = (e: Event) => {
   showTimeRemaining.value = !showTimeRemaining.value;
 };
 
-// Watch for real-time completion to trigger visual feedback
 watch(isFinished, (newVal) => {
   if (newVal) {
     triggerCompletionEffect.value = true;
@@ -179,12 +168,13 @@ onMounted(async () => {
         </div>
       </div>
       
-      <!-- Downloaded Badge (Hidden when finished to avoid clutter) -->
-      <div v-if="isDownloaded && !isFinished" class="absolute top-2 right-2 z-30 text-purple-400 bg-black/60 rounded-full backdrop-blur-sm p-0.5 border border-white/10">
-        <CheckCircle :size="14" fill="currentColor" class="text-white" />
+      <!-- Offline Badge (New) -->
+      <div v-if="isDownloaded" class="absolute top-2 right-2 z-30 flex items-center gap-1.5 px-2 py-1 bg-black/80 backdrop-blur-md border border-emerald-500/30 rounded-full shadow-xl">
+        <Smartphone :size="10" class="text-emerald-500" />
+        <span class="text-[8px] font-black uppercase tracking-widest text-emerald-400">Offline</span>
       </div>
 
-      <!-- Finished Indicator Overlay (Banner Only, No Icon) -->
+      <!-- Finished Indicator Overlay -->
       <div v-if="isFinished" class="absolute inset-0 flex items-center justify-center z-40 bg-black/40 backdrop-grayscale-[0.5] pointer-events-none">
          <div class="px-4 py-1.5 bg-purple-600/90 backdrop-blur-md border border-purple-400/30 rounded-full flex items-center justify-center shadow-xl transform -rotate-12">
             <span class="text-[9px] font-black text-white uppercase tracking-[0.2em]">COMPLETE</span>
@@ -200,16 +190,11 @@ onMounted(async () => {
 
       <!-- Amethyst Glow Floating Progress -->
       <div v-if="!hideProgress && !isFinished && progressPercentage > 0" class="absolute bottom-3 left-3 right-3 z-30 flex flex-col pointer-events-none">
-         
-         <!-- Progress Track -->
          <div class="relative w-full h-1.5 bg-purple-950/40 backdrop-blur-sm rounded-full">
-            <!-- Fill -->
             <div 
               class="h-full bg-purple-500 rounded-full shadow-[0_0_10px_rgba(168,85,247,0.4)] transition-all duration-300 relative" 
               :style="{ width: progressPercentage + '%', backgroundColor: colorLoaded ? 'var(--card-accent)' : undefined, boxShadow: colorLoaded ? '0 0 10px var(--card-accent)' : undefined }"
             />
-
-            <!-- Floating Pill (Anchored to Percentage) -->
             <div 
                class="absolute bottom-full mb-1 flex flex-col items-center transition-all duration-300 z-40 pointer-events-auto"
                :style="{ left: progressPercentage + '%' }"
@@ -224,7 +209,6 @@ onMounted(async () => {
                  }"
                >
                    {{ showTimeRemaining ? remainingTimeText : Math.round(progressPercentage) + '%' }}
-                   <!-- The 'Beak' Anchor -->
                    <div 
                      class="absolute -bottom-[3px] left-1/2 -translate-x-1/2 w-0 h-0 border-l-[3px] border-l-transparent border-r-[3px] border-r-transparent border-t-[3px]"
                      :style="{ borderTopColor: colorLoaded ? 'var(--card-accent)' : '#A855F7' }"
@@ -233,7 +217,6 @@ onMounted(async () => {
             </div>
          </div>
       </div>
-
     </div>
     
     <!-- Permanent Metadata Display -->

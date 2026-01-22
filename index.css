@@ -1,3 +1,4 @@
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -24,6 +25,20 @@
     width: calc(100% - 80px);
     max-width: calc(100% - 80px);
     margin-left: 80px;
+  }
+
+  /* iOS Safe Areas */
+  .safe-top {
+    padding-top: env(safe-area-inset-top);
+  }
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .margin-safe-top {
+    margin-top: env(safe-area-inset-top);
+  }
+  .margin-safe-bottom {
+    margin-bottom: env(safe-area-inset-bottom);
   }
 
   /* Modern Matte Dark Shelves - horizontal border layout */

@@ -3,16 +3,18 @@
 import { ref, onMounted } from 'vue';
 import { AuthState } from '../types';
 import { ABSService } from '../services/absService';
-import { Link as LinkIcon, User, Lock, Activity, AlertCircle } from 'lucide-vue-next';
+import { Link as LinkIcon, User, Lock, Activity, AlertCircle, Key } from 'lucide-vue-next';
 import AppLogo from '../components/AppLogo.vue';
 
 const emit = defineEmits<{
   (e: 'login', auth: AuthState): void
 }>();
 
+const loginMode = ref<'standard' | 'apikey'>('standard');
 const serverUrl = ref('https://api.robertsaedal.xyz');
 const username = ref('');
 const password = ref('');
+const apiKey = ref('');
 const processing = ref(false);
 const error = ref<string | null>(null);
 
@@ -23,23 +25,20 @@ onMounted(async () => {
       const auth = JSON.parse(savedAuth) as AuthState;
       if (auth.user?.token) {
         processing.value = true;
-        // Verify token and get fresh user data
         const authorizeRes = await ABSService.authorize(auth.serverUrl, auth.user.token);
         
         if (authorizeRes) {
-          // Construct fresh auth state with latest data from server
           const freshAuth: AuthState = {
             serverUrl: auth.serverUrl,
             user: {
               id: authorizeRes.user.id,
               username: authorizeRes.user.username,
-              token: auth.user.token, // Keep existing token
+              token: auth.user.token,
               mediaProgress: authorizeRes.user.mediaProgress || [],
-              defaultLibraryId: authorizeRes.user.defaultLibraryId || auth.user.defaultLibraryId // Preserve or update
+              defaultLibraryId: authorizeRes.user.defaultLibraryId || auth.user.defaultLibraryId
             }
           };
 
-          // Update storage with fresh data
           localStorage.setItem('rs_auth', JSON.stringify(freshAuth));
           emit('login', freshAuth);
         }
@@ -60,11 +59,17 @@ const submitForm = async () => {
 
   try {
     const normalizedUrl = ABSService.normalizeUrl(serverUrl.value);
-    const authRes = await ABSService.login(normalizedUrl, username.value, password.value);
-    const token = authRes.user.accessToken || authRes.user.token;
+    let token = '';
+
+    if (loginMode.value === 'standard') {
+      const authRes = await ABSService.login(normalizedUrl, username.value, password.value);
+      token = authRes.user.accessToken || authRes.user.token;
+    } else {
+      token = apiKey.value.trim();
+    }
     
     if (!token) {
-      throw new Error('No access token received from portal.');
+      throw new Error(loginMode.value === 'standard' ? 'No access token received.' : 'API Key is required.');
     }
 
     const authorizeRes = await ABSService.authorize(normalizedUrl, token);
@@ -77,8 +82,7 @@ const submitForm = async () => {
           username: authorizeRes.user.username, 
           token: token,
           mediaProgress: authorizeRes.user.mediaProgress || [],
-          // Capture defaultLibraryId from login response (authRes) or authorize response (if present)
-          defaultLibraryId: authRes.userDefaultLibraryId || authorizeRes.user.defaultLibraryId
+          defaultLibraryId: authorizeRes.user.defaultLibraryId
         }
       };
 
@@ -118,6 +122,24 @@ const submitForm = async () => {
       <div class="bg-neutral-900/40 backdrop-blur-2xl border border-purple-500/30 rounded-[40px] p-8 shadow-2xl relative overflow-hidden group">
         <div class="absolute inset-0 bg-gradient-to-br from-purple-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
         
+        <!-- Toggle Tabs -->
+        <div class="flex p-1 bg-black/40 rounded-2xl mb-8 border border-white/5">
+          <button 
+            @click="loginMode = 'standard'"
+            class="flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
+            :class="loginMode === 'standard' ? 'bg-purple-600 text-white shadow-lg' : 'text-neutral-500 hover:text-white'"
+          >
+            Standard
+          </button>
+          <button 
+            @click="loginMode = 'apikey'"
+            class="flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
+            :class="loginMode === 'apikey' ? 'bg-purple-600 text-white shadow-lg' : 'text-neutral-500 hover:text-white'"
+          >
+            API Key
+          </button>
+        </div>
+
         <div v-if="error" class="flex items-center gap-3 text-red-400 text-center py-4 px-4 mb-6 bg-red-500/10 border border-red-500/20 rounded-2xl text-[10px] font-black uppercase tracking-widest animate-shake">
           <AlertCircle :size="14" class="shrink-0" />
           <span>{{ error }}</span>
@@ -139,34 +161,55 @@ const submitForm = async () => {
             </div>
           </div>
 
-          <div class="space-y-1.5">
-            <label class="text-[9px] font-black text-neutral-500 uppercase tracking-[0.2em] ml-5">Identifier</label>
-            <div class="relative group">
-              <User :size="14" class="absolute left-6 top-1/2 -translate-y-1/2 text-neutral-600 group-focus-within:text-purple-500 transition-colors" />
-              <input
-                type="text"
-                v-model="username"
-                :disabled="processing"
-                placeholder="Username"
-                class="w-full bg-neutral-900/80 border border-white/10 py-5 pl-14 pr-8 rounded-[24px] text-white placeholder-neutral-700 font-bold text-xs tracking-tight outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/20 transition-all disabled:opacity-50"
-                required
-              />
+          <!-- Standard Fields -->
+          <template v-if="loginMode === 'standard'">
+            <div class="space-y-1.5">
+              <label class="text-[9px] font-black text-neutral-500 uppercase tracking-[0.2em] ml-5">Identifier</label>
+              <div class="relative group">
+                <User :size="14" class="absolute left-6 top-1/2 -translate-y-1/2 text-neutral-600 group-focus-within:text-purple-500 transition-colors" />
+                <input
+                  type="text"
+                  v-model="username"
+                  :disabled="processing"
+                  placeholder="Username"
+                  class="w-full bg-neutral-900/80 border border-white/10 py-5 pl-14 pr-8 rounded-[24px] text-white placeholder-neutral-700 font-bold text-xs tracking-tight outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/20 transition-all disabled:opacity-50"
+                  required
+                />
+              </div>
             </div>
-          </div>
 
-          <div class="space-y-1.5">
-            <label class="text-[9px] font-black text-neutral-500 uppercase tracking-[0.2em] ml-5">Passkey</label>
-            <div class="relative group">
-              <Lock :size="14" class="absolute left-6 top-1/2 -translate-y-1/2 text-neutral-600 group-focus-within:text-purple-500 transition-colors" />
-              <input
-                type="password"
-                v-model="password"
-                :disabled="processing"
-                placeholder="Password"
-                class="w-full bg-neutral-900/80 border border-white/10 py-5 pl-14 pr-8 rounded-[24px] text-white placeholder-neutral-700 font-bold text-xs tracking-tight outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/20 transition-all disabled:opacity-50"
-              />
+            <div class="space-y-1.5">
+              <label class="text-[9px] font-black text-neutral-500 uppercase tracking-[0.2em] ml-5">Passkey</label>
+              <div class="relative group">
+                <Lock :size="14" class="absolute left-6 top-1/2 -translate-y-1/2 text-neutral-600 group-focus-within:text-purple-500 transition-colors" />
+                <input
+                  type="password"
+                  v-model="password"
+                  :disabled="processing"
+                  placeholder="Password"
+                  class="w-full bg-neutral-900/80 border border-white/10 py-5 pl-14 pr-8 rounded-[24px] text-white placeholder-neutral-700 font-bold text-xs tracking-tight outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/20 transition-all disabled:opacity-50"
+                />
+              </div>
             </div>
-          </div>
+          </template>
+
+          <!-- API Key Field -->
+          <template v-else>
+            <div class="space-y-1.5">
+              <label class="text-[9px] font-black text-neutral-500 uppercase tracking-[0.2em] ml-5">Personal API Key</label>
+              <div class="relative group">
+                <Key :size="14" class="absolute left-6 top-1/2 -translate-y-1/2 text-neutral-600 group-focus-within:text-purple-500 transition-colors" />
+                <input
+                  type="password"
+                  v-model="apiKey"
+                  :disabled="processing"
+                  placeholder="Paste Key Here..."
+                  class="w-full bg-neutral-900/80 border border-white/10 py-5 pl-14 pr-8 rounded-[24px] text-white placeholder-neutral-700 font-bold text-xs tracking-tight outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/20 transition-all disabled:opacity-50"
+                  required
+                />
+              </div>
+            </div>
+          </template>
 
           <button
             type="submit"
@@ -183,7 +226,7 @@ const submitForm = async () => {
       </div>
 
       <div class="text-center pt-6 opacity-30">
-        <p class="text-[8px] font-black text-neutral-400 uppercase tracking-[0.5em]">Premium Minimalism • Archive Client v5.3</p>
+        <p class="text-[8px] font-black text-neutral-400 uppercase tracking-[0.5em]">Premium Minimalism • Archive Client v5.6</p>
       </div>
     </div>
   </div>

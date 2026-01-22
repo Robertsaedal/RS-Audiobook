@@ -1,9 +1,9 @@
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { ABSService } from '../services/absService';
 import { ABSProgress } from '../types';
-import { AlertCircle, PlayCircle, Trophy, ChevronLeft, ChevronRight, Clock, Calendar, RefreshCcw } from 'lucide-vue-next';
+import { BarChart2, AlertCircle, PlayCircle, Trophy, ChevronLeft, ChevronRight, Clock, Calendar } from 'lucide-vue-next';
 
 const props = defineProps<{
   absService: ABSService,
@@ -12,88 +12,48 @@ const props = defineProps<{
 
 const isLoading = ref(false);
 const error = ref<string | null>(null);
-const stats = ref<any>(null);
+const stats = ref<{
+  totalTime: number;
+  days: Record<string, number>;
+  items?: any[];
+  recentSessions?: any[];
+} | null>(null);
 
 const currentYear = new Date().getFullYear();
 const selectedYear = ref(currentYear);
 
-/**
- * Universal date parser for ABS listening stats
- * Handles: YYYY-MM-DD, YYYY/MM/DD, YYYYMMDD, ISO, and Timestamps (Seconds/MS)
- */
-const parseYearMonth = (key: any) => {
-  if (!key) return null;
-  const sKey = String(key);
-  
-  // 1. Check YYYY-MM-DD or YYYY/MM/DD
-  const dateMatch = sKey.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})/);
+// Helper to parse year and month from keys (supports YYYY-MM-DD, YYYY/MM/DD, and timestamps)
+const parseYearMonth = (key: string) => {
+  // Try YYYY-MM-DD or YYYY/MM/DD
+  const dateMatch = key.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})/);
   if (dateMatch) {
     return {
       year: parseInt(dateMatch[1], 10),
       month: parseInt(dateMatch[2], 10) - 1
     };
   }
-
-  // 2. Check YYYYMMDD (8 digits)
-  if (/^\d{8}$/.test(sKey)) {
-    return {
-      year: parseInt(sKey.substring(0, 4), 10),
-      month: parseInt(sKey.substring(4, 6), 10) - 1
-    };
-  }
-
-  // 3. Check for Numeric Timestamps
-  const asNum = Number(sKey);
-  if (!isNaN(asNum) && asNum > 1000000) {
-    // If it's in seconds (typical for Unix), multiply by 1000 for JS Date
-    const date = new Date(asNum > 10000000000 ? asNum : asNum * 1000);
-    if (!isNaN(date.getTime())) {
-      return { year: date.getFullYear(), month: date.getMonth() };
-    }
-  }
-
-  // 4. Fallback to native Date parsing (ISO, etc.)
-  const d = new Date(sKey);
+  // Try ISO string or something new Date can handle directly
+  const d = new Date(key);
   if (!isNaN(d.getTime())) {
     return {
       year: d.getFullYear(),
       month: d.getMonth()
     };
   }
-
+  // Try Timestamp (numeric string)
+  const asNum = Number(key);
+  if (!isNaN(asNum) && asNum > 1000000) {
+    // Check if seconds or milliseconds
+    const date = new Date(asNum > 10000000000 ? asNum : asNum * 1000);
+    if (!isNaN(date.getTime())) {
+      return {
+        year: date.getFullYear(),
+        month: date.getMonth()
+      };
+    }
+  }
   return null;
 };
-
-/**
- * Aggregates listening time into a clean Map to handle inconsistencies in ABS API.
- */
-const normalizedDays = computed(() => {
-  const result: Record<string, number> = {};
-  const rawDays = stats.value?.days;
-  
-  if (!rawDays) return result;
-
-  // Case: Array of objects [{day: "...", timeListening: 123}, ...]
-  if (Array.isArray(rawDays)) {
-    rawDays.forEach((item: any) => {
-      const key = item.day || item.date || item.id || item.addedAt;
-      const val = item.timeListening || item.seconds || item.totalTime || item.duration || 0;
-      if (key) result[key] = Number(val);
-    });
-    return result;
-  }
-
-  // Case: Object/Map {"2024-01-01": 3600} or {"2024-01-01": {timeListening: 3600}}
-  Object.entries(rawDays).forEach(([key, val]) => {
-    if (typeof val === 'object' && val !== null) {
-      result[key] = Number((val as any).timeListening || (val as any).seconds || (val as any).totalTime || 0);
-    } else {
-      result[key] = Number(val || 0);
-    }
-  });
-
-  return result;
-});
 
 // Calculate books finished in the selected year
 const totalBooksFinished = computed(() => {
@@ -112,12 +72,29 @@ const totalBooksFinished = computed(() => {
   return 0;
 });
 
-const totalListeningTime = computed(() => {
-  let total = 0;
-  Object.entries(normalizedDays.value).forEach(([dateStr, seconds]) => {
+// Aggregate monthly data using robust parsing
+const monthlyData = computed(() => {
+  const months = new Array(12).fill(0);
+  if (!stats.value?.days) return months;
+
+  Object.entries(stats.value.days).forEach(([dateStr, seconds]) => {
     const parsed = parseYearMonth(dateStr);
     if (parsed && parsed.year === selectedYear.value) {
-      total += seconds;
+      if (parsed.month >= 0 && parsed.month < 12) {
+        months[parsed.month] += Number(seconds);
+      }
+    }
+  });
+  return months;
+});
+
+const totalListeningTime = computed(() => {
+  if (!stats.value?.days) return 0;
+  let total = 0;
+  Object.entries(stats.value.days).forEach(([dateStr, seconds]) => {
+    const parsed = parseYearMonth(dateStr);
+    if (parsed && parsed.year === selectedYear.value) {
+      total += Number(seconds);
     }
   });
   return total;
@@ -131,24 +108,29 @@ const prettyTotalTime = computed(() => {
 });
 
 const activeDaysCount = computed(() => {
+  if (!stats.value?.days) return 0;
   let count = 0;
-  Object.entries(normalizedDays.value).forEach(([dateStr, seconds]) => {
+  Object.entries(stats.value.days).forEach(([dateStr, seconds]) => {
     const parsed = parseYearMonth(dateStr);
-    if (parsed && parsed.year === selectedYear.value && seconds > 0) {
+    if (parsed && parsed.year === selectedYear.value && Number(seconds) > 0) {
        count++;
     }
   });
   return count;
 });
 
-const displaySessions = computed(() => {
-    // Check all possible keys where ABS might return session history
-    const sessions = stats.value?.items || stats.value?.recentSessions || stats.value?.sessions || [];
-    return Array.isArray(sessions) ? sessions : [];
+const maxMonthlyValue = computed(() => {
+  const max = Math.max(...monthlyData.value);
+  return max > 0 ? max : 1; 
 });
 
-const formatDuration = (seconds: number) => {
-  if (seconds === 0) return '0m';
+const displaySessions = computed(() => {
+    // ABS API sometimes returns sessions in 'recentSessions' or 'items' depending on version
+    return stats.value?.items || stats.value?.recentSessions || [];
+});
+
+const formatTooltipDuration = (seconds: number) => {
+  if (seconds === 0) return 'No data';
   if (seconds < 60) return `${Math.round(seconds)}s`;
   if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
   return `${(seconds / 3600).toFixed(1)}h`;
@@ -161,32 +143,11 @@ const fetchStats = async () => {
   
   try {
     const data = await props.absService.getListeningStats();
-    if (!data) throw new Error("Portal returned empty data set.");
+    if (!data) throw new Error("Portal returned null analytics.");
     stats.value = data;
-    
-    // Auto-detect best year for display
-    // We check the raw data immediately after normalization
-    const daysData = normalizedDays.value;
-    const yearsFound = new Set<number>();
-    
-    Object.keys(daysData).forEach(key => {
-      const p = parseYearMonth(key);
-      if (p) yearsFound.add(p.year);
-    });
-
-    console.log('[StatsView] Years found:', Array.from(yearsFound));
-    console.log('[StatsView] Current selected year:', selectedYear.value);
-
-    if (yearsFound.size > 0) {
-      const sortedYears = Array.from(yearsFound).sort((a, b) => b - a);
-      // If selected year is empty, jump to the most recent year with data
-      if (!yearsFound.has(selectedYear.value)) {
-        selectedYear.value = sortedYears[0];
-      }
-    }
   } catch (e: any) {
-    console.error("Stats acquisition error:", e);
-    error.value = e.message || "Failed to retrieve archive analytics.";
+    console.error("Stats acquisition failure", e);
+    error.value = e.message || "Archive analytics unreachable.";
   } finally {
     isLoading.value = false;
   }
@@ -199,6 +160,8 @@ const changeYear = (delta: number) => {
 onMounted(() => {
   fetchStats();
 });
+
+const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 </script>
 
 <template>
@@ -207,17 +170,17 @@ onMounted(() => {
       
       <!-- Header -->
       <div class="pt-8 pb-8 flex items-end justify-between">
-        <div class="min-w-0">
-          <h1 class="text-4xl md:text-5xl font-black uppercase tracking-tighter text-white mb-2 truncate">Analytics</h1>
-          <p class="text-[10px] font-black uppercase tracking-[0.4em] text-purple-500">Listening Pipeline</p>
+        <div>
+          <h1 class="text-4xl md:text-5xl font-black uppercase tracking-tighter text-white mb-2">My Analytics</h1>
+          <p class="text-[10px] font-black uppercase tracking-[0.4em] text-purple-500">Listening Intelligence</p>
         </div>
         
-        <div class="flex items-center gap-4 bg-neutral-900/50 rounded-full px-4 py-2 border border-white/5 shrink-0">
+        <div class="flex items-center gap-4 bg-neutral-900/50 rounded-full px-4 py-2 border border-white/5">
           <button @click="changeYear(-1)" class="p-1 hover:text-purple-400 transition-colors"><ChevronLeft :size="16" /></button>
           <span class="text-sm font-black font-mono text-white">{{ selectedYear }}</span>
           <button 
             @click="changeYear(1)" 
-            class="p-1 hover:text-purple-400 transition-colors disabled:opacity-20 disabled:hover:text-white"
+            class="p-1 hover:text-purple-400 transition-colors disabled:opacity-30 disabled:hover:text-white"
             :disabled="selectedYear >= currentYear"
           >
             <ChevronRight :size="16" />
@@ -228,30 +191,26 @@ onMounted(() => {
       <!-- Loading State -->
       <div v-if="isLoading" class="flex flex-col items-center justify-center py-40 gap-6">
         <div class="w-12 h-12 border-2 border-purple-600/10 border-t-purple-600 rounded-full animate-spin" />
-        <p class="text-[8px] font-black uppercase tracking-[0.6em] text-neutral-600">Accessing Archives...</p>
+        <p class="text-[8px] font-black uppercase tracking-[0.6em] text-neutral-600">Syncing Metrics...</p>
       </div>
 
       <!-- Error State -->
       <div v-else-if="error" class="flex flex-col items-center justify-center py-20 gap-4 opacity-70">
         <AlertCircle :size="48" class="text-red-500" />
         <p class="text-sm font-bold text-red-400">{{ error }}</p>
-        <button @click="fetchStats" class="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-neutral-400 hover:text-white underline">
-          <RefreshCcw :size="12" />
-          Retry Connection
-        </button>
+        <button @click="fetchStats" class="text-[10px] font-black uppercase tracking-widest text-neutral-400 hover:text-white underline">Retry Fetch</button>
       </div>
 
       <!-- Stats Content -->
-      <div v-else-if="stats" class="space-y-8 animate-fade-in">
+      <div v-else-if="stats" class="space-y-8">
         
         <!-- Metrics Cards -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <!-- Finished Titles -->
           <div class="bg-neutral-900/40 border border-white/5 rounded-3xl p-6 flex flex-col gap-4 relative overflow-hidden group">
              <div class="absolute inset-0 bg-gradient-to-br from-purple-500/10 to-transparent opacity-50" />
              <div class="relative z-10 flex items-center gap-3 text-purple-400">
                <Trophy :size="20" />
-               <span class="text-[9px] font-black uppercase tracking-[0.3em]">Finished In {{ selectedYear }}</span>
+               <span class="text-[9px] font-black uppercase tracking-[0.3em]">Books Finished</span>
              </div>
              <div class="relative z-10 flex items-baseline gap-2 mt-2">
                 <span class="text-5xl font-black text-white tracking-tighter">{{ totalBooksFinished }}</span>
@@ -259,12 +218,11 @@ onMounted(() => {
              </div>
           </div>
 
-          <!-- Time Listening -->
           <div class="bg-neutral-900/40 border border-white/5 rounded-3xl p-6 flex flex-col gap-4 relative overflow-hidden group">
              <div class="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-transparent opacity-50" />
              <div class="relative z-10 flex items-center gap-3 text-blue-400">
                <Clock :size="20" />
-               <span class="text-[9px] font-black uppercase tracking-[0.3em]">Total Listen Time</span>
+               <span class="text-[9px] font-black uppercase tracking-[0.3em]">Total Listen</span>
              </div>
              <div class="relative z-10 flex items-baseline gap-2 mt-2">
                 <div class="flex items-baseline">
@@ -276,7 +234,6 @@ onMounted(() => {
              </div>
           </div>
 
-          <!-- Active Engagement -->
           <div class="bg-neutral-900/40 border border-white/5 rounded-3xl p-6 flex flex-col gap-4 relative overflow-hidden group">
              <div class="absolute inset-0 bg-gradient-to-br from-green-500/10 to-transparent opacity-50" />
              <div class="relative z-10 flex items-center gap-3 text-green-400">
@@ -290,11 +247,44 @@ onMounted(() => {
           </div>
         </div>
 
-        <!-- Activity Log -->
+        <!-- Volume Chart -->
+        <div class="bg-neutral-900/40 border border-white/5 rounded-3xl p-8 flex flex-col gap-4">
+           <div class="flex items-center gap-3 text-neutral-400">
+             <BarChart2 :size="20" />
+             <span class="text-[9px] font-black uppercase tracking-[0.3em]">Volume by Month</span>
+           </div>
+           <div class="flex-1 flex items-end justify-between gap-2 pt-10 h-48">
+               <div 
+                 v-for="(val, index) in monthlyData" 
+                 :key="index"
+                 class="flex-1 flex flex-col justify-end group relative h-full"
+               >
+                  <!-- Value Tooltip -->
+                  <div class="absolute -top-10 left-1/2 -translate-x-1/2 bg-white text-black text-[9px] font-black px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-20 pointer-events-none shadow-xl border border-white/10">
+                      {{ formatTooltipDuration(val) }}
+                  </div>
+
+                  <!-- Bar -->
+                  <div 
+                    class="w-full bg-neutral-800 rounded-t-sm group-hover:bg-purple-500 transition-all duration-500 relative"
+                    :style="{ 
+                      height: val > 0 ? `${(val / maxMonthlyValue) * 100}%` : '4px', 
+                      opacity: val > 0 ? 1 : 0.2,
+                      backgroundColor: val > 0 ? undefined : 'rgba(255,255,255,0.05)'
+                    }"
+                  />
+               </div>
+           </div>
+           <div class="flex justify-between text-[8px] font-black uppercase text-neutral-700 mt-4 border-t border-white/5 pt-4">
+              <span v-for="(m, i) in monthNames" :key="i" class="w-full text-center">{{ m }}</span>
+           </div>
+        </div>
+
+        <!-- Activity History -->
         <div class="space-y-6">
             <div class="flex items-center gap-3 text-neutral-500 px-2 border-b border-white/5 pb-4">
                 <PlayCircle :size="18" />
-                <span class="text-[9px] font-black uppercase tracking-[0.3em]">Recent Pipeline Activity</span>
+                <span class="text-[9px] font-black uppercase tracking-[0.3em]">Recent Activity</span>
             </div>
             
             <div v-if="displaySessions.length > 0" class="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -304,19 +294,18 @@ onMounted(() => {
                             {{ (index + 1) }}
                         </div>
                         <div class="flex flex-col truncate">
-                            <span class="text-sm font-bold text-white truncate">{{ session.mediaMetadata?.title || session.title || session.libraryItem?.media?.metadata?.title || 'Unknown' }}</span>
-                            <span class="text-[10px] text-neutral-600 uppercase tracking-wider truncate">{{ session.mediaMetadata?.author || session.author || session.libraryItem?.media?.metadata?.authorName || 'Creator' }}</span>
+                            <span class="text-sm font-bold text-white truncate">{{ session.mediaMetadata?.title || session.title || 'Unknown Title' }}</span>
+                            <span class="text-[10px] text-neutral-600 uppercase tracking-wider truncate">{{ session.mediaMetadata?.author || session.author || 'Unknown Creator' }}</span>
                         </div>
                     </div>
                     <div class="text-right pl-4 shrink-0">
-                         <span class="text-xs font-mono font-bold text-purple-400 block">{{ formatDuration(session.timeListening || session.totalTime || session.duration || 0) }}</span>
-                         <span class="text-[8px] text-neutral-700 uppercase">{{ session.updatedAt || session.addedAt ? new Date(session.updatedAt || session.addedAt).toLocaleDateString() : 'N/A' }}</span>
+                         <span class="text-xs font-mono font-bold text-purple-400 block">{{ formatTooltipDuration(session.timeListening || session.totalTime || 0) }}</span>
+                         <span class="text-[8px] text-neutral-700 uppercase">{{ session.updatedAt ? new Date(session.updatedAt).toLocaleDateString() : '' }}</span>
                     </div>
                 </div>
             </div>
-            <div v-else class="text-center py-20 opacity-20 border border-white/5 border-dashed rounded-3xl">
-                <PlayCircle :size="40" class="mx-auto mb-4" />
-                <p class="text-[9px] font-black uppercase tracking-[0.4em]">No recent artifact signals detected</p>
+            <div v-else class="text-center py-10 opacity-30">
+                <p class="text-[9px] font-black uppercase tracking-[0.4em]">No recent artifact activity recorded</p>
             </div>
         </div>
 

@@ -78,4 +78,3 @@ View your app in AI Studio: [https://ai.studio/apps/drive/1FKZkq810By4UyccXiWR5D
 <img width="600" alt="Screenshot 2026-01-22 104724" src="https://github.com/user-attachments/assets/6d2e96b9-675d-4666-95fa-3fd080172e84" />
 
 </p>
-
