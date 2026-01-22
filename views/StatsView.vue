@@ -3,7 +3,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { ABSService } from '../services/absService';
 import { ABSProgress } from '../types';
-import { BarChart2, AlertCircle, PlayCircle, Trophy, ChevronLeft, ChevronRight } from 'lucide-vue-next';
+import { BarChart2, AlertCircle, PlayCircle, Trophy, ChevronLeft, ChevronRight, Clock, Calendar } from 'lucide-vue-next';
 
 const props = defineProps<{
   absService: ABSService,
@@ -53,6 +53,37 @@ const monthlyData = computed(() => {
   return months;
 });
 
+const totalListeningTime = computed(() => {
+  if (!stats.value?.days) return 0;
+  let total = 0;
+  Object.entries(stats.value.days).forEach(([dateStr, seconds]) => {
+    const date = new Date(dateStr);
+    if (!isNaN(date.getTime()) && date.getFullYear() === selectedYear.value) {
+      total += seconds;
+    }
+  });
+  return total;
+});
+
+const prettyTotalTime = computed(() => {
+  const seconds = totalListeningTime.value;
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  return { h, m };
+});
+
+const activeDaysCount = computed(() => {
+  if (!stats.value?.days) return 0;
+  let count = 0;
+  Object.entries(stats.value.days).forEach(([dateStr, seconds]) => {
+    const date = new Date(dateStr);
+    if (!isNaN(date.getTime()) && date.getFullYear() === selectedYear.value && seconds > 0) {
+       count++;
+    }
+  });
+  return count;
+});
+
 const maxMonthlyValue = computed(() => {
   return Math.max(...monthlyData.value, 1);
 });
@@ -94,7 +125,7 @@ const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep
     <div class="flex-1 overflow-y-auto custom-scrollbar px-4 md:px-8 pb-40">
       
       <!-- Header with Year Selector -->
-      <div class="pt-8 pb-12 flex items-end justify-between">
+      <div class="pt-8 pb-8 flex items-end justify-between">
         <div>
           <h1 class="text-4xl md:text-5xl font-black uppercase tracking-tighter text-white mb-2">My Analytics</h1>
           <p class="text-[10px] font-black uppercase tracking-[0.4em] text-purple-500">Year in Review</p>
@@ -124,49 +155,77 @@ const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep
         <button @click="fetchStats" class="text-[10px] font-black uppercase tracking-widest text-neutral-400 hover:text-white underline">Retry Connection</button>
       </div>
 
-      <div v-else-if="stats" class="space-y-12">
+      <div v-else-if="stats" class="space-y-8">
         
-        <!-- Main KPI: Books Read -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <!-- Key Metrics Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
           
-          <!-- Books Finished Card -->
-          <div class="bg-neutral-900/40 border border-white/5 rounded-3xl p-8 flex flex-col gap-6 relative overflow-hidden group">
+          <!-- Books Listened -->
+          <div class="bg-neutral-900/40 border border-white/5 rounded-3xl p-6 flex flex-col gap-4 relative overflow-hidden group">
              <div class="absolute inset-0 bg-gradient-to-br from-purple-500/10 to-transparent opacity-50" />
              <div class="relative z-10 flex items-center gap-3 text-purple-400">
-               <Trophy :size="24" />
-               <span class="text-[10px] font-black uppercase tracking-[0.3em]">Books Read ({{ selectedYear }})</span>
+               <Trophy :size="20" />
+               <span class="text-[9px] font-black uppercase tracking-[0.3em]">Books Listened</span>
              </div>
-             <div class="relative z-10 flex items-baseline gap-2">
-                <span class="text-7xl font-black text-white tracking-tighter drop-shadow-lg">{{ totalBooksFinished }}</span>
-                <span class="text-xl font-black text-neutral-500 uppercase">Titles</span>
-             </div>
-             <div class="relative z-10 w-full h-1.5 bg-neutral-800 rounded-full overflow-hidden">
-                <div class="h-full bg-purple-500 w-full animate-pulse" />
+             <div class="relative z-10 flex items-baseline gap-2 mt-2">
+                <span class="text-5xl font-black text-white tracking-tighter drop-shadow-lg">{{ totalBooksFinished }}</span>
+                <span class="text-sm font-black text-neutral-500 uppercase">Titles</span>
              </div>
           </div>
 
-           <!-- Activity Chart -->
-           <div class="bg-neutral-900/40 border border-white/5 rounded-3xl p-8 flex flex-col gap-4 md:col-span-2">
-             <div class="flex items-center gap-3 text-green-400">
-               <BarChart2 :size="20" />
-               <span class="text-[9px] font-black uppercase tracking-[0.3em]">Listening Volume ({{ selectedYear }})</span>
+          <!-- Time Listened -->
+          <div class="bg-neutral-900/40 border border-white/5 rounded-3xl p-6 flex flex-col gap-4 relative overflow-hidden group">
+             <div class="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-transparent opacity-50" />
+             <div class="relative z-10 flex items-center gap-3 text-blue-400">
+               <Clock :size="20" />
+               <span class="text-[9px] font-black uppercase tracking-[0.3em]">Time Listened</span>
              </div>
-             <div class="flex-1 flex items-end justify-between gap-2 pt-6 h-32">
-                 <div 
-                   v-for="(val, index) in monthlyData" 
-                   :key="index"
-                   class="flex-1 bg-neutral-800 rounded-t-sm hover:bg-green-500 transition-colors relative group"
-                   :style="{ height: `${(val / maxMonthlyValue) * 100}%`, minHeight: '4px' }"
-                 >
-                    <div class="absolute -top-8 left-1/2 -translate-x-1/2 bg-white text-black text-[9px] font-bold px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
-                        {{ Math.round(val / 3600) }} hrs
-                    </div>
-                 </div>
-             </div>
-             <div class="flex justify-between text-[8px] font-black uppercase text-neutral-600 mt-2">
-                <span v-for="(m, i) in monthNames" :key="i" class="w-full text-center">{{ m }}</span>
+             <div class="relative z-10 flex items-baseline gap-2 mt-2">
+                <div class="flex items-baseline">
+                  <span class="text-5xl font-black text-white tracking-tighter drop-shadow-lg">{{ prettyTotalTime.h }}</span>
+                  <span class="text-sm font-black text-neutral-500 uppercase ml-1 mr-2">H</span>
+                  <span class="text-3xl font-black text-white/70 tracking-tighter">{{ prettyTotalTime.m }}</span>
+                  <span class="text-xs font-black text-neutral-500 uppercase ml-1">M</span>
+                </div>
              </div>
           </div>
+
+          <!-- Active Days -->
+          <div class="bg-neutral-900/40 border border-white/5 rounded-3xl p-6 flex flex-col gap-4 relative overflow-hidden group">
+             <div class="absolute inset-0 bg-gradient-to-br from-green-500/10 to-transparent opacity-50" />
+             <div class="relative z-10 flex items-center gap-3 text-green-400">
+               <Calendar :size="20" />
+               <span class="text-[9px] font-black uppercase tracking-[0.3em]">Active Sessions</span>
+             </div>
+             <div class="relative z-10 flex items-baseline gap-2 mt-2">
+                <span class="text-5xl font-black text-white tracking-tighter drop-shadow-lg">{{ activeDaysCount }}</span>
+                <span class="text-sm font-black text-neutral-500 uppercase">Days</span>
+             </div>
+          </div>
+
+        </div>
+
+        <!-- Activity Chart -->
+        <div class="bg-neutral-900/40 border border-white/5 rounded-3xl p-8 flex flex-col gap-4">
+           <div class="flex items-center gap-3 text-neutral-400">
+             <BarChart2 :size="20" />
+             <span class="text-[9px] font-black uppercase tracking-[0.3em]">Volume by Month</span>
+           </div>
+           <div class="flex-1 flex items-end justify-between gap-2 pt-6 h-40">
+               <div 
+                 v-for="(val, index) in monthlyData" 
+                 :key="index"
+                 class="flex-1 bg-neutral-800 rounded-t-sm hover:bg-purple-500 transition-colors relative group"
+                 :style="{ height: `${(val / maxMonthlyValue) * 100}%`, minHeight: '4px' }"
+               >
+                  <div class="absolute -top-8 left-1/2 -translate-x-1/2 bg-white text-black text-[9px] font-bold px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none">
+                      {{ Math.round(val / 3600) }} hrs
+                  </div>
+               </div>
+           </div>
+           <div class="flex justify-between text-[8px] font-black uppercase text-neutral-600 mt-2">
+              <span v-for="(m, i) in monthNames" :key="i" class="w-full text-center">{{ m }}</span>
+           </div>
         </div>
 
         <!-- Recent Sessions List -->
