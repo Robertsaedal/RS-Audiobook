@@ -26,8 +26,8 @@ const totalBooksFinished = computed(() => {
   if (props.progressMap && props.progressMap.size > 0) {
     let count = 0;
     for (const p of props.progressMap.values()) {
+      // Only count if explicitly finished
       if (p.isFinished) {
-        // Filter by the year of the last update/finish time
         const finishedDate = new Date(p.lastUpdate);
         if (finishedDate.getFullYear() === selectedYear.value) {
            count++;
@@ -39,16 +39,21 @@ const totalBooksFinished = computed(() => {
   return 0;
 });
 
-// Filter days data by selected year
+// Filter days data by selected year - Using String Parsing to avoid Timezone shifts
 const monthlyData = computed(() => {
   const months = new Array(12).fill(0);
   if (!stats.value?.days) return months;
 
   Object.entries(stats.value.days).forEach(([dateStr, seconds]) => {
-    const date = new Date(dateStr);
-    if (!isNaN(date.getTime()) && date.getFullYear() === selectedYear.value) {
-      // Ensure numeric addition to avoid potential string concatenation
-      months[date.getMonth()] += Number(seconds);
+    // Expected format: YYYY-MM-DD
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      const year = parseInt(parts[0], 10);
+      const month = parseInt(parts[1], 10) - 1; // 0-indexed (0=Jan)
+      
+      if (year === selectedYear.value && month >= 0 && month < 12) {
+        months[month] += Number(seconds);
+      }
     }
   });
   return months;
@@ -58,9 +63,12 @@ const totalListeningTime = computed(() => {
   if (!stats.value?.days) return 0;
   let total = 0;
   Object.entries(stats.value.days).forEach(([dateStr, seconds]) => {
-    const date = new Date(dateStr);
-    if (!isNaN(date.getTime()) && date.getFullYear() === selectedYear.value) {
-      total += Number(seconds);
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      const year = parseInt(parts[0], 10);
+      if (year === selectedYear.value) {
+        total += Number(seconds);
+      }
     }
   });
   return total;
@@ -77,9 +85,12 @@ const activeDaysCount = computed(() => {
   if (!stats.value?.days) return 0;
   let count = 0;
   Object.entries(stats.value.days).forEach(([dateStr, seconds]) => {
-    const date = new Date(dateStr);
-    if (!isNaN(date.getTime()) && date.getFullYear() === selectedYear.value && Number(seconds) > 0) {
-       count++;
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      const year = parseInt(parts[0], 10);
+      if (year === selectedYear.value && Number(seconds) > 0) {
+         count++;
+      }
     }
   });
   return count;
@@ -217,11 +228,16 @@ const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep
                <div 
                  v-for="(val, index) in monthlyData" 
                  :key="index"
-                 class="flex-1 bg-neutral-800 rounded-t-sm hover:bg-purple-500 transition-colors relative group"
-                 :style="{ height: `${(val / maxMonthlyValue) * 100}%` }"
+                 class="flex-1 bg-neutral-800 rounded-t-sm hover:bg-purple-500 transition-colors relative group flex flex-col justify-end"
                >
-                  <div class="absolute -top-8 left-1/2 -translate-x-1/2 bg-white text-black text-[9px] font-bold px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none">
-                      {{ Math.round(val / 3600) }} hrs
+                  <!-- Bar Element -->
+                  <div 
+                    class="w-full bg-neutral-700 hover:bg-purple-500 transition-all rounded-t-sm relative"
+                    :style="{ height: val > 0 ? `${(val / maxMonthlyValue) * 100}%` : '2px', opacity: val > 0 ? 1 : 0.1 }"
+                  >
+                    <div class="absolute -top-8 left-1/2 -translate-x-1/2 bg-white text-black text-[9px] font-bold px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none shadow-lg">
+                        {{ Math.round(val / 3600) }} hrs
+                    </div>
                   </div>
                </div>
            </div>

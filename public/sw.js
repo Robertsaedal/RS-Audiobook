@@ -1,10 +1,11 @@
 
-const CACHE_NAME = 'rs-audio-v15';
+const CACHE_NAME = 'rs-audio-v16';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/manifest.json',
-  '/favicon.ico'
+  '/favicon.ico',
+  '/logo.svg'
 ];
 
 self.addEventListener('install', (event) => {
@@ -12,8 +13,6 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(async (cache) => {
       // Robust Caching: Iterate assets individually.
-      // If one asset fails (e.g., version mismatch or missing favicon), 
-      // the SW still installs, ensuring the "Add to Home Screen" banner works.
       await Promise.all(
         STATIC_ASSETS.map(url => 
           cache.add(url).catch(err => console.warn(`[SW] Failed to cache ${url} (non-fatal):`, err))
@@ -34,7 +33,7 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // Skip caching for API calls, streams, and sockets
+  // 1. IGNORE: API, Socket, Streams
   if (
     url.hostname.includes('robertsaedal.xyz') || 
     url.pathname.includes('/api/') ||
@@ -45,15 +44,40 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Cache static UI assets
-  if (STATIC_ASSETS.includes(url.pathname) || url.pathname.startsWith('/assets/')) {
+  // 2. NAVIGATION: Return index.html if offline
+  if (event.request.mode === 'navigate') {
     event.respondWith(
-      caches.match(event.request).then((response) => {
-        return response || fetch(event.request);
-      })
+      fetch(event.request)
+        .catch(() => {
+          return caches.match('/index.html');
+        })
     );
     return;
   }
 
-  return;
+  // 3. ASSETS: Cache First, then Network (Dynamic Caching)
+  if (STATIC_ASSETS.includes(url.pathname) || url.pathname.startsWith('/assets/')) {
+    event.respondWith(
+      caches.match(event.request).then((cachedResponse) => {
+        if (cachedResponse) {
+          return cachedResponse;
+        }
+        
+        return fetch(event.request).then((networkResponse) => {
+          if (!networkResponse || networkResponse.status !== 200 || networkResponse.type !== 'basic') {
+            return networkResponse;
+          }
+          
+          // Clone and Cache new assets
+          const responseToCache = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseToCache);
+          });
+          
+          return networkResponse;
+        });
+      })
+    );
+    return;
+  }
 });

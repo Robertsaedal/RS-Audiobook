@@ -1,3 +1,4 @@
+
 import { reactive, onUnmounted } from 'vue';
 import { AuthState, ABSLibraryItem, ABSAudioTrack, PlayMethod } from '../types';
 import { ABSService } from '../services/absService';
@@ -298,6 +299,11 @@ export function usePlayer() {
           state.duration = offlineBook.metadata.media.duration;
           
           if (activeObjectUrl) URL.revokeObjectURL(activeObjectUrl);
+          
+          if (!offlineBook.blob || offlineBook.blob.size === 0) {
+             throw new Error("Offline file is corrupt or empty.");
+          }
+
           activeObjectUrl = URL.createObjectURL(offlineBook.blob);
           
           audioEl!.src = activeObjectUrl;
@@ -361,7 +367,7 @@ export function usePlayer() {
     }
   };
 
-  const play = () => audioEl?.play();
+  const play = () => audioEl?.play().catch(e => console.warn("Play interrupted", e));
   const pause = () => audioEl?.pause();
 
   const seek = (time: number) => {
@@ -370,8 +376,23 @@ export function usePlayer() {
     playWhenReady = state.isPlaying;
 
     if (state.isOffline) {
-      audioEl.currentTime = target;
-    } else if (state.isHls) {
+      // Offline Blob Seek Logic
+      try {
+        audioEl.currentTime = target;
+        // Force update state immediately so UI reflects seek
+        state.currentTime = target;
+        
+        if (playWhenReady) {
+           audioEl.play().catch(e => console.warn("Offline seek resume failed", e));
+        }
+      } catch (e) {
+        console.error("Offline seek failed", e);
+      }
+      return;
+    } 
+
+    // Online Seek Logic
+    if (state.isHls) {
       const offsetTime = target - (audioTracks[currentTrackIndex]?.startOffset || 0);
       audioEl.currentTime = Math.max(0, offsetTime);
     } else {
@@ -421,16 +442,20 @@ export function usePlayer() {
 
   const getLastBufferedTime = () => {
     if (!audioEl) return 0;
-    const seekable = audioEl.buffered;
-    const ranges = [];
-    for (let i = 0; i < seekable.length; i++) {
-      ranges.push({ start: seekable.start(i), end: seekable.end(i) });
+    try {
+      const seekable = audioEl.buffered;
+      const ranges = [];
+      for (let i = 0; i < seekable.length; i++) {
+        ranges.push({ start: seekable.start(i), end: seekable.end(i) });
+      }
+      if (!ranges.length) return 0;
+      const buff = ranges.find((b) => b.start < audioEl!.currentTime && b.end > audioEl!.currentTime);
+      if (buff) return buff.end + (state.isOffline ? 0 : (audioTracks[currentTrackIndex]?.startOffset || 0));
+      const last = ranges[ranges.length - 1];
+      return last.end + (state.isOffline ? 0 : (audioTracks[currentTrackIndex]?.startOffset || 0));
+    } catch (e) {
+      return 0;
     }
-    if (!ranges.length) return 0;
-    const buff = ranges.find((b) => b.start < audioEl!.currentTime && b.end > audioEl!.currentTime);
-    if (buff) return buff.end + (state.isOffline ? 0 : (audioTracks[currentTrackIndex]?.startOffset || 0));
-    const last = ranges[ranges.length - 1];
-    return last.end + (state.isOffline ? 0 : (audioTracks[currentTrackIndex]?.startOffset || 0));
   };
 
   const destroy = () => {
