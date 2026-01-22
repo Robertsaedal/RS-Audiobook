@@ -193,6 +193,9 @@ const fetchStats = async () => {
       if (p) yearsFound.add(p.year);
     });
 
+    console.log('[StatsView] Years found:', Array.from(yearsFound));
+    console.log('[StatsView] Current selected year:', selectedYear.value);
+
     if (yearsFound.size > 0) {
       const sortedYears = Array.from(yearsFound).sort((a, b) => b - a);
       // If selected year is empty, jump to the most recent year with data
@@ -315,7 +318,7 @@ const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep
              <span class="text-[9px] font-black uppercase tracking-[0.3em]">Monthly Volume Trend</span>
            </div>
            
-           <div v-if="totalListeningTime > 0" class="flex-1 flex items-end justify-between gap-1.5 md:gap-3 pt-10 h-64">
+           <div v-if="totalListeningTime > 0" class="flex-1 flex items-end justify-between gap-1 md:gap-2 pt-10 h-64">
                <div 
                  v-for="(val, index) in monthlyData" 
                  :key="index"
@@ -328,16 +331,13 @@ const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep
 
                   <!-- Bar -->
                   <div 
-                    class="w-full rounded-t-lg transition-all duration-700 ease-out relative overflow-hidden"
-                    :class="val > 0 ? 'bg-gradient-to-t from-purple-800 to-purple-400 shadow-[0_0_15px_rgba(168,85,247,0.3)]' : 'bg-white/5'"
+                    class="w-full rounded-t-sm transition-all duration-700 ease-out relative overflow-hidden"
+                    :class="val > 0 ? 'bg-purple-600 group-hover:bg-purple-500' : 'bg-white/5'"
                     :style="{ 
-                      height: val > 0 ? `${(val / maxMonthlyValue) * 100}%` : '4px',
+                      height: val > 0 ? `${Math.max(4, (val / maxMonthlyValue) * 100)}%` : '4px',
                       opacity: val > 0 ? 1 : 0.2
                     }"
-                  >
-                    <!-- Inner Shine -->
-                    <div v-if="val > 0" class="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000" />
-                  </div>
+                  />
                </div>
            </div>
            
