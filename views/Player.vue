@@ -21,7 +21,7 @@ const emit = defineEmits<{
   (e: 'item-updated', updatedItem: ABSLibraryItem): void
 }>();
 
-const { state, load, play, pause, seek, setPlaybackRate, setSleepChapters, setSleepTimer, destroy } = usePlayer();
+const { state, load, play, pause, seek, setPlaybackRate, setPreservesPitch, setSleepChapters, setSleepTimer, destroy } = usePlayer();
 const absService = computed(() => new ABSService(props.auth.serverUrl, props.auth.user?.token || ''));
 
 const showChapters = ref(false);
@@ -29,7 +29,7 @@ const showInfo = ref(false);
 const isDownloaded = ref(false);
 const isDownloading = ref(false);
 const downloadProgress = ref(0);
-const liveTime = ref(Date.now()); // Local reactive ticker for smooth UI updates
+const liveTime = ref(Date.now()); 
 
 let tickerInterval: any = null;
 
@@ -87,7 +87,10 @@ const secondsToTimestamp = (s: number) => {
 };
 
 onMounted(async () => {
-  load(props.item, props.auth);
+  // If loading same item, don't re-init fully
+  if (state.activeItem?.id !== props.item.id) {
+    load(props.item, props.auth);
+  }
   checkDownloadStatus();
   
   // Start local ticker for live countdowns
@@ -104,7 +107,8 @@ const checkDownloadStatus = async () => {
 
 onUnmounted(() => {
   if (tickerInterval) clearInterval(tickerInterval);
-  destroy();
+  // Don't destroy() here because we want MiniPlayer to persist!
+  // App.vue handles cleanup logic if needed.
 });
 
 const togglePlay = () => state.isPlaying ? pause() : play();
@@ -265,7 +269,16 @@ const infoRows = computed(() => {
 
 <template>
   <div class="h-[100dvh] w-full bg-[#0d0d0d] text-white flex flex-col relative overflow-hidden font-sans select-none safe-top safe-bottom">
-    <div class="absolute inset-0 z-0 pointer-events-none flex items-center justify-center">
+    
+    <!-- Dynamic Glow Backdrop -->
+    <div 
+      class="absolute inset-0 z-0 pointer-events-none transition-colors duration-1000 ease-in-out"
+      :style="{ backgroundColor: state.accentColor }"
+      style="opacity: 0.2; filter: blur(80px);"
+    />
+
+    <!-- Original Static Glow (Optional overlay or fallback) -->
+    <div class="absolute inset-0 z-0 pointer-events-none flex items-center justify-center mix-blend-screen">
       <div class="w-[500px] h-[500px] bg-purple-600/10 rounded-full blur-[160px] animate-pulse" />
     </div>
 
@@ -312,7 +325,11 @@ const infoRows = computed(() => {
         <!-- Left Column: Visuals & Metadata -->
         <div class="flex-1 lg:flex-none lg:w-[40%] flex flex-col items-center justify-center px-8 pb-4 lg:pb-0 relative z-10 min-h-0">
           <div @click="showInfo = true" class="relative w-full max-w-[260px] md:max-w-[280px] aspect-[2/3] group cursor-pointer perspective-1000 shrink-0 mb-6 lg:mb-10 max-h-[35vh] lg:max-h-[50vh]">
-            <div class="absolute -inset-10 bg-purple-600/5 blur-[100px] rounded-full opacity-50" />
+            <!-- Dynamic Color Shadow behind book -->
+            <div 
+               class="absolute -inset-10 blur-[100px] rounded-full opacity-50 transition-colors duration-1000"
+               :style="{ backgroundColor: state.accentColor }"
+            />
             <div class="relative z-10 w-full h-full rounded-r-2xl rounded-l-sm overflow-hidden border-t border-r border-b border-white/10 shadow-[20px_20px_60px_-15px_rgba(0,0,0,0.8)] transition-transform duration-700 group-hover:scale-[1.02] group-hover:-translate-y-2 book-spine">
                <div class="absolute left-0 top-0 bottom-0 w-1.5 bg-gradient-to-r from-white/20 to-transparent z-20" />
                <div class="absolute left-1.5 top-0 bottom-0 w-px bg-black/40 z-20" />
@@ -379,9 +396,10 @@ const infoRows = computed(() => {
               class="h-3 w-full bg-neutral-900 rounded-full relative overflow-hidden shadow-inner border border-white/5 cursor-pointer"
               @click="handleChapterProgressClick"
             >
+              <!-- Dynamic Fill Color based on Accent -->
               <div 
-                class="h-full bg-purple-600 shadow-[0_0_20px_rgba(168,85,247,0.6)] transition-all duration-300 rounded-r-full" 
-                :style="{ width: chapterProgressPercent + '%' }"
+                class="h-full bg-[var(--player-accent)] shadow-[0_0_20px_var(--player-accent)] transition-all duration-300 rounded-r-full" 
+                :style="{ width: chapterProgressPercent + '%', '--player-accent': state.accentColor }"
               />
             </div>
 
@@ -395,9 +413,16 @@ const infoRows = computed(() => {
           <div class="flex items-center justify-center gap-4 md:gap-8">
             <button @click="skipToPrevChapter" class="p-3 text-neutral-700 hover:text-purple-400 transition-colors active:scale-90"><SkipBack :size="20" /></button>
             <button @click="seek(state.currentTime - 10)" class="p-3 text-neutral-700 hover:text-white transition-colors active:scale-90"><RotateCcw :size="24" /></button>
-            <button @click="togglePlay" class="w-20 h-20 rounded-full bg-purple-600/10 flex items-center justify-center border border-purple-500/20 shadow-[0_0_50px_rgba(157,80,187,0.1)] active:scale-95 transition-all group relative">
-              <Pause v-if="state.isPlaying" :size="32" class="text-purple-500 fill-current" />
-              <Play v-else :size="32" class="text-purple-500 fill-current translate-x-1" />
+            <button 
+              @click="togglePlay" 
+              class="w-20 h-20 rounded-full bg-[var(--player-accent-dim)] flex items-center justify-center border border-[var(--player-accent-border)] shadow-[0_0_50px_rgba(0,0,0,0.5)] active:scale-95 transition-all group relative"
+              :style="{ 
+                '--player-accent-dim': state.accentColor + '1A', // 10% opacity
+                '--player-accent-border': state.accentColor + '33' // 20% opacity
+              }"
+            >
+              <Pause v-if="state.isPlaying" :size="32" class="fill-current" :style="{ color: state.accentColor }" />
+              <Play v-else :size="32" class="fill-current translate-x-1" :style="{ color: state.accentColor }" />
             </button>
             <button @click="seek(state.currentTime + 30)" class="p-3 text-neutral-700 hover:text-white transition-colors active:scale-90"><RotateCw :size="24" /></button>
             <button @click="skipToNextChapter" class="p-3 text-neutral-700 hover:text-purple-400 transition-colors active:scale-90"><SkipForward :size="20" /></button>
@@ -407,13 +432,29 @@ const infoRows = computed(() => {
           <div class="grid grid-cols-2 gap-4 w-full">
             
             <!-- Speed Card -->
-            <div class="bg-neutral-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-4 flex flex-col items-center justify-between gap-2 hover:border-white/10 transition-colors h-32">
-               <div class="flex items-center gap-2 text-neutral-500">
-                 <Clock :size="14" />
-                 <span class="text-[9px] font-black uppercase tracking-[0.2em]">Speed</span>
+            <div class="bg-neutral-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-4 flex flex-col justify-between gap-2 hover:border-white/10 transition-colors h-32 relative overflow-hidden">
+               <!-- Header -->
+               <div class="flex justify-between items-center px-1 w-full">
+                   <div class="flex items-center gap-2 text-neutral-500">
+                     <Clock :size="14" />
+                     <span class="text-[9px] font-black uppercase tracking-[0.2em]">Speed</span>
+                   </div>
+                   
+                   <!-- Natural Voice Toggle -->
+                   <button 
+                      @click="setPreservesPitch(!state.preservesPitch)"
+                      class="flex items-center gap-1.5 px-2 py-1 rounded-full border transition-all"
+                      :class="state.preservesPitch ? 'bg-purple-600/20 border-purple-500/30 text-purple-400' : 'bg-white/5 border-white/5 text-neutral-600'"
+                      title="Natural Voice (Pitch Correction)"
+                   >
+                      <div class="w-1.5 h-1.5 rounded-full" :class="state.preservesPitch ? 'bg-purple-500 shadow-[0_0_8px_#A855F7]' : 'bg-neutral-600'" />
+                      <span class="text-[8px] font-black uppercase tracking-wider">Natural</span>
+                   </button>
                </div>
                
-               <span class="text-3xl font-black font-mono tracking-tighter text-white">{{ state.playbackRate.toFixed(1) }}x</span>
+               <div class="flex-1 flex flex-col items-center justify-center -mt-1">
+                   <span class="text-3xl font-black font-mono tracking-tighter text-white">{{ state.playbackRate.toFixed(1) }}x</span>
+               </div>
 
                <div class="flex items-center gap-4 w-full justify-center">
                  <button @click="setPlaybackRate(Math.max(0.5, state.playbackRate - 0.1))" class="p-2 bg-white/5 rounded-full text-neutral-400 hover:text-white hover:bg-white/10 transition-colors active:scale-90">

@@ -2,6 +2,7 @@ import { reactive, onUnmounted } from 'vue';
 import { AuthState, ABSLibraryItem, ABSAudioTrack, PlayMethod } from '../types';
 import { ABSService } from '../services/absService';
 import { OfflineManager } from '../services/offlineManager';
+import { getDominantColor } from '../services/colorUtils';
 import Hls from 'hls.js';
 
 interface PlayerState {
@@ -10,15 +11,17 @@ interface PlayerState {
   duration: number;
   bufferedTime: number;
   playbackRate: number;
+  preservesPitch: boolean; 
   isLoading: boolean;
   error: string | null;
   sessionId: string | null;
   isHls: boolean;
-  sleepChapters: number; // Remaining chapters to play before stop
-  sleepEndTime: number | null; // Timestamp for time-based sleep
-  currentRealtime: number; // Reactive Date.now() for UI timers
+  sleepChapters: number; 
+  sleepEndTime: number | null; 
+  currentRealtime: number;
   activeItem: ABSLibraryItem | null;
   isOffline: boolean;
+  accentColor: string; // Dynamic Color
 }
 
 const state = reactive<PlayerState>({
@@ -27,6 +30,7 @@ const state = reactive<PlayerState>({
   duration: 0,
   bufferedTime: 0,
   playbackRate: 1.0,
+  preservesPitch: true, 
   isLoading: false,
   error: null,
   sessionId: null,
@@ -35,7 +39,8 @@ const state = reactive<PlayerState>({
   sleepEndTime: null,
   currentRealtime: Date.now(),
   activeItem: null,
-  isOffline: false
+  isOffline: false,
+  accentColor: '#A855F7' // Default Purple
 });
 
 let audioEl: HTMLAudioElement | null = null;
@@ -54,7 +59,6 @@ let playWhenReady = false;
 let absService: ABSService | null = null;
 let activeAuth: AuthState | null = null;
 
-// Track object URLs to revoke them on destroy
 let activeObjectUrl: string | null = null;
 
 export function usePlayer() {
@@ -68,6 +72,11 @@ export function usePlayer() {
     audioEl.id = 'audio-player';
     audioEl.style.display = 'none';
     audioEl.crossOrigin = 'anonymous';
+    
+    (audioEl as any).preservesPitch = state.preservesPitch;
+    (audioEl as any).webkitPreservesPitch = state.preservesPitch;
+    (audioEl as any).mozPreservesPitch = state.preservesPitch;
+
     document.body.appendChild(audioEl);
 
     audioEl.addEventListener('play', onEvtPlay);
@@ -125,17 +134,14 @@ export function usePlayer() {
     
     state.currentRealtime = Date.now();
 
-    // Check Sleep Timer (Time-based)
     if (state.sleepEndTime && state.currentRealtime >= state.sleepEndTime) {
       pause();
       state.sleepEndTime = null;
     }
     
-    // For offline or single-blob playback, track offset is 0.
     const currentTrackOffset = state.isOffline ? 0 : (audioTracks[currentTrackIndex]?.startOffset || 0);
     const newTime = currentTrackOffset + audioEl.currentTime;
 
-    // Detect chapter completion
     const chapters = state.activeItem.media.chapters || [];
     if (chapters.length > 0) {
       const time = newTime + 0.1;
@@ -143,7 +149,6 @@ export function usePlayer() {
         time >= ch.start && (i === chapters.length - 1 || time < (chapters[i+1]?.start || ch.end))
       );
 
-      // Transition check: if moved to the next chapter index
       if (lastChapterIndex !== -1 && newChapterIndex > lastChapterIndex) {
         if (state.sleepChapters > 0) {
           state.sleepChapters--;
@@ -244,11 +249,18 @@ export function usePlayer() {
       if (state.isPlaying && state.sessionId) {
         listeningTimeSinceSync += delta;
         if (listeningTimeSinceSync >= 10) {
-          absService?.syncSession(state.sessionId, Math.floor(listeningTimeSinceSync), state.currentTime);
-          listeningTimeSinceSync = 0;
+          syncNow();
         }
       }
     }, 1000);
+  };
+
+  const syncNow = () => {
+    if (state.sessionId && absService) {
+        const timeToSync = Math.floor(listeningTimeSinceSync);
+        absService.syncSession(state.sessionId, timeToSync, state.currentTime);
+        listeningTimeSinceSync = 0;
+    }
   };
 
   const stopHeartbeat = () => {
@@ -259,7 +271,7 @@ export function usePlayer() {
     state.isLoading = true;
     state.error = null;
     state.activeItem = item;
-    state.sleepChapters = 0; // Reset sleep timer on new book load
+    state.sleepChapters = 0; 
     state.sleepEndTime = null;
     state.isOffline = false;
     lastChapterIndex = -1;
@@ -268,15 +280,20 @@ export function usePlayer() {
     
     initialize();
 
+    // Trigger Color Extraction for Glow Effects
+    const coverUrl = `${auth.serverUrl.replace(/\/api\/?$/, '')}/api/items/${item.id}/cover?token=${auth.user?.token}`;
+    getDominantColor(coverUrl).then(color => {
+      state.accentColor = color;
+    });
+
     try {
-      // 1. Check Offline Storage First
       if (await OfflineManager.isDownloaded(item.id)) {
         console.log('📦 Loading from Local Offline Storage');
         const offlineBook = await OfflineManager.getBook(item.id);
         if (offlineBook) {
           state.isOffline = true;
           state.isHls = false;
-          state.sessionId = null; // No session for offline play
+          state.sessionId = null; 
           state.activeItem = offlineBook.metadata;
           state.duration = offlineBook.metadata.media.duration;
           
@@ -293,7 +310,6 @@ export function usePlayer() {
         }
       }
 
-      // 2. Online Streaming (Fallback or Default)
       const deviceInfo = {
         clientName: 'R.S Audio Premium',
         deviceId: localStorage.getItem('absDeviceId') || Math.random().toString(36).substring(7)
@@ -380,13 +396,22 @@ export function usePlayer() {
     if (audioEl) audioEl.playbackRate = rate;
   };
 
+  const setPreservesPitch = (val: boolean) => {
+    state.preservesPitch = val;
+    if (audioEl) {
+      (audioEl as any).preservesPitch = val;
+      (audioEl as any).webkitPreservesPitch = val;
+      (audioEl as any).mozPreservesPitch = val;
+    }
+  };
+
   const setSleepChapters = (count: number) => {
     state.sleepChapters = Math.max(0, count);
-    state.sleepEndTime = null; // Prioritize chapter mode
+    state.sleepEndTime = null; 
   };
 
   const setSleepTimer = (seconds: number) => {
-    state.sleepChapters = 0; // Prioritize time mode
+    state.sleepChapters = 0; 
     if (seconds <= 0) {
       state.sleepEndTime = null;
     } else {
@@ -442,8 +467,10 @@ export function usePlayer() {
     pause,
     seek,
     setPlaybackRate,
+    setPreservesPitch,
     setSleepChapters,
     setSleepTimer,
+    syncNow,
     destroy
   };
 }

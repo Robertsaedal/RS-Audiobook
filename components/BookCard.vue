@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { ABSLibraryItem } from '../types';
 import { Play, CheckCircle, Check } from 'lucide-vue-next';
 import { OfflineManager } from '../services/offlineManager';
+import { getDominantColor } from '../services/colorUtils';
 
 const props = defineProps<{
   item: ABSLibraryItem,
@@ -21,9 +22,12 @@ const emit = defineEmits<{
 const imageReady = ref(false);
 const isDownloaded = ref(false);
 const localCover = ref<string | null>(null);
+const triggerCompletionEffect = ref(false);
+const showTimeRemaining = ref(false);
+const accentColor = ref('#A855F7'); // Default Purple
+const colorLoaded = ref(false);
 
 const progressData = computed(() => {
-  // Priority: 1. Root userProgress (Standard), 2. Nested in media (Some APIs), 3. userMediaProgress (Older APIs)
   return props.item.userProgress || 
          (props.item.media as any)?.userProgress || 
          (props.item as any).userMediaProgress || 
@@ -34,10 +38,8 @@ const progressPercentage = computed(() => {
   const p = progressData.value;
   const media = props.item.media;
 
-  // 1. Explicitly Finished Flag (Instant 100%)
   if (p?.isFinished || (p as any)?.isCompleted) return 100;
 
-  // 2. "Heartbeat" Calculation (currentTime / duration)
   const totalDuration = media?.duration || p?.duration || 0;
   const currentTime = p?.currentTime || 0;
 
@@ -46,7 +48,6 @@ const progressPercentage = computed(() => {
     return Math.min(100, Math.max(0, calculatedPct));
   }
 
-  // 3. Server Provided Pre-calculated Progress (Fallback)
   if (typeof p?.progress === 'number' && p.progress > 0) {
     const serverPct = p.progress <= 1 ? p.progress * 100 : p.progress;
     return Math.min(100, Math.max(0, serverPct));
@@ -55,13 +56,28 @@ const progressPercentage = computed(() => {
   return 0;
 });
 
+const remainingTimeText = computed(() => {
+  const p = progressData.value;
+  const media = props.item.media;
+  if (!p || !media) return '0m';
+  
+  const total = media.duration || p.duration || 0;
+  const current = p.currentTime || 0;
+  const left = Math.max(0, total - current);
+  
+  if (left <= 0) return '0m';
+
+  const h = Math.floor(left / 3600);
+  const m = Math.floor((left % 3600) / 60);
+
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+});
+
 const isFinished = computed(() => {
   const p = progressData.value;
   if (!p) return false;
-  
   if (p.isFinished || (p as any).isCompleted) return true;
-  
-  // Auto-mark as finished if > 97% (Tolerance for credits)
   return progressPercentage.value > 97;
 });
 
@@ -98,6 +114,29 @@ const handleImageLoad = () => {
   imageReady.value = true;
 };
 
+const handleMouseEnter = async () => {
+  if (colorLoaded.value) return;
+  // Lazy load the color on hover
+  const src = localCover.value || props.coverUrl;
+  if (src) {
+    colorLoaded.value = true;
+    accentColor.value = await getDominantColor(src);
+  }
+};
+
+const toggleProgressDisplay = (e: Event) => {
+  e.stopPropagation();
+  showTimeRemaining.value = !showTimeRemaining.value;
+};
+
+// Watch for real-time completion to trigger visual feedback
+watch(isFinished, (newVal) => {
+  if (newVal) {
+    triggerCompletionEffect.value = true;
+    setTimeout(() => { triggerCompletionEffect.value = false; }, 2000);
+  }
+});
+
 onMounted(async () => {
   if (await OfflineManager.isDownloaded(props.item.id)) {
     isDownloaded.value = true;
@@ -109,12 +148,19 @@ onMounted(async () => {
 <template>
   <button 
     @click="emit('click', item)"
+    @mouseenter="handleMouseEnter"
     class="flex flex-col text-left group transition-all outline-none w-full relative"
+    :style="{ '--card-accent': accentColor }"
   >
     <!-- Cover Artifact Container -->
     <div 
-      class="relative w-full aspect-[2/3] bg-neutral-950 rounded-xl overflow-hidden border border-white/5 transition-all duration-500 group-hover:scale-[1.04] shadow-2xl group-hover:shadow-purple-500/10"
+      class="relative w-full aspect-[2/3] bg-neutral-950 rounded-xl overflow-hidden border border-white/5 transition-all duration-500 group-hover:scale-[1.04] shadow-2xl group-hover:shadow-[0_10px_40px_-10px_var(--card-accent)] group-hover:border-[var(--card-accent)]"
+      :class="triggerCompletionEffect ? 'ring-2 ring-purple-500/50 shadow-[0_0_30px_rgba(168,85,247,0.5)]' : ''"
+      :style="{ borderColor: colorLoaded ? 'color-mix(in srgb, var(--card-accent) 20%, transparent)' : undefined }"
     >
+      <!-- Completion Flash Effect -->
+      <div v-if="triggerCompletionEffect" class="absolute inset-0 z-50 pointer-events-none bg-purple-500/20 mix-blend-overlay animate-pulse" />
+
       <!-- Shimmer Placeholder -->
       <div v-if="!imageReady" class="absolute inset-0 z-10 animate-shimmer" />
 
@@ -126,7 +172,7 @@ onMounted(async () => {
         loading="lazy" 
       />
       
-      <!-- Book Sequence Badge (High Visibility, Low Z-Index) -->
+      <!-- Book Sequence Badge -->
       <div v-if="displaySequence !== null" class="absolute top-2 left-2 z-30">
         <div class="px-2 py-1 bg-black/70 backdrop-blur-md border border-white/10 rounded-md shadow-lg">
           <span class="text-[10px] font-black text-purple-400 tracking-tighter">
@@ -135,17 +181,9 @@ onMounted(async () => {
         </div>
       </div>
       
-      <!-- Finished Checkmark -->
-      <div v-if="isFinished" class="absolute top-2 right-2 bg-purple-600 rounded-full p-1 shadow-lg z-50 border border-black/20">
-        <CheckCircle :size="14" class="text-white" fill="currentColor" stroke="white" />
-      </div>
-
       <!-- Downloaded Badge -->
       <div v-if="isDownloaded && !isFinished" class="absolute top-2 right-2 z-30 text-purple-400 bg-black/60 rounded-full backdrop-blur-sm p-0.5 border border-white/10">
         <CheckCircle :size="14" fill="currentColor" class="text-white" />
-      </div>
-      <div v-if="isDownloaded && isFinished" class="absolute top-2 right-8 z-30 text-neutral-400 bg-black/60 rounded-full backdrop-blur-sm p-0.5 border border-white/10">
-        <Check :size="12" />
       </div>
 
       <!-- Finished Indicator Overlay -->
@@ -159,31 +197,45 @@ onMounted(async () => {
 
       <!-- Play Overlay -->
       <div v-if="!isFinished" class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex items-center justify-center pointer-events-none">
-        <div class="w-14 h-14 rounded-full bg-purple-600 text-white flex items-center justify-center shadow-[0_0_30px_rgba(168,85,247,0.5)] transform scale-90 group-hover:scale-100 transition-transform">
+        <div class="w-14 h-14 rounded-full bg-purple-600 text-white flex items-center justify-center shadow-[0_0_30px_rgba(168,85,247,0.5)] transform scale-90 group-hover:scale-100 transition-transform" :style="{ backgroundColor: colorLoaded ? 'var(--card-accent)' : undefined }">
           <Play :size="24" fill="currentColor" class="translate-x-0.5" />
         </div>
       </div>
 
-      <!-- Amethyst Glow Progress System -->
-      <div v-if="!hideProgress && !isFinished && Math.round(progressPercentage) > 0" class="absolute bottom-3 left-3 right-3 z-30 flex flex-col items-center gap-1.5 pointer-events-none">
+      <!-- Amethyst Glow Floating Progress -->
+      <div v-if="!hideProgress && !isFinished && Math.round(progressPercentage) > 0" class="absolute bottom-3 left-3 right-3 z-30 flex flex-col pointer-events-none">
          
-         <!-- Floating Badge -->
-         <div 
-           class="px-2 py-[2px] bg-purple-600/90 backdrop-blur-md rounded-full border border-purple-400/20 shadow-[0_0_15px_rgba(168,85,247,0.5)] transition-all duration-300 transform translate-y-0"
-           :class="showProgress ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-hover:-translate-y-1'"
-         >
-            <span class="text-[8px] font-black text-white tracking-widest drop-shadow-md">
-              {{ Math.round(progressPercentage) }}%
-            </span>
-         </div>
-
-         <!-- Track -->
-         <div class="w-full h-1.5 bg-purple-900/40 backdrop-blur-md rounded-full border border-white/10 overflow-hidden shadow-lg">
+         <!-- Progress Track -->
+         <div class="relative w-full h-1.5 bg-purple-950/40 backdrop-blur-sm rounded-full">
             <!-- Fill -->
             <div 
-              class="h-full bg-purple-500 shadow-[0_0_12px_rgba(168,85,247,0.8)] relative transition-all duration-300"
-              :style="{ width: progressPercentage + '%' }"
+              class="h-full bg-purple-500 rounded-full shadow-[0_0_10px_rgba(168,85,247,0.4)] transition-all duration-300 relative" 
+              :style="{ width: progressPercentage + '%', backgroundColor: colorLoaded ? 'var(--card-accent)' : undefined, boxShadow: colorLoaded ? '0 0 10px var(--card-accent)' : undefined }"
             />
+
+            <!-- Floating Pill (Anchored to Percentage) -->
+            <div 
+               class="absolute bottom-full mb-1 flex flex-col items-center transition-all duration-300 z-40 pointer-events-auto"
+               :style="{ left: progressPercentage + '%' }"
+               style="transform: translateX(-50%);"
+               @click.stop="toggleProgressDisplay"
+            >
+               <div 
+                 class="bg-purple-600 px-2 py-0.5 rounded-full text-[8px] font-black text-white tracking-widest shadow-lg relative min-w-[24px] text-center border border-purple-400/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 delay-75 cursor-pointer hover:scale-110 active:scale-95 hover:bg-purple-500"
+                 :class="{ 'opacity-100': showProgress }"
+                 :style="{ 
+                    backgroundColor: colorLoaded ? 'var(--card-accent)' : undefined,
+                    borderColor: colorLoaded ? 'rgba(255,255,255,0.3)' : undefined
+                 }"
+               >
+                   {{ showTimeRemaining ? remainingTimeText : Math.round(progressPercentage) + '%' }}
+                   <!-- The 'Beak' Anchor -->
+                   <div 
+                     class="absolute -bottom-[3px] left-1/2 -translate-x-1/2 w-0 h-0 border-l-[3px] border-l-transparent border-r-[3px] border-r-transparent border-t-[3px] border-t-purple-600"
+                     :style="{ borderTopColor: colorLoaded ? 'var(--card-accent)' : undefined }"
+                   ></div>
+               </div>
+            </div>
          </div>
       </div>
 
@@ -191,7 +243,7 @@ onMounted(async () => {
     
     <!-- Permanent Metadata Display -->
     <div v-if="showMetadata" class="mt-3 px-1 flex flex-col gap-1 w-full min-h-[3em]">
-      <h3 class="text-[11px] font-black text-white uppercase tracking-tight leading-[1.2] group-hover:text-purple-400 transition-colors line-clamp-2 w-full break-words" :title="item.media.metadata.title">
+      <h3 class="text-[11px] font-black text-white uppercase tracking-tight leading-[1.2] group-hover:text-purple-400 transition-colors line-clamp-2 w-full break-words" :title="item.media.metadata.title" :style="{ color: colorLoaded ? 'color-mix(in srgb, var(--card-accent) 80%, white)' : undefined }">
         {{ item.media.metadata.title }}
       </h3>
       <p class="text-[9px] font-black text-neutral-500 uppercase tracking-widest truncate w-full">

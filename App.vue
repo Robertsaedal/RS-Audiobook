@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, defineAsyncComponent } from 'vue';
+import { ref, onMounted, onUnmounted, defineAsyncComponent, computed } from 'vue';
 import { AuthState, ABSLibraryItem } from './types';
 import InstallPwaBanner from './components/InstallPwaBanner.vue';
+import MiniPlayer from './components/MiniPlayer.vue';
 
 // Dynamic Imports for Route-Based Code Splitting
 const Login = defineAsyncComponent(() => import('./views/Login.vue'));
@@ -116,6 +117,13 @@ const openPlayer = (item: ABSLibraryItem) => {
   history.pushState({ player: true }, '', '#player');
 };
 
+const expandMiniPlayer = () => {
+  if (currentView.value !== 'player') {
+    currentView.value = 'player';
+    history.pushState({ player: true }, '', '#player');
+  }
+};
+
 const handleSelectSeriesFromPlayer = (seriesId: string) => {
   initialSeriesId.value = seriesId;
   closePlayer(true);
@@ -166,6 +174,13 @@ const closePlayer = (shouldPopState = true) => {
           @item-updated="handleItemUpdated"
         />
       </Transition>
+
+      <!-- Persistent Mini Player -->
+      <MiniPlayer 
+        v-if="currentView !== 'player'"
+        :auth="auth"
+        @expand="expandMiniPlayer" 
+      />
 
       <InstallPwaBanner 
         :show="showPwaBanner" 

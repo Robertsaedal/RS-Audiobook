@@ -11,7 +11,7 @@ import RequestPortal from '../components/RequestPortal.vue';
 import StatsView from './StatsView.vue';
 import BookCard from '../components/BookCard.vue';
 import SeriesCard from '../components/SeriesCard.vue';
-import { PackageOpen, Loader2, WifiOff } from 'lucide-vue-next';
+import { PackageOpen, Loader2, WifiOff, RotateCw } from 'lucide-vue-next';
 
 // Define component name for KeepAlive inclusion
 defineOptions({
@@ -38,6 +38,10 @@ const desc = ref(1);
 const selectedSeries = ref<ABSSeries | null>(null);
 const isScanning = ref(false);
 const isOfflineMode = ref(!navigator.onLine);
+
+// Sync State
+const isSyncing = ref(false);
+const syncFeedback = ref('');
 
 // Raw Data Refs (from API)
 const currentlyReadingRaw = ref<ABSLibraryItem[]>([]);
@@ -99,6 +103,7 @@ const initService = async () => {
 const setupListeners = () => {
   if (!absService.value) return;
   absService.value.onProgressUpdate((progress) => handleProgressUpdate(progress));
+  absService.value.onProgressDelete((itemId) => handleProgressDelete(itemId));
   absService.value.onLibraryUpdate(() => fetchDashboardData());
 };
 
@@ -106,9 +111,16 @@ const handleProgressUpdate = async (progress: ABSProgress) => {
   // 1. Update the central source of truth (Reactivity will propagate to Computed Props)
   progressMap.set(progress.itemId, progress);
 
-  // 2. Check if this is a "New Start"
-  // If it's ALREADY in currently reading, the computed 'hydratedCurrentlyReading' handles it via progressMap.
-  // If it's NOT in currently reading, we need to inject it so the user sees it immediately.
+  // 2. Handling Completed Items (with animation delay)
+  if (progress.isFinished) {
+    // Let it stay for a moment for the 'completion animation' to play in BookCard
+    setTimeout(() => {
+        handleProgressDelete(progress.itemId);
+    }, 2500);
+    return;
+  }
+
+  // 3. Handling New Books (Not in list yet)
   const idx = currentlyReadingRaw.value.findIndex(i => i.id === progress.itemId);
   
   if (idx === -1 && !progress.isFinished && !progress.hideFromContinueListening && !isOfflineMode.value && absService.value) {
@@ -131,6 +143,12 @@ const handleProgressUpdate = async (progress: ABSProgress) => {
   }
 };
 
+const handleProgressDelete = (itemId: string) => {
+  progressMap.delete(itemId);
+  // Remove from shelf
+  currentlyReadingRaw.value = currentlyReadingRaw.value.filter(i => i.id !== itemId);
+};
+
 const handleMarkFinished = async (item: ABSLibraryItem) => {
   if (isOfflineMode.value) {
     currentlyReadingRaw.value = currentlyReadingRaw.value.filter(i => i.id !== item.id);
@@ -150,12 +168,13 @@ const handleMarkFinished = async (item: ABSLibraryItem) => {
     };
     progressMap.set(item.id, finishedState);
 
-    // Remove from raw list so it disappears from UI if desired, 
-    // or let it linger as "Complete" depending on user preference.
-    // Standard behavior: Remove from "Continue Listening"
-    currentlyReadingRaw.value = currentlyReadingRaw.value.filter(i => i.id !== item.id);
-
     await absService.value.updateProgress(item.id, { isFinished: true });
+    
+    // UI Removal is handled by socket update or immediate fallback
+    setTimeout(() => {
+         currentlyReadingRaw.value = currentlyReadingRaw.value.filter(i => i.id !== item.id);
+    }, 2000);
+    
   } catch (e) {
     console.error("Failed to mark as finished", e);
     fetchDashboardData();
@@ -234,6 +253,42 @@ const fetchDashboardData = async () => {
   } catch (e) {
     console.error("Dashboard hydration failed", e);
     await handleOfflineFallback();
+  }
+};
+
+const forceSyncProgress = async () => {
+  if (isSyncing.value || !absService.value || isOfflineMode.value) return;
+  isSyncing.value = true;
+  syncFeedback.value = '';
+  
+  try {
+    // 1. Socket Reconnect (Manual Intervention)
+    absService.value.reconnect();
+
+    // 2. Fetch In-Progress Data to update ProgressMap
+    const items = await absService.value.getItemsInProgress();
+    
+    // 3. Patch Map
+    items.forEach(item => {
+        const p = item.userProgress || (item.media as any)?.userProgress || (item as any).userMediaProgress;
+        if (p) {
+            progressMap.set(item.id, {
+                itemId: item.id,
+                ...p
+            });
+        }
+    });
+
+    // 4. Refresh Dashboard (Shelves)
+    await fetchDashboardData();
+
+    // 5. Feedback
+    syncFeedback.value = "Synced";
+    setTimeout(() => syncFeedback.value = '', 2000);
+  } catch (e) {
+    console.error("Sync failed", e);
+  } finally {
+    isSyncing.value = false;
   }
 };
 
@@ -445,10 +500,20 @@ const isHomeEmpty = computed(() => {
             <template v-if="!isHomeEmpty">
               <!-- Increased py-8 for extra spacing -->
               <section v-if="hydratedCurrentlyReading.length > 0 && absService" class="shelf-row py-8">
-                <div class="shelf-tag">
+                <div class="shelf-tag gap-3 pr-2">
                   <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">
                     {{ isOfflineMode ? 'In Progress (Local)' : 'Continue Listening' }}
                   </span>
+                  <button 
+                    v-if="!isOfflineMode"
+                    @click="forceSyncProgress" 
+                    class="p-1 text-purple-500 hover:text-purple-400 transition-colors rounded-full hover:bg-white/10 flex items-center gap-2"
+                    :disabled="isSyncing"
+                    title="Force Refresh Progress"
+                  >
+                    <RotateCw :size="12" :class="{ 'animate-spin': isSyncing }" />
+                    <span v-if="syncFeedback" class="text-[8px] font-black uppercase tracking-widest animate-fade-in text-white">{{ syncFeedback }}</span>
+                  </button>
                 </div>
                 <!-- Increased gap-10 for better separation -->
                 <div class="flex gap-10 overflow-x-auto no-scrollbar pb-10 pl-2">

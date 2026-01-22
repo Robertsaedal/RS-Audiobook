@@ -73,10 +73,13 @@ const closeMobileSearch = () => {
 </script>
 
 <template>
-  <div class="flex h-screen w-full bg-[#0a0a0a] text-white overflow-hidden relative">
+  <div class="flex h-screen w-full bg-[#0d0d0d] text-white overflow-hidden relative selection:bg-purple-500/30">
+    
+    <!-- Ambient Glow Background -->
+    <div class="absolute inset-0 z-0 pointer-events-none bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-purple-900/20 via-[#0d0d0d] to-[#0d0d0d]"></div>
     
     <!-- Top Appbar -->
-    <header class="h-16 w-full fixed top-0 left-0 right-0 bg-[#111111]/80 backdrop-blur-xl z-[60] px-4 md:px-6 flex items-center justify-between border-b border-white/5">
+    <header class="h-16 w-full fixed top-0 left-0 right-0 bg-[#0d0d0d]/80 backdrop-blur-xl z-[60] px-4 md:px-6 flex items-center justify-between border-b border-white/5">
       <div class="flex items-center gap-4 min-w-0 shrink">
         <div class="flex items-center cursor-pointer group shrink-0" @click="emit('tab-change', 'HOME')">
           <div class="w-8 h-8 mr-3 flex items-center justify-center bg-neutral-900 rounded-lg border border-purple-500/20 group-hover:scale-110 transition-transform">
@@ -95,7 +98,7 @@ const closeMobileSearch = () => {
             placeholder="Search artifacts..."
             :value="search"
             @input="e => emit('update:search', (e.target as HTMLInputElement).value)"
-            class="w-full bg-black/40 border border-white/5 rounded-full py-2.5 pl-10 pr-4 text-xs text-white placeholder-neutral-800 focus:border-purple-500/40 outline-none transition-all"
+            class="w-full bg-black/40 border border-white/5 rounded-full py-2.5 pl-10 pr-4 text-xs text-white placeholder-neutral-800 focus:border-purple-500/40 outline-none transition-all focus:bg-black/60"
           />
           <Search class="w-4 h-4 text-neutral-800 absolute left-4 top-1/2 -translate-y-1/2 group-focus-within:text-purple-500 transition-colors" />
         </div>
@@ -113,7 +116,6 @@ const closeMobileSearch = () => {
 
       <div class="flex items-center gap-2 md:gap-4 shrink-0">
         <!-- Request Button (Optimized for Mobile) -->
-        <!-- Logic: Icon always visible (p-2), Text hidden on small screens (hidden sm:inline), Compact gap (gap-2) -->
         <button 
           @click="handleRequestClick"
           class="flex items-center gap-2 p-2 sm:px-4 sm:py-2 bg-transparent border border-purple-500/30 rounded-full text-[10px] font-black uppercase tracking-widest text-purple-400 hover:bg-purple-500/10 transition-all shrink-0 active:scale-95"
@@ -167,7 +169,7 @@ const closeMobileSearch = () => {
     </header>
 
     <!-- Side Rail -->
-    <aside class="w-20 hidden md:flex h-full fixed left-0 top-16 bg-[#0d0d0d] border-r border-white/5 flex-col items-center z-50">
+    <aside class="w-20 hidden md:flex h-full fixed left-0 top-16 bg-[#0d0d0d]/80 backdrop-blur-sm border-r border-white/5 flex-col items-center z-50">
       <div id="siderail-buttons-container" class="w-full flex-1 overflow-y-auto no-scrollbar">
         <button
           v-for="item in navItems"
@@ -190,7 +192,7 @@ const closeMobileSearch = () => {
     <!-- Main Content Area -->
     <div 
       id="app-content" 
-      class="flex-1 h-full pt-16 relative"
+      class="flex-1 h-full pt-16 relative z-10"
       :class="{ 'has-siderail': true }"
     >
       <main 

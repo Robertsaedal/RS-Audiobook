@@ -45,6 +45,12 @@ export class ABSService {
     });
   }
 
+  public reconnect() {
+    if (this.socket && this.socket.connected) return;
+    this.disconnect();
+    this.initSocket();
+  }
+
   private static async fetchWithRetry(url: string, options: RequestInit, retries = 3, timeout = 10000): Promise<Response> {
     let lastError: Error | null = null;
     for (let i = 0; i < retries; i++) {
@@ -392,6 +398,17 @@ export class ABSService {
   onProgressUpdate(callback: (progress: ABSProgress) => void) {
     this.socket?.on('user_item_progress_updated', (data) => {
       if (data && data.itemId) callback(data);
+    });
+  }
+
+  onProgressDelete(callback: (itemId: string) => void) {
+    // Standard Audiobookshelf usually emits 'user_item_progress_removed'
+    this.socket?.on('user_item_progress_removed', (data) => {
+      if (data && data.itemId) callback(data.itemId);
+    });
+    // Listen to custom requested event as well
+    this.socket?.on('user_item_progress_deleted', (data) => {
+      if (data && data.itemId) callback(data.itemId);
     });
   }
 
