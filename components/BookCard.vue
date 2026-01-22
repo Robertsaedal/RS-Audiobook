@@ -147,12 +147,12 @@ onMounted(async () => {
 <template>
   <button 
     @click="emit('click', item)"
-    class="flex flex-col text-left group transition-all outline-none w-full relative"
+    class="flex flex-col text-left group transition-all outline-none w-full relative h-full"
     :style="{ '--card-accent': accentColor }"
   >
     <!-- Cover Artifact Container -->
     <div 
-      class="relative w-full aspect-[2/3] bg-neutral-950 rounded-xl overflow-hidden border transition-all duration-500 shadow-[0_10px_40px_-10px_var(--card-accent)] group-hover:scale-[1.04]"
+      class="relative w-full aspect-[2/3] bg-neutral-950 rounded-xl overflow-hidden border transition-all duration-500 shadow-[0_10px_40px_-10px_var(--card-accent)] group-hover:scale-[1.04] shrink-0"
       :class="triggerCompletionEffect ? 'ring-2 ring-purple-500/50 shadow-[0_0_30px_rgba(168,85,247,0.5)]' : ''"
       :style="{ borderColor: colorLoaded ? 'color-mix(in srgb, var(--card-accent) 40%, transparent)' : 'rgba(255,255,255,0.05)' }"
     >
@@ -237,8 +237,12 @@ onMounted(async () => {
     </div>
     
     <!-- Permanent Metadata Display -->
-    <div v-if="showMetadata" class="mt-3 px-1 flex flex-col gap-1 w-full min-h-[3em]">
-      <h3 class="text-[11px] font-black text-white uppercase tracking-tight leading-[1.2] transition-colors line-clamp-2 w-full break-words" :title="item.media.metadata.title" :style="{ color: colorLoaded ? 'color-mix(in srgb, var(--card-accent) 80%, white)' : undefined }">
+    <div v-if="showMetadata" class="mt-3 px-1 flex flex-col gap-1 w-full min-h-[3.5em]">
+      <h3 
+        class="text-[11px] font-black text-white uppercase tracking-tight leading-[1.3] transition-colors line-clamp-4 w-full break-words" 
+        :title="item.media.metadata.title" 
+        :style="{ color: colorLoaded ? 'color-mix(in srgb, var(--card-accent) 80%, white)' : undefined }"
+      >
         {{ item.media.metadata.title }}
       </h3>
       <p class="text-[9px] font-black text-neutral-500 uppercase tracking-widest truncate w-full">
@@ -249,9 +253,9 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.line-clamp-2 {
+.line-clamp-4 {
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 4;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }

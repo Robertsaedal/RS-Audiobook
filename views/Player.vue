@@ -8,7 +8,7 @@ import { OfflineManager } from '../services/offlineManager';
 import ChapterEditor from '../components/ChapterEditor.vue';
 import { 
   ChevronDown, Play, Pause, Info, X, SkipBack, SkipForward,
-  RotateCcw, RotateCw, ChevronRight, Moon, Plus, Minus, Mic, Clock, Layers, Download, CheckCircle, BookOpen, Calendar
+  RotateCcw, RotateCw, ChevronRight, Moon, Plus, Minus, Mic, Clock, Layers, Download, CheckCircle, BookOpen, Calendar, ArrowRight
 } from 'lucide-vue-next';
 
 const props = defineProps<{
@@ -293,7 +293,18 @@ const infoRows = computed(() => [
               </div>
               <p class="text-lg font-bold text-neutral-500 line-clamp-1">{{ metadata.authorName }}</p>
             </div>
-            <button v-if="metadata.seriesName" @click="handleSeriesClick" class="text-purple-400 font-semibold mt-2 px-4 py-1.5 rounded-full bg-white/5 border border-white/5">{{ metadata.seriesName }} {{ metadata.seriesSequence ? `#${metadata.seriesSequence}` : '' }}</button>
+            <!-- Enhanced Series Button -->
+            <button 
+              v-if="metadata.seriesName" 
+              @click="handleSeriesClick" 
+              class="group flex items-center justify-center gap-2 mx-auto mt-3 px-5 py-2 rounded-full bg-purple-500/10 border border-purple-500/20 hover:bg-purple-500/20 hover:border-purple-500/40 transition-all active:scale-95"
+            >
+              <Layers :size="14" class="text-purple-500" />
+              <span class="text-purple-400 font-bold text-xs">
+                {{ metadata.seriesName }} {{ metadata.seriesSequence ? `#${metadata.seriesSequence}` : '' }}
+              </span>
+              <ArrowRight :size="12" class="text-purple-500/50 group-hover:text-purple-500 transition-colors group-hover:translate-x-1" />
+            </button>
           </div>
         </div>
 
@@ -406,7 +417,13 @@ const infoRows = computed(() => [
               </div>
             </div>
 
-            <!-- Grid Stats -->
+            <!-- Description (Reordered: Above Grid) -->
+            <div v-if="metadata.description" class="space-y-2">
+              <h4 class="text-[10px] font-black uppercase tracking-widest text-neutral-600">Summary</h4>
+              <div class="text-neutral-300 text-sm leading-relaxed whitespace-pre-line" v-html="metadata.description"></div>
+            </div>
+
+            <!-- Grid Stats (Reordered: Below Summary) -->
             <div class="grid grid-cols-2 gap-4">
               <div 
                 v-for="(row, i) in infoRows" 
@@ -422,12 +439,7 @@ const infoRows = computed(() => [
                 <span class="text-sm font-bold text-white truncate" :class="row.isClickable ? 'text-purple-400' : ''">{{ row.value }}</span>
               </div>
             </div>
-
-            <!-- Description -->
-            <div v-if="metadata.description" class="space-y-2">
-              <h4 class="text-[10px] font-black uppercase tracking-widest text-neutral-600">Summary</h4>
-              <div class="text-neutral-300 text-sm leading-relaxed whitespace-pre-line" v-html="metadata.description"></div>
-            </div>
+            
           </div>
         </div>
       </div>

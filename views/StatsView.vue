@@ -47,7 +47,8 @@ const monthlyData = computed(() => {
   Object.entries(stats.value.days).forEach(([dateStr, seconds]) => {
     const date = new Date(dateStr);
     if (!isNaN(date.getTime()) && date.getFullYear() === selectedYear.value) {
-      months[date.getMonth()] += seconds;
+      // Ensure numeric addition to avoid potential string concatenation
+      months[date.getMonth()] += Number(seconds);
     }
   });
   return months;
@@ -59,7 +60,7 @@ const totalListeningTime = computed(() => {
   Object.entries(stats.value.days).forEach(([dateStr, seconds]) => {
     const date = new Date(dateStr);
     if (!isNaN(date.getTime()) && date.getFullYear() === selectedYear.value) {
-      total += seconds;
+      total += Number(seconds);
     }
   });
   return total;
@@ -77,7 +78,7 @@ const activeDaysCount = computed(() => {
   let count = 0;
   Object.entries(stats.value.days).forEach(([dateStr, seconds]) => {
     const date = new Date(dateStr);
-    if (!isNaN(date.getTime()) && date.getFullYear() === selectedYear.value && seconds > 0) {
+    if (!isNaN(date.getTime()) && date.getFullYear() === selectedYear.value && Number(seconds) > 0) {
        count++;
     }
   });
@@ -85,7 +86,8 @@ const activeDaysCount = computed(() => {
 });
 
 const maxMonthlyValue = computed(() => {
-  return Math.max(...monthlyData.value, 1);
+  const max = Math.max(...monthlyData.value);
+  return max > 0 ? max : 1; // Prevent division by zero
 });
 
 const recentSessions = computed(() => {
@@ -216,7 +218,7 @@ const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep
                  v-for="(val, index) in monthlyData" 
                  :key="index"
                  class="flex-1 bg-neutral-800 rounded-t-sm hover:bg-purple-500 transition-colors relative group"
-                 :style="{ height: `${(val / maxMonthlyValue) * 100}%`, minHeight: '4px' }"
+                 :style="{ height: `${(val / maxMonthlyValue) * 100}%` }"
                >
                   <div class="absolute -top-8 left-1/2 -translate-x-1/2 bg-white text-black text-[9px] font-bold px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none">
                       {{ Math.round(val / 3600) }} hrs
