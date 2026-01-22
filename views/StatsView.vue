@@ -15,7 +15,7 @@ const stats = ref<{
   recentSessions: any[];
 } | null>(null);
 
-const booksFinishedThisYear = ref(0);
+const totalBooksFinished = ref(0);
 
 const monthlyData = computed(() => {
   const months = new Array(12).fill(0);
@@ -52,38 +52,28 @@ const fetchStats = async () => {
     // Fetch finished books client-side for accuracy
     try {
         // Fetch a large chunk to calculate client side
+        // We sort by updatedAt desc to get recent changes, but we check ALL returned
         const response = await props.absService.getLibraryItemsPaged({ 
             limit: 1000, 
             sort: 'updatedAt',
             desc: 1
         });
         
-        const currentYear = new Date().getFullYear();
         const items = response.results || [];
         
-        // Strict client-side filter
+        // Count ALL finished books regardless of year
         const finishedItems = items.filter(item => {
             const p = item.userProgress;
             if (!p) return false;
 
             // Definition of finished: explicitly marked OR > 99% progress
-            const isFinished = p.isFinished === true || (p.progress && p.progress >= 0.99);
-            
-            if (!isFinished) return false;
-            
-            // Priority: finishedAt > lastUpdate
-            // finishedAt is more accurate for when it was actually completed
-            const timestamp = (p as any).finishedAt || p.lastUpdate;
-            if (!timestamp) return false;
-
-            const finishedDate = new Date(timestamp);
-            return finishedDate.getFullYear() === currentYear;
+            return p.isFinished === true || (p.progress && p.progress >= 0.99);
         });
 
-        booksFinishedThisYear.value = finishedItems.length;
+        totalBooksFinished.value = finishedItems.length;
     } catch (e) {
         console.warn("Failed to calculate finished books", e);
-        booksFinishedThisYear.value = 0;
+        totalBooksFinished.value = 0;
     }
 
   } catch (e: any) {
@@ -133,10 +123,10 @@ const currentYear = new Date().getFullYear();
              <div class="absolute inset-0 bg-gradient-to-br from-purple-500/10 to-transparent opacity-50" />
              <div class="relative z-10 flex items-center gap-3 text-purple-400">
                <Trophy :size="24" />
-               <span class="text-[10px] font-black uppercase tracking-[0.3em]">Books Read ({{ currentYear }})</span>
+               <span class="text-[10px] font-black uppercase tracking-[0.3em]">Total Books Read</span>
              </div>
              <div class="relative z-10 flex items-baseline gap-2">
-                <span class="text-7xl font-black text-white tracking-tighter drop-shadow-lg">{{ booksFinishedThisYear }}</span>
+                <span class="text-7xl font-black text-white tracking-tighter drop-shadow-lg">{{ totalBooksFinished }}</span>
                 <span class="text-xl font-black text-neutral-500 uppercase">Titles</span>
              </div>
              <div class="relative z-10 w-full h-1.5 bg-neutral-800 rounded-full overflow-hidden">

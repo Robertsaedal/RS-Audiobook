@@ -49,15 +49,30 @@ const searchResults = ref<{ books: ABSLibraryItem[], series: ABSSeries[] }>({ bo
 const isGlobalSearching = ref(false);
 let debounceTimeout: any = null;
 
-const initService = () => {
+const initService = async () => {
   if (absService.value) {
     absService.value.disconnect();
   }
+  
   absService.value = new ABSService(
     props.auth.serverUrl, 
     props.auth.user?.token || '', 
-    props.auth.user?.id
+    props.auth.user?.id,
+    props.auth.user?.defaultLibraryId
   );
+
+  // Auto-discover library ID if not present
+  if (!absService.value.libraryId && !isOfflineMode.value) {
+    try {
+      const libraries = await absService.value.getLibraries();
+      if (libraries.length > 0) {
+        absService.value.libraryId = libraries[0].id;
+      }
+    } catch (e) {
+      console.warn("Could not discover libraries", e);
+    }
+  }
+
   setupListeners();
 };
 
@@ -224,15 +239,14 @@ const updateOnlineStatus = () => {
   const online = navigator.onLine;
   isOfflineMode.value = !online;
   if (online) {
-    initService();
-    fetchDashboardData();
+    initService().then(() => fetchDashboardData());
   } else {
     handleOfflineFallback();
   }
 };
 
 onMounted(async () => {
-  initService();
+  await initService();
   await fetchDashboardData();
   
   // Check initial series (First Load)
@@ -290,8 +304,7 @@ const handleJumpToSeries = async (seriesId: string) => {
 };
 
 watch(() => props.auth.user?.token, () => {
-  initService();
-  fetchDashboardData();
+  initService().then(() => fetchDashboardData());
 });
 
 const handleTabChange = (tab: LibraryTab) => {
@@ -365,7 +378,9 @@ const isHomeEmpty = computed(() => {
 
       <SeriesView 
         v-if="selectedSeries && absService"
-        :series="selectedSeries" :absService="absService"
+        :series="selectedSeries" 
+        :absService="absService"
+        :auth="auth"
         @back="selectedSeries = null"
         @select-item="emit('select-item', $event)"
       />

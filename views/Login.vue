@@ -21,7 +21,7 @@ onMounted(async () => {
       const auth = JSON.parse(savedAuth) as AuthState;
       if (auth.user?.token) {
         processing.value = true;
-        // Verify token and get fresh user data (including mediaProgress)
+        // Verify token and get fresh user data
         const authorizeRes = await ABSService.authorize(auth.serverUrl, auth.user.token);
         
         if (authorizeRes) {
@@ -31,8 +31,9 @@ onMounted(async () => {
             user: {
               id: authorizeRes.user.id,
               username: authorizeRes.user.username,
-              token: auth.user.token, // Keep existing token if valid
-              mediaProgress: authorizeRes.user.mediaProgress || [] // Capture the mediaProgress array
+              token: auth.user.token, // Keep existing token
+              mediaProgress: authorizeRes.user.mediaProgress || [],
+              defaultLibraryId: authorizeRes.user.defaultLibraryId || auth.user.defaultLibraryId // Preserve or update
             }
           };
 
@@ -73,7 +74,9 @@ const submitForm = async () => {
           id: authorizeRes.user.id, 
           username: authorizeRes.user.username, 
           token: token,
-          mediaProgress: authorizeRes.user.mediaProgress || [] // Capture mediaProgress
+          mediaProgress: authorizeRes.user.mediaProgress || [],
+          // Capture defaultLibraryId from login response (authRes) or authorize response (if present)
+          defaultLibraryId: authRes.userDefaultLibraryId || authorizeRes.user.defaultLibraryId
         }
       };
 
@@ -178,7 +181,7 @@ const submitForm = async () => {
       </div>
 
       <div class="text-center pt-6 opacity-30">
-        <p class="text-[8px] font-black text-neutral-400 uppercase tracking-[0.5em]">Premium Minimalism • Archive Client v5.2</p>
+        <p class="text-[8px] font-black text-neutral-400 uppercase tracking-[0.5em]">Premium Minimalism • Archive Client v5.3</p>
       </div>
     </div>
   </div>

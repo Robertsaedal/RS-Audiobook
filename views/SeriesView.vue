@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import { ABSSeries, ABSLibraryItem } from '../types';
+import { ABSSeries, ABSLibraryItem, AuthState, ABSProgress } from '../types';
 import { ABSService } from '../services/absService';
 import BookCard from '../components/BookCard.vue';
 import { ChevronLeft, Layers, RotateCw, Play, Loader2 } from 'lucide-vue-next';
 
 const props = defineProps<{
   series: ABSSeries,
-  absService: ABSService
+  absService: ABSService,
+  auth?: AuthState
 }>();
 
 const emit = defineEmits<{
@@ -22,8 +23,40 @@ const isLoadingBooks = ref(false);
 const isScanning = ref(false);
 const scanFeedback = ref('');
 
+// Computed property to merge user progress from global Auth state into books
+// This is critical because the Series API endpoint often omits userProgress details
+const enrichedBooks = computed(() => {
+  const rawBooks = seriesBooks.value.length > 0 ? seriesBooks.value : (localSeries.value.books || []);
+  
+  // If we don't have global user progress map, return raw books
+  const userMediaProgress = props.auth?.user?.mediaProgress;
+  if (!userMediaProgress || !Array.isArray(userMediaProgress)) return rawBooks;
+
+  return rawBooks.map(book => {
+    // If the book object already has progress, use it
+    if (book.userProgress) return book;
+
+    // Otherwise try to find it in the global map (ID Match)
+    const match = userMediaProgress.find((p: any) => p.libraryItemId === book.id);
+    if (match) {
+        // Map the user object progress format to ABSProgress format
+        const mappedProgress: ABSProgress = {
+            itemId: match.libraryItemId,
+            currentTime: match.currentTime,
+            duration: match.duration,
+            progress: match.progress,
+            isFinished: match.isFinished,
+            lastUpdate: match.lastUpdate,
+            hideFromContinueListening: match.hideFromContinueListening
+        };
+        return { ...book, userProgress: mappedProgress };
+    }
+    return book;
+  });
+});
+
 const firstBookCover = computed(() => {
-  const books = seriesBooks.value.length > 0 ? seriesBooks.value : localSeries.value.books;
+  const books = enrichedBooks.value;
   if (books && books.length > 0) {
     return props.absService.getCoverUrl(books[0].id);
   }
@@ -31,7 +64,7 @@ const firstBookCover = computed(() => {
 });
 
 const totalDurationPretty = computed(() => {
-  const books = seriesBooks.value.length > 0 ? seriesBooks.value : localSeries.value.books;
+  const books = enrichedBooks.value;
   const totalSeconds = books?.reduce((acc, book) => acc + (book.media.duration || 0), 0) || 0;
   const h = Math.floor(totalSeconds / 3600);
   const m = Math.floor((totalSeconds % 3600) / 60);
@@ -92,10 +125,7 @@ const getSequence = (item: ABSLibraryItem) => {
 };
 
 const sortedBooks = computed(() => {
-  // Use localSeries.books if seriesBooks is empty to prevent flash of empty content
-  const books = seriesBooks.value.length > 0 ? seriesBooks.value : (localSeries.value.books || []);
-  
-  return [...books].sort((a, b) => {
+  return [...enrichedBooks.value].sort((a, b) => {
     const seqA = parseFloat(getSequence(a) || '999999');
     const seqB = parseFloat(getSequence(b) || '999999');
     return seqA - seqB;

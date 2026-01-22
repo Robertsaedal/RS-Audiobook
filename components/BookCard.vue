@@ -35,11 +35,9 @@ const progressPercentage = computed(() => {
   const media = props.item.media;
 
   // 1. Explicitly Finished Flag (Instant 100%)
-  // Handle both isFinished (standard) and isCompleted (some API versions)
   if (p?.isFinished || (p as any)?.isCompleted) return 100;
 
   // 2. "Heartbeat" Calculation (currentTime / duration)
-  // We prioritize media.duration (source of truth) over progress.duration (snapshot)
   const totalDuration = media?.duration || p?.duration || 0;
   const currentTime = p?.currentTime || 0;
 
@@ -49,7 +47,6 @@ const progressPercentage = computed(() => {
   }
 
   // 3. Server Provided Pre-calculated Progress (Fallback)
-  // ABS sends this as a float 0.0 to 1.0
   if (typeof p?.progress === 'number' && p.progress > 0) {
     const serverPct = p.progress <= 1 ? p.progress * 100 : p.progress;
     return Math.min(100, Math.max(0, serverPct));
@@ -69,9 +66,7 @@ const isFinished = computed(() => {
 });
 
 const displaySequence = computed(() => {
-  // 1. Explicit fallback passed from parent (SeriesView context)
   if (props.fallbackSequence !== undefined && props.fallbackSequence !== null) {
-    // Allow '0' string or number as valid, but reject empty string/whitespace
     if (typeof props.fallbackSequence === 'string' && props.fallbackSequence.trim() === '') return null;
     return props.fallbackSequence;
   }
@@ -79,24 +74,18 @@ const displaySequence = computed(() => {
   const meta = props.item.media?.metadata;
   if (!meta) return null;
   
-  // 2. Direct property on metadata
   if (meta.seriesSequence !== undefined && meta.seriesSequence !== null) return meta.seriesSequence;
   if (meta.sequence !== undefined && meta.sequence !== null) return meta.sequence;
 
-  // 3. Root level sequence (Legacy/Compact views or Series Context)
   if ((props.item as any).sequence !== undefined && (props.item as any).sequence !== null) {
     return (props.item as any).sequence;
   }
 
-  // 4. Nested series array (Standard ABS structure) - Preferred
-  // Check the 'series' array which contains { id, name, sequence } objects
   if (Array.isArray(meta.series) && meta.series.length > 0) {
-    const s = meta.series[0]; // Default to first series
+    const s = meta.series[0];
     if (s.sequence !== undefined && s.sequence !== null) return s.sequence;
   }
 
-  // 5. Fallback: Parse from seriesName string (e.g. "Series Name #2")
-  // This handles flattened data structures where 'series' array is missing
   if (meta.seriesName && typeof meta.seriesName === 'string') {
     const match = meta.seriesName.match(/#\s*([0-9]+(?:\.[0-9]+)?)(?:\s|$)/);
     if (match) return match[1];
@@ -175,16 +164,16 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- Progress Bar (Only show if > 0) -->
-      <div v-if="!hideProgress && !isFinished && progressPercentage > 0" class="absolute bottom-0 left-0 w-full z-30 bg-neutral-900/50">
+      <!-- Progress Bar (Only show if rounded % > 0) -->
+      <div v-if="!hideProgress && !isFinished && Math.round(progressPercentage) > 0" class="absolute bottom-0 left-0 w-full z-30 bg-neutral-900/50">
          <div 
           class="h-1 bg-gradient-to-r from-purple-600 to-purple-400 shadow-[0_0_8px_rgba(168,85,247,0.8)]" 
           :style="{ width: progressPercentage + '%' }" 
         />
       </div>
       
-      <!-- Percentage Text Overlay (Only show if > 0) -->
-      <div v-if="!hideProgress && !isFinished && progressPercentage > 0" 
+      <!-- Percentage Text Overlay (Only show if rounded % > 0) -->
+      <div v-if="!hideProgress && !isFinished && Math.round(progressPercentage) > 0" 
         class="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur-md px-2 py-1 rounded text-[9px] font-black text-white uppercase tracking-widest z-30 transition-opacity pointer-events-none border border-white/10"
         :class="showProgress ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'"
       >

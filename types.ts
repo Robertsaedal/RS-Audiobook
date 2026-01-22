@@ -3,6 +3,7 @@ export interface ABSUser {
   username: string;
   token: string;
   mediaProgress?: any[]; // Array of progress objects from /authorize endpoint
+  defaultLibraryId?: string;
 }
 
 export interface ABSChapter {
