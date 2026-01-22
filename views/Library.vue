@@ -112,13 +112,19 @@ const setupListeners = () => {
   if (!absService.value) return;
 
   // 1. Real-Time Progress Update
+  // Logic: When fired, match matching book in progressMap and update values.
   absService.value.onProgressUpdate((p) => {
     handleProgressUpdate(p);
   });
 
-  // 2. Handle 'Init' - Full Sync on Connect
+  // 2. User Online (Active Session Sync)
+  // Logic: Listen for user_online, sync active session if applicable.
+  absService.value.onUserOnline((p) => {
+     handleProgressUpdate(p as ABSProgress);
+  });
+
+  // 3. Handle 'Init' - Full Sync on Connect
   absService.value.onInit((data) => {
-      console.log('[Socket] Init received');
       if (data.user && data.user.mediaProgress) {
           data.user.mediaProgress.forEach((p: any) => {
               handleProgressUpdate({
@@ -134,23 +140,6 @@ const setupListeners = () => {
       }
   });
 
-  // 3. Handle 'User_Online' - Session Sync
-  absService.value.onUserOnline((data) => {
-      // If the online event contains session info (active playback on another device)
-      // Normalize and update.
-      if (data && data.libraryItemId) {
-           console.log('[Socket] User Online - Syncing Active Session');
-           handleProgressUpdate({
-               itemId: data.libraryItemId,
-               currentTime: data.currentTime,
-               duration: data.duration,
-               progress: (data.duration > 0) ? (data.currentTime / data.duration) : 0,
-               isFinished: false,
-               lastUpdate: Date.now()
-           });
-      }
-  });
-
   absService.value.onProgressDelete((itemId) => handleProgressDelete(itemId));
   absService.value.onLibraryUpdate(() => fetchDashboardData());
 };
@@ -159,6 +148,7 @@ const handleProgressUpdate = (p: ABSProgress) => {
   const duration = p.duration || 1;
   
   // Calculate percentage precisely for the UI
+  // Formula: (currentTime / duration) * 100 is done in components, here we store the ratio 0-1
   const calculatedProgress = p.progress !== undefined ? p.progress : (p.currentTime / duration);
 
   const newItem: ABSProgress = {
@@ -172,7 +162,8 @@ const handleProgressUpdate = (p: ABSProgress) => {
   };
 
   // Reactivity: Update the Map entry which triggers watchers/computed
-  progressMap.set(p.itemId, newItem);
+  // Using Object.assign pattern conceptually by replacing the object value
+  progressMap.set(p.itemId, Object.assign({}, progressMap.get(p.itemId) || {}, newItem));
 
   if (p.isFinished) {
     setTimeout(() => {
@@ -187,7 +178,6 @@ const handleProgressUpdate = (p: ABSProgress) => {
     const idx = currentlyReadingRaw.value.findIndex(i => i.id === p.itemId);
     if (idx === -1 && !p.isFinished && !p.hideFromContinueListening) {
       // If we receive progress for an item not on the shelf, fetch it
-      // Debounce this in a real app, but for now direct fetch is okay
       absService.value?.getLibraryItemsPaged({ filter: `id.eq.${p.itemId}`, limit: 1 })
         .then(response => {
            if (response.results && response.results.length > 0) {
@@ -298,6 +288,8 @@ const forceSyncProgress = async () => {
   try {
     // Force Socket Re-Auth (Triggers 'init' push from server)
     absService.value.emitAuth();
+    // Also emit 'get_user_items' as requested by custom requirement
+    absService.value.emitGetUserItems();
 
     // Redundant API fetch to be safe
     const allProgress = await absService.value.getAllUserProgress();

@@ -60,6 +60,12 @@ export class ABSService {
     }
   }
 
+  public emitGetUserItems() {
+    if (this.socket && this.socket.connected) {
+      this.socket.emit('get_user_items');
+    }
+  }
+
   private static async fetchWithRetry(url: string, options: RequestInit, retries = 3, timeout = 10000): Promise<Response> {
     let lastError: Error | null = null;
     for (let i = 0; i < retries; i++) {
@@ -416,13 +422,30 @@ export class ABSService {
   }
 
   onUserOnline(callback: (data: any) => void) {
-    this.socket?.on('user_online', callback);
+    this.socket?.on('user_online', (payload: any) => {
+      // payload structure: { id, username, session: { libraryItemId, currentTime, ... } }
+      if (payload && payload.session && payload.session.libraryItemId) {
+         callback({
+             itemId: payload.session.libraryItemId,
+             currentTime: payload.session.currentTime,
+             duration: payload.session.duration || 0,
+             progress: (payload.session.duration > 0) ? (payload.session.currentTime / payload.session.duration) : 0,
+             isFinished: false,
+             lastUpdate: Date.now()
+         });
+      }
+    });
   }
 
   onProgressUpdate(callback: (progress: ABSProgress) => void) {
-    this.socket?.on('user_item_progress_updated', (data) => {
-      // Normalize socket payload: ABS sends `libraryItemId`, we map to `itemId`
+    this.socket?.on('user_item_progress_updated', (payload: any) => {
+      // payload structure: { id, sessionId, deviceDescription, data: { ... } }
+      // data: { libraryItemId, currentTime, duration, progress, isFinished, ... }
+      
+      // Unwrap if wrapped in payload.data, otherwise assume direct
+      const data = payload.data || payload; 
       const itemId = data.libraryItemId || data.itemId;
+
       if (itemId) {
         callback({
           itemId,

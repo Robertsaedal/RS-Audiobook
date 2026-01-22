@@ -1,7 +1,8 @@
+
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
 import { ABSLibraryItem, ABSProgress } from '../types';
-import { Play, CheckCircle, Check } from 'lucide-vue-next';
+import { Play, CheckCircle } from 'lucide-vue-next';
 import { OfflineManager } from '../services/offlineManager';
 import { getDominantColor } from '../services/colorUtils';
 
@@ -177,16 +178,15 @@ onMounted(async () => {
         </div>
       </div>
       
-      <!-- Downloaded Badge -->
+      <!-- Downloaded Badge (Hidden when finished to avoid clutter) -->
       <div v-if="isDownloaded && !isFinished" class="absolute top-2 right-2 z-30 text-purple-400 bg-black/60 rounded-full backdrop-blur-sm p-0.5 border border-white/10">
         <CheckCircle :size="14" fill="currentColor" class="text-white" />
       </div>
 
-      <!-- Finished Indicator Overlay -->
+      <!-- Finished Indicator Overlay (Banner Only, No Icon) -->
       <div v-if="isFinished" class="absolute inset-0 flex items-center justify-center z-40 bg-black/40 backdrop-grayscale-[0.5] pointer-events-none">
-         <div class="px-3 py-1 bg-purple-600/90 backdrop-blur-md border border-purple-400/30 rounded-full flex items-center gap-2 shadow-xl transform -rotate-12">
-            <Check :size="12" class="text-white" stroke-width="4" />
-            <span class="text-[9px] font-black text-white uppercase tracking-widest">COMPLETE</span>
+         <div class="px-4 py-1.5 bg-purple-600/90 backdrop-blur-md border border-purple-400/30 rounded-full flex items-center justify-center shadow-xl transform -rotate-12">
+            <span class="text-[9px] font-black text-white uppercase tracking-[0.2em]">COMPLETE</span>
          </div>
       </div>
       <div v-if="isFinished" class="absolute bottom-0 left-0 h-1.5 w-full bg-purple-500 z-30 shadow-[0_0_10px_rgba(168,85,247,0.5)]" />
