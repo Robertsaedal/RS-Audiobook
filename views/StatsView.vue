@@ -3,7 +3,7 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import { ABSService } from '../services/absService';
 import { ABSProgress } from '../types';
-import { BarChart2, AlertCircle, PlayCircle, Trophy, ChevronLeft, ChevronRight, Clock, Calendar, RefreshCcw } from 'lucide-vue-next';
+import { AlertCircle, PlayCircle, Trophy, ChevronLeft, ChevronRight, Clock, Calendar, RefreshCcw } from 'lucide-vue-next';
 
 const props = defineProps<{
   absService: ABSService,
@@ -112,20 +112,6 @@ const totalBooksFinished = computed(() => {
   return 0;
 });
 
-// Aggregated bar data for the monthly chart
-const monthlyData = computed(() => {
-  const months = new Array(12).fill(0);
-  Object.entries(normalizedDays.value).forEach(([dateStr, seconds]) => {
-    const parsed = parseYearMonth(dateStr);
-    if (parsed && parsed.year === selectedYear.value) {
-      if (parsed.month >= 0 && parsed.month < 12) {
-        months[parsed.month] += seconds;
-      }
-    }
-  });
-  return months;
-});
-
 const totalListeningTime = computed(() => {
   let total = 0;
   Object.entries(normalizedDays.value).forEach(([dateStr, seconds]) => {
@@ -153,11 +139,6 @@ const activeDaysCount = computed(() => {
     }
   });
   return count;
-});
-
-const maxMonthlyValue = computed(() => {
-  const max = Math.max(...monthlyData.value);
-  return max > 0 ? max : 1; 
 });
 
 const displaySessions = computed(() => {
@@ -218,8 +199,6 @@ const changeYear = (delta: number) => {
 onMounted(() => {
   fetchStats();
 });
-
-const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 </script>
 
 <template>
@@ -309,46 +288,6 @@ const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep
                 <span class="text-sm font-black text-neutral-500 uppercase">Days</span>
              </div>
           </div>
-        </div>
-
-        <!-- Volume Chart -->
-        <div class="bg-neutral-900/40 border border-white/5 rounded-3xl p-8 flex flex-col gap-4">
-           <div class="flex items-center gap-3 text-neutral-400">
-             <BarChart2 :size="20" />
-             <span class="text-[9px] font-black uppercase tracking-[0.3em]">Monthly Volume Trend</span>
-           </div>
-           
-           <div v-if="totalListeningTime > 0" class="flex-1 flex items-end justify-between gap-1 md:gap-2 pt-10 h-64">
-               <div 
-                 v-for="(val, index) in monthlyData" 
-                 :key="index"
-                 class="flex-1 flex flex-col justify-end group relative h-full"
-               >
-                  <!-- Tooltip -->
-                  <div class="absolute -top-12 left-1/2 -translate-x-1/2 bg-white text-black text-[9px] font-black px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-20 pointer-events-none shadow-xl border border-white/10">
-                      {{ monthNames[index] }}: {{ formatDuration(val) }}
-                  </div>
-
-                  <!-- Bar -->
-                  <div 
-                    class="w-full rounded-t-sm transition-all duration-700 ease-out relative overflow-hidden"
-                    :class="val > 0 ? 'bg-purple-600 group-hover:bg-purple-500' : 'bg-white/5'"
-                    :style="{ 
-                      height: val > 0 ? `${Math.max(4, (val / maxMonthlyValue) * 100)}%` : '4px',
-                      opacity: val > 0 ? 1 : 0.2
-                    }"
-                  />
-               </div>
-           </div>
-           
-           <div v-else class="h-64 flex flex-col items-center justify-center opacity-30 border border-white/5 border-dashed rounded-2xl">
-              <BarChart2 :size="32" class="mb-2 text-neutral-600" />
-              <p class="text-[9px] font-black uppercase tracking-widest text-neutral-600">Archive Empty for {{ selectedYear }}</p>
-           </div>
-
-           <div class="flex justify-between text-[8px] font-black uppercase text-neutral-700 mt-6 border-t border-white/5 pt-4">
-              <span v-for="(m, i) in monthNames" :key="i" class="w-full text-center" :class="monthlyData[i] > 0 ? 'text-purple-400' : ''">{{ m }}</span>
-           </div>
         </div>
 
         <!-- Activity Log -->
