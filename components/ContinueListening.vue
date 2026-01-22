@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref, computed } from 'vue';
 import { ABSLibraryItem, ABSProgress } from '../types';
 import { ABSService } from '../services/absService';
 
 const props = defineProps<{
   absService: ABSService,
-  items: ABSLibraryItem[]
+  items: ABSLibraryItem[],
+  progressMap?: Map<string, ABSProgress> // New Prop
 }>();
 
 const emit = defineEmits<{
@@ -13,6 +14,13 @@ const emit = defineEmits<{
 }>();
 
 const getCoverUrl = (itemId: string) => props.absService.getCoverUrl(itemId);
+
+const getProgress = (item: ABSLibraryItem) => {
+  if (props.progressMap && props.progressMap.has(item.id)) {
+    return props.progressMap.get(item.id)?.progress || 0;
+  }
+  return item.userProgress?.progress || 0;
+};
 </script>
 
 <template>
@@ -40,7 +48,7 @@ const getCoverUrl = (itemId: string) => props.absService.getCoverUrl(itemId);
           <div class="absolute bottom-0 left-0 right-0 h-1 bg-neutral-800/60 z-10">
             <div 
               class="h-full bg-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.6)] transition-all duration-300"
-              :style="{ width: (item.userProgress?.progress || 0) * 100 + '%' }"
+              :style="{ width: getProgress(item) * 100 + '%' }"
             />
           </div>
 

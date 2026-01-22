@@ -1,4 +1,3 @@
-
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, onActivated, watch, computed, nextTick, reactive } from 'vue';
 import { AuthState, ABSLibraryItem, ABSSeries, ABSProgress } from '../types';
@@ -21,7 +20,9 @@ defineOptions({
 const props = defineProps<{
   auth: AuthState,
   isStreaming?: boolean,
-  initialSeriesId?: string | null
+  initialSeriesId?: string | null,
+  progressMap?: Map<string, ABSProgress>,
+  providedService?: ABSService | null
 }>();
 
 const emit = defineEmits<{
@@ -47,7 +48,11 @@ const continueSeriesRaw = ref<ABSLibraryItem[]>([]);
 const recentlyAddedRaw = ref<ABSLibraryItem[]>([]);
 const recentSeries = ref<ABSSeries[]>([]);
 
-const progressMap = reactive(new Map<string, ABSProgress>());
+// Local fallback map if props are not used (for standalone testing)
+const localProgressMap = reactive(new Map<string, ABSProgress>());
+
+// Use global map if provided, otherwise local
+const activeProgressMap = computed(() => props.progressMap || localProgressMap);
 
 const searchResults = ref<{ books: ABSLibraryItem[], series: ABSSeries[] }>({ books: [], series: [] });
 const isGlobalSearching = ref(false);
@@ -65,16 +70,16 @@ const initProgressMap = async () => {
         isFinished: p.isFinished,
         lastUpdate: p.lastUpdate,
         hideFromContinueListening: p.hideFromContinueListening
-      });
+      }, false); 
     });
   }
 
-  // Fetch complete fresh list from server to ensure stats are accurate
+  // Fetch complete fresh list from server
   if (absService.value && !isOfflineMode.value) {
     try {
       const allProgress = await absService.value.getAllUserProgress();
       if (allProgress && Array.isArray(allProgress)) {
-        allProgress.forEach(p => handleProgressUpdate(p));
+        allProgress.forEach(p => handleProgressUpdate(p, false));
       }
     } catch (e) {
       console.warn("Failed to fetch full progress list", e);
@@ -83,16 +88,21 @@ const initProgressMap = async () => {
 };
 
 const initService = async () => {
-  if (absService.value) {
-    absService.value.disconnect();
+  // If parent provided a service, use it. Otherwise create new.
+  if (props.providedService) {
+    absService.value = props.providedService;
+  } else {
+    if (absService.value) {
+      absService.value.disconnect();
+    }
+    
+    absService.value = new ABSService(
+      props.auth.serverUrl, 
+      props.auth.user?.token || '', 
+      props.auth.user?.id,
+      props.auth.user?.defaultLibraryId
+    );
   }
-  
-  absService.value = new ABSService(
-    props.auth.serverUrl, 
-    props.auth.user?.token || '', 
-    props.auth.user?.id,
-    props.auth.user?.defaultLibraryId
-  );
 
   if (!absService.value.libraryId && !isOfflineMode.value) {
     try {
@@ -105,50 +115,42 @@ const initService = async () => {
     }
   }
 
+  // Only setup local listeners if we created the service OR if we want redundant local handling
+  // If service is provided, App.vue handles global map updates.
+  // However, we still need to know when shelves should update (item_added etc)
   setupListeners();
 };
 
 const setupListeners = () => {
   if (!absService.value) return;
 
-  // 1. Real-Time Progress Update
-  // Logic: When fired, match matching book in progressMap and update values.
-  absService.value.onProgressUpdate((p) => {
-    handleProgressUpdate(p);
-  });
-
-  // 2. User Online (Active Session Sync)
-  // Logic: Listen for user_online, sync active session if applicable.
-  absService.value.onUserOnline((p) => {
-     handleProgressUpdate(p as ABSProgress);
-  });
-
-  // 3. Handle 'Init' - Full Sync on Connect
-  absService.value.onInit((data) => {
-      if (data.user && data.user.mediaProgress) {
-          data.user.mediaProgress.forEach((p: any) => {
-              handleProgressUpdate({
-                  itemId: p.libraryItemId,
-                  currentTime: p.currentTime,
-                  duration: p.duration,
-                  progress: p.progress,
-                  isFinished: p.isFinished,
-                  lastUpdate: p.lastUpdate,
-                  hideFromContinueListening: p.hideFromContinueListening
-              });
-          });
-      }
-  });
-
-  absService.value.onProgressDelete((itemId) => handleProgressDelete(itemId));
+  // Listen for library updates to refresh shelves
   absService.value.onLibraryUpdate(() => fetchDashboardData());
+  
+  // If we are using a local service (not provided by parent), we must handle progress
+  if (!props.providedService) {
+    absService.value.onProgressUpdate((p) => handleProgressUpdate(p));
+    absService.value.onUserOnline((p) => handleProgressUpdate(p as ABSProgress));
+    absService.value.onInit((data) => {
+        if (data.user && data.user.mediaProgress) {
+            data.user.mediaProgress.forEach((p: any) => {
+                handleProgressUpdate({
+                    itemId: p.libraryItemId,
+                    currentTime: p.currentTime,
+                    duration: p.duration,
+                    progress: p.progress,
+                    isFinished: p.isFinished,
+                    lastUpdate: p.lastUpdate,
+                    hideFromContinueListening: p.hideFromContinueListening
+                });
+            });
+        }
+    });
+  }
 };
 
-const handleProgressUpdate = (p: ABSProgress) => {
+const handleProgressUpdate = (p: ABSProgress, triggerEffects = true) => {
   const duration = p.duration || 1;
-  
-  // Calculate percentage precisely for the UI
-  // Formula: (currentTime / duration) * 100 is done in components, here we store the ratio 0-1
   const calculatedProgress = p.progress !== undefined ? p.progress : (p.currentTime / duration);
 
   const newItem: ABSProgress = {
@@ -161,40 +163,39 @@ const handleProgressUpdate = (p: ABSProgress) => {
       hideFromContinueListening: p.hideFromContinueListening
   };
 
-  // Reactivity: Update the Map entry which triggers watchers/computed
-  // Using Object.assign pattern conceptually by replacing the object value
-  progressMap.set(p.itemId, Object.assign({}, progressMap.get(p.itemId) || {}, newItem));
-
-  if (p.isFinished) {
-    setTimeout(() => {
-        handleProgressDelete(p.itemId);
-        fetchDashboardData(); 
-    }, 2500);
-    return;
+  // Update map (Global map is reactive, so modifying it here works if passed via prop)
+  // If props.progressMap is passed, we update it. If not, we update local.
+  const mapToUpdate = props.progressMap || localProgressMap;
+  const existing = mapToUpdate.get(p.itemId);
+  if (existing) {
+    Object.assign(existing, newItem);
+  } else {
+    mapToUpdate.set(p.itemId, newItem);
   }
 
-  // Live shelf update for active items
-  if (!isOfflineMode.value) {
-    const idx = currentlyReadingRaw.value.findIndex(i => i.id === p.itemId);
-    if (idx === -1 && !p.isFinished && !p.hideFromContinueListening) {
-      // If we receive progress for an item not on the shelf, fetch it
-      absService.value?.getLibraryItemsPaged({ filter: `id.eq.${p.itemId}`, limit: 1 })
-        .then(response => {
-           if (response.results && response.results.length > 0) {
-             const item = response.results[0];
-             // Ensure it's not already added by a race condition
-             if (!currentlyReadingRaw.value.find(i => i.id === item.id)) {
-                currentlyReadingRaw.value = [item, ...currentlyReadingRaw.value];
+  if (triggerEffects) {
+    if (p.isFinished) {
+      setTimeout(() => {
+          fetchDashboardData(); 
+      }, 2000);
+      return;
+    }
+
+    if (!isOfflineMode.value) {
+      const idx = currentlyReadingRaw.value.findIndex(i => i.id === p.itemId);
+      if (idx === -1 && !p.isFinished && !p.hideFromContinueListening) {
+        absService.value?.getLibraryItemsPaged({ filter: `id.eq.${p.itemId}`, limit: 1 })
+          .then(response => {
+             if (response.results && response.results.length > 0) {
+               const item = response.results[0];
+               if (!currentlyReadingRaw.value.find(i => i.id === item.id)) {
+                  currentlyReadingRaw.value = [item, ...currentlyReadingRaw.value];
+               }
              }
-           }
-        });
+          });
+      }
     }
   }
-};
-
-const handleProgressDelete = (itemId: string) => {
-  progressMap.delete(itemId);
-  currentlyReadingRaw.value = currentlyReadingRaw.value.filter(i => i.id !== itemId);
 };
 
 const handleMarkFinished = async (item: ABSLibraryItem) => {
@@ -213,10 +214,9 @@ const handleMarkFinished = async (item: ABSLibraryItem) => {
         isFinished: true, 
         lastUpdate: Date.now() 
     };
-    progressMap.set(item.id, finishedState);
+    handleProgressUpdate(finishedState);
     await absService.value.updateProgress(item.id, { isFinished: true });
     setTimeout(() => {
-         currentlyReadingRaw.value = currentlyReadingRaw.value.filter(i => i.id !== item.id);
          fetchDashboardData();
     }, 2000);
   } catch (e) {
@@ -241,7 +241,8 @@ const handleOfflineFallback = async () => {
 
 const hydrateList = (list: ABSLibraryItem[]) => {
   return list.map(item => {
-    const live = progressMap.get(item.id);
+    // Check global/local map
+    const live = activeProgressMap.value.get(item.id);
     return live ? { ...item, userProgress: live } : item;
   });
 };
@@ -286,19 +287,17 @@ const forceSyncProgress = async () => {
   syncFeedback.value = '';
   
   try {
-    // Force Socket Re-Auth (Triggers 'init' push from server)
-    absService.value.emitAuth();
-    // Also emit 'get_user_items' as requested by custom requirement
+    // 1. Force Server PUSH via Socket
+    // Use the shared service instance to ensure the listener in App.vue catches the response
     absService.value.emitGetUserItems();
-
-    // Redundant API fetch to be safe
+    
+    // 2. Redundant API fetch to be safe
     const allProgress = await absService.value.getAllUserProgress();
     if (allProgress && Array.isArray(allProgress)) {
-      allProgress.forEach(p => handleProgressUpdate(p));
+      allProgress.forEach(p => handleProgressUpdate(p, false));
     }
 
-    // Refresh shelves
-    currentlyReadingRaw.value = [];
+    // 3. Refresh shelves
     await fetchDashboardData();
 
     syncFeedback.value = "Synced";
@@ -322,7 +321,7 @@ const updateOnlineStatus = () => {
 
 onMounted(async () => {
   await initService();
-  await initProgressMap(); // Load full progress for stats/live updates
+  await initProgressMap(); 
   await fetchDashboardData();
   if (props.initialSeriesId) await nextTick(() => handleJumpToSeries(props.initialSeriesId!));
   window.addEventListener('online', updateOnlineStatus);
@@ -334,7 +333,9 @@ onActivated(async () => {
 });
 
 onUnmounted(() => {
-  absService.value?.disconnect();
+  if (!props.providedService) {
+    absService.value?.disconnect();
+  }
   window.removeEventListener('online', updateOnlineStatus);
   window.removeEventListener('offline', updateOnlineStatus);
 });
@@ -390,7 +391,7 @@ const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && rec
         </div>
       </Transition>
 
-      <SeriesView v-if="selectedSeries && absService" :series="selectedSeries" :absService="absService" :auth="auth" :progressMap="progressMap" @back="selectedSeries = null" @select-item="emit('select-item', $event)" />
+      <SeriesView v-if="selectedSeries && absService" :series="selectedSeries" :absService="absService" :auth="auth" :progressMap="activeProgressMap" @back="selectedSeries = null" @select-item="emit('select-item', $event)" />
 
       <template v-else>
         <div v-if="trimmedSearch" class="h-full bg-[#0d0d0d] overflow-y-auto custom-scrollbar px-4 md:px-8 pt-8 pb-40">
@@ -465,13 +466,13 @@ const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && rec
             </div>
           </div>
           <div v-else-if="activeTab === 'LIBRARY' && absService" class="h-full flex flex-col overflow-hidden">
-            <Bookshelf :absService="absService" :sortMethod="sortMethod" :desc="desc" :search="''" :progressMap="progressMap" @select-item="emit('select-item', $event)" />
+            <Bookshelf :absService="absService" :sortMethod="sortMethod" :desc="desc" :search="''" :progressMap="activeProgressMap" @select-item="emit('select-item', $event)" />
           </div>
           <div v-else-if="activeTab === 'SERIES' && absService" class="h-full flex flex-col overflow-hidden">
             <SeriesShelf :absService="absService" :sortMethod="sortMethod" :desc="desc" :search="''" @select-series="selectedSeries = $event" />
           </div>
           <div v-else-if="activeTab === 'REQUEST'" class="h-full flex flex-col overflow-hidden"><RequestPortal /></div>
-          <div v-else-if="activeTab === 'STATS' && absService" class="h-full flex flex-col overflow-hidden"><StatsView :absService="absService" :progressMap="progressMap" /></div>
+          <div v-else-if="activeTab === 'STATS' && absService" class="h-full flex flex-col overflow-hidden"><StatsView :absService="absService" :progressMap="activeProgressMap" /></div>
         </template>
       </template>
     </div>
