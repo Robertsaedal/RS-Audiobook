@@ -40,6 +40,7 @@ const secondsToTimestamp = (s: number) => {
 
 const handleRowClick = (chapter: ABSChapter) => {
   emit('seek', chapter.start);
+  emit('close');
 };
 
 onMounted(async () => {

@@ -122,12 +122,12 @@ onMounted(async () => {
         :src="localCover || coverUrl" 
         @load="handleImageLoad"
         class="w-full h-full object-cover transition-opacity duration-700" 
-        :class="{ 'opacity-0': !imageReady, 'opacity-100': imageReady, 'grayscale opacity-60': isFinished }"
+        :class="{ 'opacity-0': !imageReady, 'opacity-100': imageReady }"
         loading="lazy" 
       />
       
-      <!-- Book Sequence Badge (High Visibility) -->
-      <div v-if="displaySequence !== null" class="absolute top-2 left-2 z-[70]">
+      <!-- Book Sequence Badge (High Visibility, Low Z-Index) -->
+      <div v-if="displaySequence !== null" class="absolute top-2 left-2 z-30">
         <div class="px-2 py-1 bg-black/70 backdrop-blur-md border border-white/10 rounded-md shadow-lg">
           <span class="text-[10px] font-black text-purple-400 tracking-tighter">
             #{{ displaySequence }}
@@ -164,21 +164,29 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- Progress Bar (Only show if rounded % > 0) -->
-      <div v-if="!hideProgress && !isFinished && Math.round(progressPercentage) > 0" class="absolute bottom-0 left-0 w-full z-30 bg-neutral-900/50">
+      <!-- Amethyst Glow Progress System -->
+      <div v-if="!hideProgress && !isFinished && Math.round(progressPercentage) > 0" class="absolute bottom-3 left-3 right-3 z-30 flex flex-col items-center gap-1.5 pointer-events-none">
+         
+         <!-- Floating Badge -->
          <div 
-          class="h-1 bg-gradient-to-r from-purple-600 to-purple-400 shadow-[0_0_8px_rgba(168,85,247,0.8)]" 
-          :style="{ width: progressPercentage + '%' }" 
-        />
+           class="px-2 py-[2px] bg-purple-600/90 backdrop-blur-md rounded-full border border-purple-400/20 shadow-[0_0_15px_rgba(168,85,247,0.5)] transition-all duration-300 transform translate-y-0"
+           :class="showProgress ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-hover:-translate-y-1'"
+         >
+            <span class="text-[8px] font-black text-white tracking-widest drop-shadow-md">
+              {{ Math.round(progressPercentage) }}%
+            </span>
+         </div>
+
+         <!-- Track -->
+         <div class="w-full h-1.5 bg-purple-900/40 backdrop-blur-md rounded-full border border-white/10 overflow-hidden shadow-lg">
+            <!-- Fill -->
+            <div 
+              class="h-full bg-purple-500 shadow-[0_0_12px_rgba(168,85,247,0.8)] relative transition-all duration-300"
+              :style="{ width: progressPercentage + '%' }"
+            />
+         </div>
       </div>
-      
-      <!-- Percentage Text Overlay (Only show if rounded % > 0) -->
-      <div v-if="!hideProgress && !isFinished && Math.round(progressPercentage) > 0" 
-        class="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur-md px-2 py-1 rounded text-[9px] font-black text-white uppercase tracking-widest z-30 transition-opacity pointer-events-none border border-white/10"
-        :class="showProgress ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'"
-      >
-        {{ Math.round(progressPercentage) }}%
-      </div>
+
     </div>
     
     <!-- Permanent Metadata Display -->

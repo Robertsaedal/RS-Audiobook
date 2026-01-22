@@ -158,14 +158,14 @@ const reset = () => {
       </div>
       <button 
         @click="scanLibrary"
-        class="group flex items-center gap-2 px-6 py-3 rounded-full bg-neutral-900/40 backdrop-blur-xl border border-white/5 hover:border-purple-500/30 transition-all active:scale-95"
+        class="group flex items-center gap-2 px-6 py-3 rounded-full bg-neutral-900/80 backdrop-blur-xl border border-white/5 hover:border-purple-500/30 transition-all active:scale-95"
       >
         <RotateCw 
           :size="16" 
           class="text-neutral-500 group-hover:text-purple-500 transition-colors" 
           :class="{ 'animate-spin text-purple-500 shadow-aether-glow': isScanning }" 
         />
-        <span class="text-[9px] font-black uppercase tracking-[0.2em] text-neutral-500 group-hover:text-neutral-300">Sync Library</span>
+        <span class="text-[9px] font-black uppercase tracking-[0.2em] text-neutral-400 group-hover:text-neutral-200">Sync Library</span>
       </button>
     </div>
 
@@ -180,7 +180,7 @@ const reset = () => {
         </div>
         <div class="space-y-2">
           <h2 class="text-4xl font-black uppercase tracking-tighter text-white">Transmission Locked</h2>
-          <p class="text-[10px] font-black uppercase tracking-[0.4em] text-neutral-600">ARTIFACT LOGGED IN ARCHIVE PIPELINE</p>
+          <p class="text-[10px] font-black uppercase tracking-[0.4em] text-neutral-500">ARTIFACT LOGGED IN ARCHIVE PIPELINE</p>
         </div>
       </div>
 
@@ -189,7 +189,7 @@ const reset = () => {
         <div class="space-y-6">
           <div class="flex flex-col gap-2">
             <h2 class="text-4xl font-black uppercase tracking-tighter text-white">Portal Inquiry</h2>
-            <p class="text-[10px] font-black uppercase tracking-[0.3em] text-neutral-700">QUERYING GLOBAL ARCHIVE INDICES...</p>
+            <p class="text-[10px] font-black uppercase tracking-[0.3em] text-neutral-500">QUERYING GLOBAL ARCHIVE INDICES...</p>
           </div>
           
           <div class="relative group">
@@ -197,15 +197,15 @@ const reset = () => {
               v-model="searchTerm"
               type="text" 
               placeholder="Title, ISBN, or Creator identifier..."
-              class="w-full bg-neutral-900/40 backdrop-blur-xl border border-white/5 py-6 pl-16 pr-8 rounded-[32px] text-lg text-white placeholder-neutral-800 outline-none focus:border-purple-600/50 focus:ring-4 focus:ring-purple-600/5 transition-all shadow-2xl"
+              class="w-full bg-neutral-900/80 backdrop-blur-xl border border-white/10 py-6 pl-16 pr-8 rounded-[32px] text-lg text-white placeholder-neutral-500 outline-none focus:border-purple-600/50 focus:ring-4 focus:ring-purple-600/5 transition-all shadow-2xl"
             />
-            <Search class="absolute left-6 top-1/2 -translate-y-1/2 text-neutral-800 group-focus-within:text-purple-500 transition-colors" />
+            <Search class="absolute left-6 top-1/2 -translate-y-1/2 text-neutral-500 group-focus-within:text-purple-500 transition-colors" />
             <Loader2 v-if="isSearching" class="absolute right-8 top-1/2 -translate-y-1/2 text-purple-500 animate-spin" :size="20" />
           </div>
 
           <!-- Live Results Dropdown -->
           <Transition name="dropdown">
-            <div v-if="searchResults.length > 0" class="absolute mt-3 w-full max-w-4xl bg-neutral-950/90 backdrop-blur-3xl border border-white/5 rounded-[32px] overflow-hidden z-[100] shadow-[0_40px_100px_rgba(0,0,0,0.9)]">
+            <div v-if="searchResults.length > 0" class="absolute mt-3 w-full max-w-4xl bg-[#151515] border border-white/10 rounded-[32px] overflow-hidden z-[100] shadow-[0_40px_100px_rgba(0,0,0,0.9)]">
               <button 
                 v-for="book in searchResults" 
                 :key="book.id"
@@ -224,7 +224,7 @@ const reset = () => {
                 </div>
                 <div class="flex-1 overflow-hidden">
                   <h4 class="text-sm font-black text-white truncate uppercase tracking-tight">{{ book.volumeInfo.title }}</h4>
-                  <p class="text-[10px] font-black text-neutral-600 truncate uppercase tracking-widest">{{ book.volumeInfo.authors?.join(', ') || 'Unknown Creator' }}</p>
+                  <p class="text-[10px] font-black text-neutral-500 truncate uppercase tracking-widest">{{ book.volumeInfo.authors?.join(', ') || 'Unknown Creator' }}</p>
                 </div>
                 <div class="p-3 rounded-full bg-neutral-900 text-neutral-600 group-hover:bg-purple-600 group-hover:text-white transition-all">
                   <Check v-if="selectedBook?.title === book.volumeInfo.title" :size="16" />
@@ -238,7 +238,7 @@ const reset = () => {
         <!-- Archive Review Form -->
         <Transition name="fade-pop">
           <div v-if="selectedBook" class="space-y-10">
-            <div class="grid md:grid-cols-[260px_1fr] gap-10 bg-neutral-900/60 backdrop-blur-2xl rounded-[48px] p-8 md:p-12 border border-purple-500/20 relative overflow-hidden group shadow-2xl transition-all">
+            <div class="grid md:grid-cols-[260px_1fr] gap-10 bg-[#151515] rounded-[48px] p-8 md:p-12 border border-white/10 relative overflow-hidden group shadow-2xl transition-all">
               <div class="absolute top-0 right-0 p-6">
                  <button @click="selectedBook = null" class="p-3 bg-neutral-950/80 rounded-full text-neutral-500 hover:text-white transition-all active:scale-90 border border-white/5">
                     <X :size="18" />
@@ -256,8 +256,8 @@ const reset = () => {
                 <div class="flex items-center gap-3 p-4 bg-neutral-950/60 rounded-2xl border border-white/5">
                   <Fingerprint :size="14" class="text-purple-500" />
                   <div class="flex flex-col">
-                    <span class="text-[7px] font-black uppercase text-neutral-700 tracking-[0.1em]">Registry Key</span>
-                    <span class="text-[9px] font-mono text-neutral-400">{{ selectedBook.isbn }}</span>
+                    <span class="text-[7px] font-black uppercase text-neutral-500 tracking-[0.1em]">Registry Key</span>
+                    <span class="text-[9px] font-mono text-neutral-300">{{ selectedBook.isbn }}</span>
                   </div>
                 </div>
               </div>
@@ -268,27 +268,27 @@ const reset = () => {
                   <div class="space-y-1">
                     <p class="text-[9px] font-black uppercase tracking-[0.4em] text-purple-500/80">ARCHIVE REVIEW</p>
                     <h3 class="text-3xl font-black uppercase tracking-tighter text-white leading-tight">{{ selectedBook.title }}</h3>
-                    <div class="flex items-center gap-2 text-neutral-500">
+                    <div class="flex items-center gap-2 text-neutral-400">
                       <User :size="12" />
                       <span class="text-[10px] font-black uppercase tracking-widest">{{ selectedBook.author }}</span>
                     </div>
                   </div>
 
                   <div class="space-y-3">
-                    <div class="flex items-center gap-2 text-neutral-700">
+                    <div class="flex items-center gap-2 text-neutral-500">
                       <MessageSquare :size="12" />
                       <label class="text-[8px] font-black uppercase tracking-[0.4em]">Additional Directive</label>
                     </div>
                     <textarea 
                       v-model="userNote"
                       placeholder="Special instructions for artifact processing..."
-                      class="w-full bg-black/40 border border-white/5 rounded-3xl p-6 text-sm text-neutral-300 outline-none focus:border-purple-600/30 transition-all min-h-[140px] resize-none placeholder:text-neutral-800"
+                      class="w-full bg-black/60 border border-white/10 rounded-3xl p-6 text-sm text-neutral-200 outline-none focus:border-purple-600/30 transition-all min-h-[140px] resize-none placeholder:text-neutral-600"
                     ></textarea>
                   </div>
                 </div>
 
                 <div class="space-y-4 pt-8">
-                  <div v-if="transmissionStatus === 'error'" class="flex items-center gap-2 text-red-500/80 bg-red-500/5 p-4 rounded-2xl border border-red-500/10 text-[10px] font-black uppercase tracking-widest">
+                  <div v-if="transmissionStatus === 'error'" class="flex items-center gap-2 text-red-400 bg-red-500/10 p-4 rounded-2xl border border-red-500/20 text-[10px] font-black uppercase tracking-widest">
                     <AlertTriangle :size="14" />
                     <span>{{ errorMsg }}</span>
                   </div>

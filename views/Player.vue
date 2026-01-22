@@ -169,8 +169,6 @@ const liveSleepCountdown = computed(() => {
     let totalSeconds = Math.max(0, (currentChapter.value?.end || 0) - state.currentTime);
     
     // Add durations of SUBSEQUENT chapters (up to sleepChapters - 1)
-    // Example: sleepChapters = 1 means finish current. 
-    // sleepChapters = 2 means finish current + next one.
     for (let i = 1; i < state.sleepChapters; i++) {
        const nextCh = chapters.value[currentChapterIndex.value + i];
        if (nextCh) {
@@ -313,7 +311,7 @@ const infoRows = computed(() => {
         
         <!-- Left Column: Visuals & Metadata -->
         <div class="flex-1 lg:flex-none lg:w-[40%] flex flex-col items-center justify-center px-8 pb-4 lg:pb-0 relative z-10 min-h-0">
-          <div @click="showInfo = true" class="relative w-full max-w-[260px] md:max-w-[340px] aspect-[2/3] group cursor-pointer perspective-1000 shrink-0 mb-6 lg:mb-10 max-h-[40vh] lg:max-h-[50vh]">
+          <div @click="showInfo = true" class="relative w-full max-w-[260px] md:max-w-[280px] aspect-[2/3] group cursor-pointer perspective-1000 shrink-0 mb-6 lg:mb-10 max-h-[35vh] lg:max-h-[50vh]">
             <div class="absolute -inset-10 bg-purple-600/5 blur-[100px] rounded-full opacity-50" />
             <div class="relative z-10 w-full h-full rounded-r-2xl rounded-l-sm overflow-hidden border-t border-r border-b border-white/10 shadow-[20px_20px_60px_-15px_rgba(0,0,0,0.8)] transition-transform duration-700 group-hover:scale-[1.02] group-hover:-translate-y-2 book-spine">
                <div class="absolute left-0 top-0 bottom-0 w-1.5 bg-gradient-to-r from-white/20 to-transparent z-20" />
@@ -348,6 +346,13 @@ const infoRows = computed(() => {
           
           <!-- Progress Area -->
           <div class="space-y-4">
+             <!-- Mobile Sleep Timer (Visible only on small screens) -->
+             <div v-if="liveSleepCountdown" class="flex md:hidden justify-center mb-2">
+               <span class="text-[10px] font-black font-mono-timer tracking-widest text-purple-400 animate-pulse shadow-aether-glow">
+                   {{ liveSleepCountdown }} REMAINING
+               </span>
+             </div>
+
             <div class="flex justify-between items-end mb-1 h-5">
                <!-- Left: Elapsed -->
                <div class="flex flex-col">
@@ -355,8 +360,8 @@ const infoRows = computed(() => {
                  <span class="text-lg font-black font-mono-timer tabular-nums tracking-tighter text-white">{{ secondsToTimestamp(state.currentTime - (currentChapter?.start || 0)) }}</span>
                </div>
                
-               <!-- CENTER: Live Sleep Timer Display -->
-               <div v-if="liveSleepCountdown" class="flex flex-col items-center pb-1 absolute left-1/2 -translate-x-1/2 bottom-12 md:static md:translate-x-0 md:pb-0">
+               <!-- Desktop Sleep Timer (Hidden on mobile, centered on desktop) -->
+               <div v-if="liveSleepCountdown" class="hidden md:flex flex-col items-center pb-0">
                    <span class="text-[10px] font-black font-mono-timer tracking-widest text-purple-400 animate-pulse shadow-aether-glow">
                        {{ liveSleepCountdown }} REMAINING
                    </span>

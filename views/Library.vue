@@ -39,13 +39,13 @@ const selectedSeries = ref<ABSSeries | null>(null);
 const isScanning = ref(false);
 const isOfflineMode = ref(!navigator.onLine);
 
-const currentlyReading = ref<ABSLibraryItem[]>([]);
-const continueSeries = ref<ABSLibraryItem[]>([]);
-const recentlyAdded = ref<ABSLibraryItem[]>([]);
+// Raw Data Refs (from API)
+const currentlyReadingRaw = ref<ABSLibraryItem[]>([]);
+const continueSeriesRaw = ref<ABSLibraryItem[]>([]);
+const recentlyAddedRaw = ref<ABSLibraryItem[]>([]);
 const recentSeries = ref<ABSSeries[]>([]);
 
 // Real-time Progress Map
-// Stores the latest progress for items, populated from Auth (initial) and Socket (updates)
 const progressMap = reactive(new Map<string, ABSProgress>());
 
 // Search State
@@ -56,7 +56,6 @@ let debounceTimeout: any = null;
 const initProgressMap = () => {
   if (props.auth.user?.mediaProgress) {
     props.auth.user.mediaProgress.forEach((p: any) => {
-      // Normalize Auth Progress object to ABSProgress
       const progress: ABSProgress = {
         itemId: p.libraryItemId,
         currentTime: p.currentTime,
@@ -83,7 +82,6 @@ const initService = async () => {
     props.auth.user?.defaultLibraryId
   );
 
-  // Auto-discover library ID if not present
   if (!absService.value.libraryId && !isOfflineMode.value) {
     try {
       const libraries = await absService.value.getLibraries();
@@ -105,61 +103,45 @@ const setupListeners = () => {
 };
 
 const handleProgressUpdate = (progress: ABSProgress) => {
-  // 1. Update the central source of truth
+  // 1. Update the central source of truth (Reactivity will propagate to Computed Props)
   progressMap.set(progress.itemId, progress);
 
-  let found = false;
-
-  // 2. Update Currently Reading (Continue Listening)
-  const crIndex = currentlyReading.value.findIndex(i => i.id === progress.itemId);
-  if (crIndex !== -1) {
-    found = true;
-    if (progress.isFinished || progress.hideFromContinueListening) {
-      currentlyReading.value.splice(crIndex, 1);
-    } else {
-      const item = currentlyReading.value[crIndex];
-      item.userProgress = progress;
-      currentlyReading.value[crIndex] = { ...item }; 
-    }
-  }
-
-  // 3. Update Recently Added
-  const raIndex = recentlyAdded.value.findIndex(i => i.id === progress.itemId);
-  if (raIndex !== -1) {
-    const item = recentlyAdded.value[raIndex];
-    item.userProgress = progress;
-    recentlyAdded.value[raIndex] = { ...item };
-  }
-
-  // 4. Update Continue Series
-  const csIndex = continueSeries.value.findIndex(i => i.id === progress.itemId);
-  if (csIndex !== -1) {
-    const item = continueSeries.value[csIndex];
-    item.userProgress = progress;
-    continueSeries.value[csIndex] = { ...item };
-  }
-
-  // If the item wasn't in "Currently Reading" but it's active progress, refresh dashboard to pull it in
-  if (!found && !progress.isFinished && !progress.hideFromContinueListening && !isOfflineMode.value) {
+  // 2. Check if this is a "New Start" (i.e., not already in Currently Reading)
+  // If it's already there, the computed property `hydratedCurrentlyReading` will auto-update.
+  // If it's NOT there, we need to re-fetch the dashboard to pull it in from the server.
+  const isInReading = currentlyReadingRaw.value.some(i => i.id === progress.itemId);
+  
+  // If we are online, not tracking it yet, and it's active progress: Refresh Dashboard
+  if (!isInReading && !progress.isFinished && !progress.hideFromContinueListening && !isOfflineMode.value) {
     fetchDashboardData();
   }
 };
 
 const handleMarkFinished = async (item: ABSLibraryItem) => {
   if (isOfflineMode.value) {
-    currentlyReading.value = currentlyReading.value.filter(i => i.id !== item.id);
+    currentlyReadingRaw.value = currentlyReadingRaw.value.filter(i => i.id !== item.id);
     return;
   }
   
   if (!absService.value) return;
   try {
-    currentlyReading.value = currentlyReading.value.filter(i => i.id !== item.id);
+    // Optimistic Update
+    const finishedState: ABSProgress = { 
+        itemId: item.id, 
+        currentTime: item.media.duration, 
+        duration: item.media.duration, 
+        progress: 1, 
+        isFinished: true, 
+        lastUpdate: Date.now() 
+    };
+    progressMap.set(item.id, finishedState);
+
+    // Remove from raw list so it disappears from UI if desired, 
+    // or let it linger as "Complete" depending on user preference.
+    // Standard behavior: Remove from "Continue Listening"
+    currentlyReadingRaw.value = currentlyReadingRaw.value.filter(i => i.id !== item.id);
+
     await absService.value.updateProgress(item.id, { isFinished: true });
-    // Update local map immediately to reflect finished state in other views
-    if (item.userProgress) {
-        const finishedState = { ...item.userProgress, isFinished: true, progress: 1 };
-        progressMap.set(item.id, finishedState);
-    }
   } catch (e) {
     console.error("Failed to mark as finished", e);
     fetchDashboardData();
@@ -170,36 +152,32 @@ const handleOfflineFallback = async () => {
   isOfflineMode.value = true;
   const localBooks = await OfflineManager.getAllDownloadedBooks();
   
-  currentlyReading.value = localBooks.filter(b => {
+  currentlyReadingRaw.value = localBooks.filter(b => {
     const p = b.userProgress;
     return p && p.progress > 0 && !p.isFinished;
   });
 
-  recentlyAdded.value = localBooks.filter(b => {
+  recentlyAddedRaw.value = localBooks.filter(b => {
     const p = b.userProgress;
     return !p || p.progress === 0 || p.isFinished;
   });
 
-  continueSeries.value = [];
+  continueSeriesRaw.value = [];
   recentSeries.value = [];
 };
 
-/**
- * Mapping Strategy:
- * Maps the detailed progress from the reactive progressMap to the Library Items.
- * This ensures even items returned from API without progress (or with stale progress)
- * get the latest data from socket/auth.
- */
-const attachProgress = (items: ABSLibraryItem[]): ABSLibraryItem[] => {
-  return items.map(item => {
-    const local = progressMap.get(item.id);
-    if (local) {
-      return { ...item, userProgress: local };
-    }
-    // If no local map entry, stick with what the item has (if anything)
-    return item;
+// --- Hydration Helpers (Computed) ---
+// These ensure that the Home View items always reflect the LATEST socket data
+const hydrateList = (list: ABSLibraryItem[]) => {
+  return list.map(item => {
+    const live = progressMap.get(item.id);
+    return live ? { ...item, userProgress: live } : item;
   });
 };
+
+const hydratedCurrentlyReading = computed(() => hydrateList(currentlyReadingRaw.value));
+const hydratedContinueSeries = computed(() => hydrateList(continueSeriesRaw.value));
+const hydratedRecentlyAdded = computed(() => hydrateList(recentlyAddedRaw.value));
 
 const fetchDashboardData = async () => {
   if (!navigator.onLine) {
@@ -213,22 +191,22 @@ const fetchDashboardData = async () => {
     
     if (!shelves || !Array.isArray(shelves)) return;
 
-    currentlyReading.value = [];
-    continueSeries.value = [];
-    recentlyAdded.value = [];
+    currentlyReadingRaw.value = [];
+    continueSeriesRaw.value = [];
+    recentlyAddedRaw.value = [];
     recentSeries.value = [];
 
     shelves.forEach((shelf: any) => {
       switch (shelf.id) {
         case 'continue-listening':
-          currentlyReading.value = attachProgress(shelf.entities);
+          currentlyReadingRaw.value = shelf.entities;
           break;
         case 'continue-series':
-          continueSeries.value = attachProgress(shelf.entities);
+          continueSeriesRaw.value = shelf.entities;
           break;
         case 'recently-added':
         case 'newest-episodes':
-          recentlyAdded.value = attachProgress(shelf.entities);
+          recentlyAddedRaw.value = shelf.entities;
           break;
         case 'recent-series':
           recentSeries.value = shelf.entities;
@@ -255,11 +233,10 @@ const updateOnlineStatus = () => {
 };
 
 onMounted(async () => {
-  initProgressMap(); // Load initial progress from auth
+  initProgressMap(); 
   await initService();
   await fetchDashboardData();
   
-  // Check initial series (First Load)
   if (props.initialSeriesId) {
     await nextTick();
     handleJumpToSeries(props.initialSeriesId);
@@ -269,7 +246,6 @@ onMounted(async () => {
   window.addEventListener('offline', updateOnlineStatus);
 });
 
-// Use onActivated to handle incoming navigation from Player
 onActivated(async () => {
   if (props.initialSeriesId) {
     await nextTick(); 
@@ -277,7 +253,6 @@ onActivated(async () => {
   }
 });
 
-// Watch for prop change (in case Library is already active)
 watch(() => props.initialSeriesId, async (newVal) => {
   if (newVal) {
     await nextTick();
@@ -294,9 +269,8 @@ onUnmounted(() => {
 const handleJumpToSeries = async (seriesId: string) => {
   if (!absService.value || isOfflineMode.value) return;
   
-  // Check if we are already viewing this series to prevent redundant fetches
   if (selectedSeries.value?.id === seriesId) {
-    activeTab.value = 'SERIES'; // Ensure tab is correct
+    activeTab.value = 'SERIES';
     emit('clear-initial-series');
     return;
   }
@@ -305,7 +279,7 @@ const handleJumpToSeries = async (seriesId: string) => {
     const series = await absService.value.getSeries(seriesId);
     if (series) {
       selectedSeries.value = series;
-      activeTab.value = 'SERIES'; // Force Tab Switch
+      activeTab.value = 'SERIES'; 
       emit('clear-initial-series');
     }
   } catch (e) {
@@ -363,7 +337,7 @@ watch(trimmedSearch, () => {
 });
 
 const isHomeEmpty = computed(() => {
-  return currentlyReading.value.length === 0 && recentlyAdded.value.length === 0 && recentSeries.value.length === 0 && continueSeries.value.length === 0;
+  return currentlyReadingRaw.value.length === 0 && recentlyAddedRaw.value.length === 0 && recentSeries.value.length === 0 && continueSeriesRaw.value.length === 0;
 });
 </script>
 
@@ -455,7 +429,7 @@ const isHomeEmpty = computed(() => {
 
             <template v-if="!isHomeEmpty">
               <!-- Increased py-8 for extra spacing -->
-              <section v-if="currentlyReading.length > 0 && absService" class="shelf-row py-8">
+              <section v-if="hydratedCurrentlyReading.length > 0 && absService" class="shelf-row py-8">
                 <div class="shelf-tag">
                   <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">
                     {{ isOfflineMode ? 'In Progress (Local)' : 'Continue Listening' }}
@@ -463,7 +437,7 @@ const isHomeEmpty = computed(() => {
                 </div>
                 <!-- Increased gap-10 for better separation -->
                 <div class="flex gap-10 overflow-x-auto no-scrollbar pb-10 pl-2">
-                  <div v-for="item in currentlyReading" :key="item.id" class="w-32 md:w-40 shrink-0">
+                  <div v-for="item in hydratedCurrentlyReading" :key="item.id" class="w-32 md:w-40 shrink-0">
                     <BookCard 
                       :item="item" 
                       :coverUrl="absService.getCoverUrl(item.id)" 
@@ -476,12 +450,12 @@ const isHomeEmpty = computed(() => {
                 </div>
               </section>
 
-              <section v-if="continueSeries.length > 0 && absService" class="shelf-row py-8">
+              <section v-if="hydratedContinueSeries.length > 0 && absService" class="shelf-row py-8">
                 <div class="shelf-tag">
                   <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Next in Series</span>
                 </div>
                 <div class="flex gap-10 overflow-x-auto no-scrollbar pb-10 pl-2">
-                  <div v-for="item in continueSeries" :key="item.id" class="w-32 md:w-40 shrink-0">
+                  <div v-for="item in hydratedContinueSeries" :key="item.id" class="w-32 md:w-40 shrink-0">
                     <BookCard 
                       :item="item" 
                       :coverUrl="absService.getCoverUrl(item.id)" 
@@ -492,14 +466,14 @@ const isHomeEmpty = computed(() => {
                 </div>
               </section>
 
-              <section v-if="recentlyAdded.length > 0 && absService" class="shelf-row py-8">
+              <section v-if="hydratedRecentlyAdded.length > 0 && absService" class="shelf-row py-8">
                 <div class="shelf-tag">
                   <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">
                     {{ isOfflineMode ? 'Downloaded' : 'Recently Added' }}
                   </span>
                 </div>
                 <div class="flex gap-10 overflow-x-auto no-scrollbar pb-10 pl-2">
-                  <div v-for="item in recentlyAdded" :key="item.id" class="w-32 md:w-40 shrink-0">
+                  <div v-for="item in hydratedRecentlyAdded" :key="item.id" class="w-32 md:w-40 shrink-0">
                     <BookCard 
                       :item="item" 
                       :coverUrl="absService.getCoverUrl(item.id)" 
