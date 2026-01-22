@@ -8,7 +8,8 @@ import { ChevronLeft, Layers, RotateCw, Play, Loader2 } from 'lucide-vue-next';
 const props = defineProps<{
   series: ABSSeries,
   absService: ABSService,
-  auth?: AuthState
+  auth?: AuthState,
+  progressMap?: Map<string, ABSProgress> // New Prop
 }>();
 
 const emit = defineEmits<{
@@ -23,23 +24,28 @@ const isLoadingBooks = ref(false);
 const isScanning = ref(false);
 const scanFeedback = ref('');
 
-// Computed property to merge user progress from global Auth state into books
-// This is critical because the Series API endpoint often omits userProgress details
+// Computed property to merge user progress from global map into books
 const enrichedBooks = computed(() => {
   const rawBooks = seriesBooks.value.length > 0 ? seriesBooks.value : (localSeries.value.books || []);
   
-  // If we don't have global user progress map, return raw books
+  // Use progressMap if available (Real-time updates)
+  if (props.progressMap) {
+    return rawBooks.map(book => {
+      const local = props.progressMap!.get(book.id);
+      if (local) return { ...book, userProgress: local };
+      return book;
+    });
+  }
+
+  // Fallback: If no map, check auth object (Stale)
   const userMediaProgress = props.auth?.user?.mediaProgress;
   if (!userMediaProgress || !Array.isArray(userMediaProgress)) return rawBooks;
 
   return rawBooks.map(book => {
-    // If the book object already has progress, use it
     if (book.userProgress) return book;
 
-    // Otherwise try to find it in the global map (ID Match)
     const match = userMediaProgress.find((p: any) => p.libraryItemId === book.id);
     if (match) {
-        // Map the user object progress format to ABSProgress format
         const mappedProgress: ABSProgress = {
             itemId: match.libraryItemId,
             currentTime: match.currentTime,
@@ -75,32 +81,22 @@ const totalDurationPretty = computed(() => {
 const getSequence = (item: ABSLibraryItem) => {
   const meta = item.media.metadata;
   
-  // 1. Check direct property on item (often populated by server in series view context)
   if ((item as any).sequence !== undefined && (item as any).sequence !== null && String((item as any).sequence).trim() !== '') {
     return String((item as any).sequence);
   }
 
-  // 2. Check explicit seriesSequence in metadata
   if (meta.seriesSequence !== undefined && meta.seriesSequence !== null) {
     return String(meta.seriesSequence);
   }
 
-  // 3. Check nested series array (Standard ABS item structure)
   if (Array.isArray((meta as any).series) && (meta as any).series.length > 0) {
     const seriesList = (meta as any).series;
     
-    // A. Exact ID match (Best)
     let s = seriesList.find((s: any) => s.id === localSeries.value.id);
-    
-    // B. Loose ID Match (string vs number)
     if (!s) s = seriesList.find((s: any) => s.id == localSeries.value.id);
-
-    // C. Name Match (Fallback)
     if (!s && localSeries.value.name) {
        s = seriesList.find((s: any) => s.name === localSeries.value.name);
     }
-
-    // D. Aggressive Fallback: In Series View, assume the first series entry IS the sequence we want
     if (!s && seriesList.length > 0) {
        s = seriesList[0];
     }
@@ -110,12 +106,10 @@ const getSequence = (item: ABSLibraryItem) => {
     }
   }
 
-  // 4. Check simple sequence property on metadata
   if (meta.sequence !== undefined && meta.sequence !== null) {
     return String(meta.sequence);
   }
 
-  // 5. Fallback: Parse from seriesName string (e.g. "Series Name #2")
   if (meta.seriesName && typeof meta.seriesName === 'string') {
     const match = meta.seriesName.match(/#\s*([0-9.]+)\s*$/);
     if (match) return String(match[1]);
@@ -135,7 +129,6 @@ const sortedBooks = computed(() => {
 const fetchBooks = async () => {
   if (!props.series.id) return;
   
-  // If props.series ALREADY has books, rely on it first, but fetch in background to get updates
   if (props.series.books && props.series.books.length > 0) {
       seriesBooks.value = props.series.books;
   } else {
@@ -143,7 +136,6 @@ const fetchBooks = async () => {
   }
   
   try {
-    // Pass Series Name to allow for "Name Match" fallback if ID match fails
     const books = await props.absService.getSeriesBooks(props.series.id, props.series.name);
     
     if (books && books.length > 0) {
@@ -239,7 +231,6 @@ onMounted(() => {
             <h1 class="text-5xl md:text-7xl lg:text-8xl font-black uppercase tracking-tighter leading-none text-white drop-shadow-2xl">
               {{ localSeries.name }}
             </h1>
-            <!-- Description with HTML parsing support -->
             <div v-if="localSeries.description" v-html="localSeries.description" class="text-neutral-400 text-xs font-medium leading-relaxed max-w-2xl line-clamp-3"></div>
           </div>
           <div class="flex flex-wrap items-center gap-y-4 gap-x-8">

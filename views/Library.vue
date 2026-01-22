@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, onActivated, watch, computed, nextTick } from 'vue';
+import { ref, onMounted, onUnmounted, onActivated, watch, computed, nextTick, reactive } from 'vue';
 import { AuthState, ABSLibraryItem, ABSSeries, ABSProgress } from '../types';
 import { ABSService } from '../services/absService';
 import { OfflineManager } from '../services/offlineManager';
@@ -44,10 +44,32 @@ const continueSeries = ref<ABSLibraryItem[]>([]);
 const recentlyAdded = ref<ABSLibraryItem[]>([]);
 const recentSeries = ref<ABSSeries[]>([]);
 
+// Real-time Progress Map
+// Stores the latest progress for items, populated from Auth (initial) and Socket (updates)
+const progressMap = reactive(new Map<string, ABSProgress>());
+
 // Search State
 const searchResults = ref<{ books: ABSLibraryItem[], series: ABSSeries[] }>({ books: [], series: [] });
 const isGlobalSearching = ref(false);
 let debounceTimeout: any = null;
+
+const initProgressMap = () => {
+  if (props.auth.user?.mediaProgress) {
+    props.auth.user.mediaProgress.forEach((p: any) => {
+      // Normalize Auth Progress object to ABSProgress
+      const progress: ABSProgress = {
+        itemId: p.libraryItemId,
+        currentTime: p.currentTime,
+        duration: p.duration,
+        progress: p.progress,
+        isFinished: p.isFinished,
+        lastUpdate: p.lastUpdate,
+        hideFromContinueListening: p.hideFromContinueListening
+      };
+      progressMap.set(progress.itemId, progress);
+    });
+  }
+};
 
 const initService = async () => {
   if (absService.value) {
@@ -83,9 +105,12 @@ const setupListeners = () => {
 };
 
 const handleProgressUpdate = (progress: ABSProgress) => {
+  // 1. Update the central source of truth
+  progressMap.set(progress.itemId, progress);
+
   let found = false;
 
-  // 1. Update Currently Reading (Continue Listening)
+  // 2. Update Currently Reading (Continue Listening)
   const crIndex = currentlyReading.value.findIndex(i => i.id === progress.itemId);
   if (crIndex !== -1) {
     found = true;
@@ -98,7 +123,7 @@ const handleProgressUpdate = (progress: ABSProgress) => {
     }
   }
 
-  // 2. Update Recently Added
+  // 3. Update Recently Added
   const raIndex = recentlyAdded.value.findIndex(i => i.id === progress.itemId);
   if (raIndex !== -1) {
     const item = recentlyAdded.value[raIndex];
@@ -106,7 +131,7 @@ const handleProgressUpdate = (progress: ABSProgress) => {
     recentlyAdded.value[raIndex] = { ...item };
   }
 
-  // 3. Update Continue Series
+  // 4. Update Continue Series
   const csIndex = continueSeries.value.findIndex(i => i.id === progress.itemId);
   if (csIndex !== -1) {
     const item = continueSeries.value[csIndex];
@@ -114,6 +139,7 @@ const handleProgressUpdate = (progress: ABSProgress) => {
     continueSeries.value[csIndex] = { ...item };
   }
 
+  // If the item wasn't in "Currently Reading" but it's active progress, refresh dashboard to pull it in
   if (!found && !progress.isFinished && !progress.hideFromContinueListening && !isOfflineMode.value) {
     fetchDashboardData();
   }
@@ -129,6 +155,11 @@ const handleMarkFinished = async (item: ABSLibraryItem) => {
   try {
     currentlyReading.value = currentlyReading.value.filter(i => i.id !== item.id);
     await absService.value.updateProgress(item.id, { isFinished: true });
+    // Update local map immediately to reflect finished state in other views
+    if (item.userProgress) {
+        const finishedState = { ...item.userProgress, isFinished: true, progress: 1 };
+        progressMap.set(item.id, finishedState);
+    }
   } catch (e) {
     console.error("Failed to mark as finished", e);
     fetchDashboardData();
@@ -155,38 +186,17 @@ const handleOfflineFallback = async () => {
 
 /**
  * Mapping Strategy:
- * Maps the detailed progress from the User object (mediaProgress) to the Library Items
- * if the items themselves are missing the userProgress object.
+ * Maps the detailed progress from the reactive progressMap to the Library Items.
+ * This ensures even items returned from API without progress (or with stale progress)
+ * get the latest data from socket/auth.
  */
-const attachProgressFromAuth = (items: ABSLibraryItem[]): ABSLibraryItem[] => {
-  const userMediaProgress = props.auth.user?.mediaProgress;
-  
-  // If no detailed progress map exists, return original items
-  if (!userMediaProgress || !Array.isArray(userMediaProgress)) return items;
-
+const attachProgress = (items: ABSLibraryItem[]): ABSLibraryItem[] => {
   return items.map(item => {
-    // If the item already has progress data, use it
-    if (item.userProgress) return item;
-
-    // Otherwise, find matching progress in the auth state
-    // Note: The auth object uses 'libraryItemId', while ABSLibraryItem uses 'id'
-    const match = userMediaProgress.find((p: any) => p.libraryItemId === item.id);
-    
-    if (match) {
-      // Map the user object progress format to ABSProgress format
-      const mappedProgress: ABSProgress = {
-        itemId: match.libraryItemId,
-        currentTime: match.currentTime,
-        duration: match.duration,
-        progress: match.progress,
-        isFinished: match.isFinished,
-        lastUpdate: match.lastUpdate,
-        hideFromContinueListening: match.hideFromContinueListening
-      };
-      
-      return { ...item, userProgress: mappedProgress };
+    const local = progressMap.get(item.id);
+    if (local) {
+      return { ...item, userProgress: local };
     }
-    
+    // If no local map entry, stick with what the item has (if anything)
     return item;
   });
 };
@@ -211,15 +221,14 @@ const fetchDashboardData = async () => {
     shelves.forEach((shelf: any) => {
       switch (shelf.id) {
         case 'continue-listening':
-          // Apply mapping strategy here
-          currentlyReading.value = attachProgressFromAuth(shelf.entities);
+          currentlyReading.value = attachProgress(shelf.entities);
           break;
         case 'continue-series':
-          continueSeries.value = shelf.entities;
+          continueSeries.value = attachProgress(shelf.entities);
           break;
         case 'recently-added':
         case 'newest-episodes':
-          recentlyAdded.value = shelf.entities;
+          recentlyAdded.value = attachProgress(shelf.entities);
           break;
         case 'recent-series':
           recentSeries.value = shelf.entities;
@@ -246,6 +255,7 @@ const updateOnlineStatus = () => {
 };
 
 onMounted(async () => {
+  initProgressMap(); // Load initial progress from auth
   await initService();
   await fetchDashboardData();
   
@@ -304,6 +314,7 @@ const handleJumpToSeries = async (seriesId: string) => {
 };
 
 watch(() => props.auth.user?.token, () => {
+  initProgressMap();
   initService().then(() => fetchDashboardData());
 });
 
@@ -381,6 +392,7 @@ const isHomeEmpty = computed(() => {
         :series="selectedSeries" 
         :absService="absService"
         :auth="auth"
+        :progressMap="progressMap"
         @back="selectedSeries = null"
         @select-item="emit('select-item', $event)"
       />
@@ -525,7 +537,7 @@ const isHomeEmpty = computed(() => {
           </div>
 
           <div v-else-if="activeTab === 'LIBRARY' && absService" class="h-full flex flex-col overflow-hidden">
-            <Bookshelf :absService="absService" :sortMethod="sortMethod" :desc="desc" :search="''" @select-item="emit('select-item', $event)" />
+            <Bookshelf :absService="absService" :sortMethod="sortMethod" :desc="desc" :search="''" :progressMap="progressMap" @select-item="emit('select-item', $event)" />
           </div>
 
           <div v-else-if="activeTab === 'SERIES' && absService" class="h-full flex flex-col overflow-hidden">

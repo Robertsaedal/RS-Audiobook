@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import { ref, onMounted, onUnmounted, watch, nextTick, computed } from 'vue';
 import { ABSLibraryItem, ABSProgress } from '../types';
 import { ABSService, LibraryQueryParams } from '../services/absService';
 import { OfflineManager } from '../services/offlineManager';
@@ -11,7 +11,8 @@ const props = defineProps<{
   isStreaming?: boolean,
   sortMethod: string,
   desc: number,
-  search?: string
+  search?: string,
+  progressMap?: Map<string, ABSProgress> // New Prop
 }>();
 
 const emit = defineEmits<{
@@ -27,6 +28,20 @@ const duplicateWallDetected = ref(false);
 const scrollContainerRef = ref<HTMLElement | null>(null);
 const sentinelRef = ref<HTMLElement | null>(null);
 const isOffline = ref(false);
+
+// Computed property to merge library items with the global progress map
+const hydratedItems = computed(() => {
+  if (!props.progressMap) return libraryItems.value;
+  
+  return libraryItems.value.map(item => {
+    const local = props.progressMap!.get(item.id);
+    if (local) {
+      // Prioritize the global map (real-time updates) over whatever the item had
+      return { ...item, userProgress: local };
+    }
+    return item;
+  });
+});
 
 // Chunking Guard: Prevents duplicate requests for the same segment
 const requestedOffsets = new Set<number>();
@@ -201,6 +216,8 @@ const reset = async () => {
 onMounted(async () => {
   await reset();
   props.absService.onProgressUpdate((updated: ABSProgress) => {
+    // If progressMap is provided, the parent updates it, and hydration handles it.
+    // However, if we don't have progressMap or want direct update as fallback:
     const index = libraryItems.value.findIndex(i => i.id === updated.itemId);
     if (index !== -1) {
       libraryItems.value[index] = { ...libraryItems.value[index], userProgress: updated };
@@ -225,7 +242,7 @@ watch(() => [props.sortMethod, props.desc, props.search], () => reset(), { deep:
         <span class="text-[10px] font-black uppercase tracking-[0.3em] text-amber-500">Offline Library • Downloaded Items Only</span>
       </div>
 
-      <div v-if="libraryItems.length === 0 && !isLoading" class="flex flex-col items-center justify-center py-40 text-center opacity-40">
+      <div v-if="hydratedItems.length === 0 && !isLoading" class="flex flex-col items-center justify-center py-40 text-center opacity-40">
         <PackageOpen :size="64" class="text-neutral-800 mb-6" />
         <h3 class="text-xl font-black uppercase tracking-tighter">Archive Empty</h3>
         <p class="text-[9px] font-black uppercase tracking-widest mt-2">
@@ -235,7 +252,7 @@ watch(() => [props.sortMethod, props.desc, props.search], () => reset(), { deep:
 
       <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-x-6 gap-y-12">
         <BookCard 
-          v-for="item in libraryItems" 
+          v-for="item in hydratedItems" 
           :key="item.id"
           :item="item"
           :coverUrl="absService.getCoverUrl(item.id)"
