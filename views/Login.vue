@@ -1,8 +1,10 @@
+
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { AuthState } from '../types';
 import { ABSService } from '../services/absService';
-import { Link as LinkIcon, User, Lock, Activity, Headphones, AlertCircle } from 'lucide-vue-next';
+import { Link as LinkIcon, User, Lock, Activity, AlertCircle } from 'lucide-vue-next';
+import AppLogo from '../components/AppLogo.vue';
 
 const emit = defineEmits<{
   (e: 'login', auth: AuthState): void
@@ -101,8 +103,8 @@ const submitForm = async () => {
 
     <div class="w-full max-w-md space-y-10 animate-fade-in relative z-10">
       <div class="text-center flex flex-col items-center">
-        <div class="w-24 h-24 rounded-[32px] overflow-hidden shadow-[0_0_50px_rgba(157,80,187,0.3)] mb-8 bg-neutral-900 border border-purple-500/20 flex items-center justify-center group relative">
-          <Headphones :size="40" class="text-purple-500 drop-shadow-[0_0_10px_rgba(157,80,187,0.8)] transition-transform group-hover:scale-110 duration-700" />
+        <div class="mb-8 group">
+          <AppLogo className="w-24 h-24" />
         </div>
         <h1 class="text-3xl font-black tracking-tighter text-white mb-2 leading-tight">
           ARCHIVE <span class="text-purple-500 drop-shadow-aether-glow">PORTAL</span>

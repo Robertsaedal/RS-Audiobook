@@ -21,12 +21,18 @@ const stats = ref<{
 const currentYear = new Date().getFullYear();
 const selectedYear = ref(currentYear);
 
-// Calculate books finished directly from the reactive map if available (Lifetime/Library Context)
+// Calculate books finished in the selected year
 const totalBooksFinished = computed(() => {
   if (props.progressMap && props.progressMap.size > 0) {
     let count = 0;
     for (const p of props.progressMap.values()) {
-      if (p.isFinished) count++;
+      if (p.isFinished) {
+        // Filter by the year of the last update/finish time
+        const finishedDate = new Date(p.lastUpdate);
+        if (finishedDate.getFullYear() === selectedYear.value) {
+           count++;
+        }
+      }
     }
     return count;
   }
@@ -128,7 +134,7 @@ const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep
              <div class="absolute inset-0 bg-gradient-to-br from-purple-500/10 to-transparent opacity-50" />
              <div class="relative z-10 flex items-center gap-3 text-purple-400">
                <Trophy :size="24" />
-               <span class="text-[10px] font-black uppercase tracking-[0.3em]">Total Books Read</span>
+               <span class="text-[10px] font-black uppercase tracking-[0.3em]">Books Read ({{ selectedYear }})</span>
              </div>
              <div class="relative z-10 flex items-baseline gap-2">
                 <span class="text-7xl font-black text-white tracking-tighter drop-shadow-lg">{{ totalBooksFinished }}</span>

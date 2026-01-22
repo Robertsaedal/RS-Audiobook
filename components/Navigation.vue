@@ -1,5 +1,7 @@
+
 <script setup lang="ts">
-import { Home, Layers, LogOut, Activity, PlusSquare, Headphones } from 'lucide-vue-next';
+import { Home, Layers, LogOut, Activity, PlusSquare } from 'lucide-vue-next';
+import AppLogo from './AppLogo.vue';
 
 export type NavTab = 'HOME' | 'SERIES' | 'REQUEST';
 
@@ -25,9 +27,7 @@ const navItems = [
     <aside class="hidden md:flex flex-col w-64 h-screen fixed left-0 top-0 bg-neutral-950 border-r border-white/5 z-50 p-8">
       <div class="mb-12">
         <div class="flex items-center gap-3">
-          <div class="w-10 h-10 rounded-xl overflow-hidden shadow-lg shadow-purple-900/20 bg-neutral-900 flex items-center justify-center border border-purple-500/20">
-            <Headphones :size="20" class="text-purple-500" />
-          </div>
+          <AppLogo className="w-10 h-10" />
           <div>
             <h2 class="text-sm font-black tracking-tight text-white leading-tight">R.S AUDIOBOOK</h2>
             <div class="flex items-center gap-2">

@@ -5,6 +5,4 @@ dist-ssr
 *.local
 
 # Design Assets
-public/logo.png
-public/favicon.ico
-public/apple-touch-icon.png
+

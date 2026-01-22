@@ -8,7 +8,7 @@ import { OfflineManager } from '../services/offlineManager';
 import ChapterEditor from '../components/ChapterEditor.vue';
 import { 
   ChevronDown, Play, Pause, Info, X, SkipBack, SkipForward,
-  RotateCcw, RotateCw, ChevronRight, Moon, Plus, Minus, Mic, Clock, Layers, Download, CheckCircle, BookOpen
+  RotateCcw, RotateCw, ChevronRight, Moon, Plus, Minus, Mic, Clock, Layers, Download, CheckCircle, BookOpen, Calendar
 } from 'lucide-vue-next';
 
 const props = defineProps<{
@@ -223,7 +223,7 @@ const infoRows = computed(() => [
   { label: 'Narrator', value: metadata.value.narratorName || 'Unknown', icon: Mic },
   { label: 'Series', value: metadata.value.seriesName || 'Standalone', icon: Layers, isClickable: !!derivedSeriesId.value },
   { label: 'Duration', value: secondsToTimestamp(state.duration), icon: Clock },
-  { label: 'Year', value: metadata.value.publishedYear || 'Unknown', icon: Clock }
+  { label: 'Year', value: metadata.value.publishedYear || 'Unknown', icon: Calendar }
 ]);
 </script>
 
@@ -326,7 +326,6 @@ const infoRows = computed(() => [
           <div class="flex items-center justify-center gap-4 md:gap-8">
             <button @click="skipToPrevChapter" class="p-3 text-neutral-700 hover:text-purple-400"><SkipBack :size="20" /></button>
             <button @click="seek(state.currentTime - 10)" class="p-3 text-neutral-700 hover:text-white"><RotateCcw :size="24" /></button>
-            <!-- REVERTED: Static Purple Play/Pause Button -->
             <button 
               @click="togglePlay" 
               class="w-20 h-20 rounded-full bg-purple-600/10 flex items-center justify-center border border-purple-500/30 shadow-[0_0_50px_rgba(168,85,247,0.2)] active:scale-95 transition-all group relative"
@@ -383,6 +382,56 @@ const infoRows = computed(() => [
         </div>
       </div>
     </template>
+    
+    <!-- Info Overlay -->
+    <Transition name="fade">
+      <div v-if="showInfo" class="fixed inset-0 z-[200] bg-black/95 backdrop-blur-3xl flex flex-col p-8 overflow-hidden">
+        <div class="flex justify-between items-center mb-8 shrink-0">
+          <h2 class="text-2xl font-black uppercase tracking-tighter text-white">Artifact Data</h2>
+          <button @click="showInfo = false" class="p-3 bg-neutral-900 rounded-full text-neutral-500 hover:text-white transition-colors border border-white/5">
+            <X :size="20" />
+          </button>
+        </div>
+        
+        <div class="flex-1 overflow-y-auto custom-scrollbar">
+          <div class="max-w-2xl mx-auto space-y-8">
+            <!-- Cover & Title -->
+            <div class="flex flex-col items-center text-center space-y-4">
+              <div class="w-40 h-60 rounded-lg shadow-2xl overflow-hidden border border-white/10">
+                <img :src="coverUrl" class="w-full h-full object-cover" />
+              </div>
+              <div>
+                <h3 class="text-2xl font-black uppercase leading-tight">{{ metadata.title }}</h3>
+                <p class="text-neutral-500 font-bold">{{ metadata.authorName }}</p>
+              </div>
+            </div>
+
+            <!-- Grid Stats -->
+            <div class="grid grid-cols-2 gap-4">
+              <div 
+                v-for="(row, i) in infoRows" 
+                :key="i" 
+                class="bg-white/5 border border-white/5 p-4 rounded-2xl flex flex-col gap-1"
+                :class="row.isClickable ? 'cursor-pointer hover:bg-purple-600/10 hover:border-purple-500/30' : ''"
+                @click="row.isClickable ? handleSeriesClick($event) : null"
+              >
+                <div class="flex items-center gap-2 text-neutral-500 mb-1">
+                  <component :is="row.icon" :size="12" />
+                  <span class="text-[9px] font-black uppercase tracking-widest">{{ row.label }}</span>
+                </div>
+                <span class="text-sm font-bold text-white truncate" :class="row.isClickable ? 'text-purple-400' : ''">{{ row.value }}</span>
+              </div>
+            </div>
+
+            <!-- Description -->
+            <div v-if="metadata.description" class="space-y-2">
+              <h4 class="text-[10px] font-black uppercase tracking-widest text-neutral-600">Summary</h4>
+              <div class="text-neutral-300 text-sm leading-relaxed whitespace-pre-line" v-html="metadata.description"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
 
     <ChapterEditor v-if="showChapters" :item="activeItem" :currentTime="state.currentTime" :isPlaying="state.isPlaying" @close="showChapters = false" @seek="handleChapterSeek" />
   </div>

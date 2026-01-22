@@ -79,7 +79,8 @@ const isFinished = computed(() => {
   const p = progressData.value;
   if (!p) return false;
   if (p.isFinished || (p as any).isCompleted) return true;
-  return progressPercentage.value > 97;
+  // Relaxed threshold to preventing hiding 98-99% progress if not explicitly marked finished
+  return progressPercentage.value >= 99.5;
 });
 
 const displaySequence = computed(() => {
@@ -189,7 +190,6 @@ onMounted(async () => {
             <span class="text-[9px] font-black text-white uppercase tracking-[0.2em]">COMPLETE</span>
          </div>
       </div>
-      <div v-if="isFinished" class="absolute bottom-0 left-0 h-1.5 w-full bg-purple-500 z-30 shadow-[0_0_10px_rgba(168,85,247,0.5)]" />
 
       <!-- Play Overlay -->
       <div v-if="!isFinished" class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex items-center justify-center pointer-events-none">
@@ -199,7 +199,7 @@ onMounted(async () => {
       </div>
 
       <!-- Amethyst Glow Floating Progress -->
-      <div v-if="!hideProgress && !isFinished && Math.round(progressPercentage) > 0" class="absolute bottom-3 left-3 right-3 z-30 flex flex-col pointer-events-none">
+      <div v-if="!hideProgress && !isFinished && progressPercentage > 0" class="absolute bottom-3 left-3 right-3 z-30 flex flex-col pointer-events-none">
          
          <!-- Progress Track -->
          <div class="relative w-full h-1.5 bg-purple-950/40 backdrop-blur-sm rounded-full">

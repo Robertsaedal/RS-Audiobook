@@ -1,10 +1,12 @@
+
 <script setup lang="ts">
 import { computed, ref, nextTick } from 'vue';
 import { 
-  Home, BookOpen, Layers, User, Headphones,
+  Home, BookOpen, Layers, User,
   X, RotateCw, PlusSquare, Search, BarChart2, ArrowLeft
 } from 'lucide-vue-next';
 import confetti from 'canvas-confetti';
+import AppLogo from './AppLogo.vue';
 
 export type LibraryTab = 'HOME' | 'LIBRARY' | 'SERIES' | 'REQUEST' | 'STATS';
 
@@ -82,9 +84,7 @@ const closeMobileSearch = () => {
     <header class="h-16 w-full fixed top-0 left-0 right-0 bg-[#0d0d0d]/80 backdrop-blur-xl z-[60] px-4 md:px-6 flex items-center justify-between border-b border-white/5">
       <div class="flex items-center gap-4 min-w-0 shrink">
         <div class="flex items-center cursor-pointer group shrink-0" @click="emit('tab-change', 'HOME')">
-          <div class="w-8 h-8 mr-3 flex items-center justify-center bg-neutral-900 rounded-lg border border-purple-500/20 group-hover:scale-110 transition-transform">
-            <Headphones :size="18" class="text-purple-500" />
-          </div>
+          <AppLogo className="w-8 h-8 mr-3 group-hover:scale-105 transition-transform" />
           <h1 class="text-sm md:text-xl font-bold tracking-tight truncate">R.S Audiobook Player</h1>
         </div>
       </div>
