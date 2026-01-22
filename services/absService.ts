@@ -1,3 +1,4 @@
+
 import { ABSUser, ABSLibraryItem, ABSProgress, ABSPlaybackSession, ABSSeries } from '../types';
 import { io, Socket } from 'socket.io-client';
 
@@ -197,6 +198,11 @@ export class ABSService {
   async getItemsInProgress(): Promise<ABSLibraryItem[]> {
     const data = await this.fetchApi(`/me/items-in-progress?include=progress,userProgress,metadata,series,media&_cb=${Date.now()}`);
     return Array.isArray(data) ? data : (data?.results || []);
+  }
+
+  async getAllUserProgress(): Promise<ABSProgress[]> {
+    const data = await this.fetchApi(`/me/progress?_cb=${Date.now()}`);
+    return data?.results || data?.progress || (Array.isArray(data) ? data : []);
   }
 
   async getLibrarySeriesPaged(params: LibraryQueryParams): Promise<{ results: ABSSeries[], total: number }> {

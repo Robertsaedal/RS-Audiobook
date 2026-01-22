@@ -28,6 +28,14 @@ const progressPercent = computed(() => {
   return (state.currentTime / state.duration) * 100;
 });
 
+// Dynamic border progress using conic-gradient
+const progressBorderStyle = computed(() => {
+  const color = state.accentColor || '#A855F7';
+  return {
+    background: `conic-gradient(from 0deg, ${color} ${progressPercent.value}%, transparent ${progressPercent.value}%)`
+  };
+});
+
 const togglePlay = (e: Event) => {
   e.stopPropagation();
   state.isPlaying ? pause() : play();
@@ -49,46 +57,67 @@ const handleSync = (e: Event) => {
     <div 
       v-if="isVisible && activeItem"
       @click="emit('expand')"
-      class="fixed bottom-16 md:bottom-0 left-0 right-0 h-16 md:h-20 bg-purple-950/90 backdrop-blur-xl border-t border-white/10 z-[100] cursor-pointer shadow-[0_-10px_30px_rgba(0,0,0,0.5)] flex flex-col md:pl-20 transition-all duration-300"
+      class="fixed bottom-20 md:bottom-6 left-4 right-4 md:left-auto md:right-6 md:w-[420px] h-16 md:h-20 z-[100] group active:scale-[0.98] transition-transform duration-200"
     >
-      <!-- Glowing Progress Line -->
-      <div class="h-0.5 w-full bg-neutral-800/50">
-        <div 
-          class="h-full bg-[var(--cover-accent)] shadow-[0_0_10px_var(--cover-accent)] transition-all duration-300" 
-          :style="{ width: progressPercent + '%', '--cover-accent': state.accentColor }"
-        />
-      </div>
+      <!-- Dynamic Progress Border Layer -->
+      <div 
+        class="absolute inset-0 rounded-2xl opacity-40 group-hover:opacity-100 transition-opacity blur-[1px]" 
+        :style="progressBorderStyle"
+      ></div>
 
-      <div class="flex-1 flex items-center justify-between px-4 max-w-7xl mx-auto w-full">
-        <!-- Left: Info -->
-        <div class="flex items-center gap-3 overflow-hidden flex-1 pr-4">
-          <div class="w-10 h-10 md:w-12 md:h-12 rounded-lg bg-neutral-900 overflow-hidden shrink-0 border border-white/10 relative shadow-lg">
-             <div class="absolute inset-0 bg-[var(--cover-accent)] opacity-20" :style="{ '--cover-accent': state.accentColor }"></div>
-             <img :src="coverUrl" class="w-full h-full object-cover relative z-10" />
+      <!-- Main Island Body -->
+      <div class="absolute inset-[1.5px] bg-purple-950/60 backdrop-blur-xl rounded-[14px] border border-white/10 flex items-center px-3 shadow-2xl overflow-hidden">
+        
+        <!-- Left: Vinyl Cover Art -->
+        <div class="relative shrink-0 w-10 h-10 md:w-12 md:h-12 mr-3 perspective-1000">
+          <div 
+            class="w-full h-full rounded-full border-2 border-black/40 shadow-xl overflow-hidden transition-transform duration-700"
+            :class="{ 'animate-spin-slow': state.isPlaying }"
+          >
+            <img :src="coverUrl" class="w-full h-full object-cover" />
+            <!-- Center Hole -->
+            <div class="absolute inset-0 flex items-center justify-center">
+              <div class="w-2 h-2 rounded-full bg-black/80 border border-white/10"></div>
+            </div>
           </div>
-          <div class="flex flex-col overflow-hidden">
-            <span class="text-xs md:text-sm font-black text-white truncate leading-tight">{{ activeItem.media.metadata.title }}</span>
-            <span class="text-[10px] font-bold text-neutral-400 truncate uppercase tracking-wide">{{ activeItem.media.metadata.authorName }}</span>
-          </div>
+          <!-- Glow behind vinyl -->
+          <div 
+            class="absolute inset-0 -z-10 blur-lg opacity-40 rounded-full"
+            :style="{ backgroundColor: state.accentColor }"
+          ></div>
         </div>
 
-        <!-- Right: Controls -->
-        <div class="flex items-center gap-3 md:gap-6 shrink-0">
-           <!-- Force Sync Button -->
-           <button @click="handleSync" class="p-2 text-neutral-500 hover:text-purple-400 transition-colors hidden sm:block" title="Sync Progress">
-              <RotateCw :size="16" />
-           </button>
+        <!-- Middle: Info & Visualizer -->
+        <div class="flex-1 min-w-0 flex flex-col justify-center">
+          <div class="flex items-center gap-2 overflow-hidden">
+            <span class="text-xs font-black text-white truncate uppercase tracking-tight">{{ activeItem.media.metadata.title }}</span>
+            <!-- Waveform Visualizer -->
+            <div v-if="state.isPlaying" class="flex items-center gap-[2px] h-4 px-1 shrink-0">
+              <div class="w-[2px] bg-purple-400 rounded-full animate-wave" style="animation-delay: 0s"></div>
+              <div class="w-[2px] bg-purple-300 rounded-full animate-wave" style="animation-delay: 0.2s"></div>
+              <div class="w-[2px] bg-purple-400 rounded-full animate-wave" style="animation-delay: 0.1s"></div>
+              <div class="w-[2px] bg-purple-500 rounded-full animate-wave" style="animation-delay: 0.3s"></div>
+            </div>
+          </div>
+          <span class="text-[9px] font-bold text-neutral-400 truncate uppercase tracking-[0.2em]">{{ activeItem.media.metadata.authorName }}</span>
+        </div>
 
-           <button @click="rewind" class="p-2 text-neutral-400 hover:text-white transition-colors active:scale-90 hidden sm:block">
-              <RotateCcw :size="20" />
+        <!-- Right: Compact Controls -->
+        <div class="flex items-center gap-2 shrink-0 ml-2">
+           <button @click="rewind" class="p-2 text-neutral-500 hover:text-white transition-colors active:scale-90 hidden sm:block">
+              <RotateCcw :size="16" />
            </button>
 
            <button 
              @click="togglePlay"
-             class="w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center bg-white text-black hover:scale-105 active:scale-95 transition-all shadow-lg"
+             class="w-9 h-9 md:w-11 md:h-11 rounded-full flex items-center justify-center bg-white text-black hover:scale-105 active:scale-90 transition-all shadow-lg"
            >
-             <Pause v-if="state.isPlaying" :size="20" fill="currentColor" />
-             <Play v-else :size="20" fill="currentColor" class="translate-x-0.5" />
+             <Pause v-if="state.isPlaying" :size="16" fill="currentColor" />
+             <Play v-else :size="16" fill="currentColor" class="translate-x-0.5" />
+           </button>
+
+           <button @click="handleSync" class="p-2 text-neutral-600 hover:text-purple-400 transition-colors hidden md:block">
+              <RotateCw :size="14" />
            </button>
         </div>
       </div>
@@ -98,9 +127,14 @@ const handleSync = (e: Event) => {
 
 <style scoped>
 .slide-up-enter-active, .slide-up-leave-active {
-  transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: all 0.5s cubic-bezier(0.17, 0.67, 0.16, 0.99);
 }
 .slide-up-enter-from, .slide-up-leave-to {
-  transform: translateY(100%);
+  transform: translateY(150px) scale(0.9);
+  opacity: 0;
+}
+
+.perspective-1000 {
+  perspective: 1000px;
 }
 </style>

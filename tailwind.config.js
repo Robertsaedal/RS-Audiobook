@@ -21,6 +21,8 @@ export default {
         'slide-up': 'slide-up 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards',
         'tap-pop': 'tap-pop 0.2s cubic-bezier(0.2, 0.8, 0.2, 1) forwards',
         'fade-in': 'fade-in 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) forwards',
+        'spin-slow': 'spin 8s linear infinite',
+        'wave': 'wave 1s ease-in-out infinite',
       },
       keyframes: {
         'slide-up': {
@@ -36,6 +38,10 @@ export default {
           'from': { opacity: '0', transform: 'translateX(10px)' },
           'to': { opacity: '1', transform: 'translateX(0)' },
         },
+        'wave': {
+          '0%, 100%': { height: '4px' },
+          '50%': { height: '14px' },
+        }
       },
     },
   },

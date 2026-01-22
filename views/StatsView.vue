@@ -42,43 +42,17 @@ const fetchStats = async () => {
   if (!props.absService) return;
   isLoading.value = true;
   error.value = null;
-  stats.value = null;
   
   try {
+    // 1. Fetch overall listening stats
     const data = await props.absService.getListeningStats();
     if (!data) throw new Error("No stats available.");
     stats.value = data;
 
-    // Fetch finished books client-side for accuracy
-    try {
-        // Fetch a large chunk to calculate client side
-        // We sort by updatedAt desc to get recent changes, but we check ALL returned
-        const response = await props.absService.getLibraryItemsPaged({ 
-            limit: 1000, 
-            sort: 'updatedAt',
-            desc: 1,
-            filter: 'progress.isFinished.eq.true' // Try server side filter if supported, otherwise fetch all
-        });
-        
-        let items = response.results || [];
-        
-        // If the server filter didn't work effectively (or we want to double check), we filter manually.
-        // Also check "progress" property if it wasn't filtered by the API.
-        
-        const finishedItems = items.filter(item => {
-            // Robust check for user progress in various locations
-            const p = item.userProgress || (item.media as any)?.userProgress || (item as any).userMediaProgress;
-            
-            if (!p) return false;
-
-            // Definition of finished: explicitly marked OR > 99% progress
-            return p.isFinished === true || (p.isCompleted === true) || (p.progress && p.progress >= 0.99);
-        });
-
-        totalBooksFinished.value = finishedItems.length;
-    } catch (e) {
-        console.warn("Failed to calculate finished books", e);
-        totalBooksFinished.value = 0;
+    // 2. Fetch specific progress list to accurately count finished books
+    const allProgress = await props.absService.getAllUserProgress();
+    if (allProgress && Array.isArray(allProgress)) {
+      totalBooksFinished.value = allProgress.filter(p => p.isFinished).length;
     }
 
   } catch (e: any) {

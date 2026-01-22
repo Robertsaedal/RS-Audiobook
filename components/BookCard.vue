@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
-import { ABSLibraryItem } from '../types';
+import { ABSLibraryItem, ABSProgress } from '../types';
 import { Play, CheckCircle, Check } from 'lucide-vue-next';
 import { OfflineManager } from '../services/offlineManager';
 import { getDominantColor } from '../services/colorUtils';
@@ -110,17 +110,14 @@ const displaySequence = computed(() => {
   return null;
 });
 
-const handleImageLoad = () => {
+const handleImageLoad = async () => {
   imageReady.value = true;
-};
-
-const handleMouseEnter = async () => {
-  if (colorLoaded.value) return;
-  // Lazy load the color on hover
-  const src = localCover.value || props.coverUrl;
-  if (src) {
-    colorLoaded.value = true;
-    accentColor.value = await getDominantColor(src);
+  if (!colorLoaded.value) {
+    const src = localCover.value || props.coverUrl;
+    if (src) {
+      colorLoaded.value = true;
+      accentColor.value = await getDominantColor(src);
+    }
   }
 };
 
@@ -148,15 +145,14 @@ onMounted(async () => {
 <template>
   <button 
     @click="emit('click', item)"
-    @mouseenter="handleMouseEnter"
     class="flex flex-col text-left group transition-all outline-none w-full relative"
     :style="{ '--card-accent': accentColor }"
   >
     <!-- Cover Artifact Container -->
     <div 
-      class="relative w-full aspect-[2/3] bg-neutral-950 rounded-xl overflow-hidden border border-white/5 transition-all duration-500 group-hover:scale-[1.04] shadow-2xl group-hover:shadow-[0_10px_40px_-10px_var(--card-accent)] group-hover:border-[var(--card-accent)]"
+      class="relative w-full aspect-[2/3] bg-neutral-950 rounded-xl overflow-hidden border transition-all duration-500 shadow-[0_10px_40px_-10px_var(--card-accent)] group-hover:scale-[1.04]"
       :class="triggerCompletionEffect ? 'ring-2 ring-purple-500/50 shadow-[0_0_30px_rgba(168,85,247,0.5)]' : ''"
-      :style="{ borderColor: colorLoaded ? 'color-mix(in srgb, var(--card-accent) 20%, transparent)' : undefined }"
+      :style="{ borderColor: colorLoaded ? 'color-mix(in srgb, var(--card-accent) 40%, transparent)' : 'rgba(255,255,255,0.05)' }"
     >
       <!-- Completion Flash Effect -->
       <div v-if="triggerCompletionEffect" class="absolute inset-0 z-50 pointer-events-none bg-purple-500/20 mix-blend-overlay animate-pulse" />
@@ -197,7 +193,7 @@ onMounted(async () => {
 
       <!-- Play Overlay -->
       <div v-if="!isFinished" class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex items-center justify-center pointer-events-none">
-        <div class="w-14 h-14 rounded-full bg-purple-600 text-white flex items-center justify-center shadow-[0_0_30px_rgba(168,85,247,0.5)] transform scale-90 group-hover:scale-100 transition-transform" :style="{ backgroundColor: colorLoaded ? 'var(--card-accent)' : undefined }">
+        <div class="w-14 h-14 rounded-full bg-purple-600 text-white flex items-center justify-center shadow-[0_0_30px_rgba(168,85,247,0.5)] transform scale-90 group-hover:scale-100 transition-transform">
           <Play :size="24" fill="currentColor" class="translate-x-0.5" />
         </div>
       </div>
@@ -221,18 +217,17 @@ onMounted(async () => {
                @click.stop="toggleProgressDisplay"
             >
                <div 
-                 class="bg-purple-600 px-2 py-0.5 rounded-full text-[8px] font-black text-white tracking-widest shadow-lg relative min-w-[24px] text-center border border-purple-400/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 delay-75 cursor-pointer hover:scale-110 active:scale-95 hover:bg-purple-500"
-                 :class="{ 'opacity-100': showProgress }"
+                 class="bg-purple-600 px-2 py-0.5 rounded-full text-[8px] font-black text-white tracking-widest shadow-lg relative min-w-[24px] text-center border transition-all duration-300 cursor-pointer hover:scale-110 active:scale-95 hover:bg-purple-500"
                  :style="{ 
                     backgroundColor: colorLoaded ? 'var(--card-accent)' : undefined,
-                    borderColor: colorLoaded ? 'rgba(255,255,255,0.3)' : undefined
+                    borderColor: colorLoaded ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.2)'
                  }"
                >
                    {{ showTimeRemaining ? remainingTimeText : Math.round(progressPercentage) + '%' }}
                    <!-- The 'Beak' Anchor -->
                    <div 
-                     class="absolute -bottom-[3px] left-1/2 -translate-x-1/2 w-0 h-0 border-l-[3px] border-l-transparent border-r-[3px] border-r-transparent border-t-[3px] border-t-purple-600"
-                     :style="{ borderTopColor: colorLoaded ? 'var(--card-accent)' : undefined }"
+                     class="absolute -bottom-[3px] left-1/2 -translate-x-1/2 w-0 h-0 border-l-[3px] border-l-transparent border-r-[3px] border-r-transparent border-t-[3px]"
+                     :style="{ borderTopColor: colorLoaded ? 'var(--card-accent)' : '#A855F7' }"
                    ></div>
                </div>
             </div>
@@ -243,7 +238,7 @@ onMounted(async () => {
     
     <!-- Permanent Metadata Display -->
     <div v-if="showMetadata" class="mt-3 px-1 flex flex-col gap-1 w-full min-h-[3em]">
-      <h3 class="text-[11px] font-black text-white uppercase tracking-tight leading-[1.2] group-hover:text-purple-400 transition-colors line-clamp-2 w-full break-words" :title="item.media.metadata.title" :style="{ color: colorLoaded ? 'color-mix(in srgb, var(--card-accent) 80%, white)' : undefined }">
+      <h3 class="text-[11px] font-black text-white uppercase tracking-tight leading-[1.2] transition-colors line-clamp-2 w-full break-words" :title="item.media.metadata.title" :style="{ color: colorLoaded ? 'color-mix(in srgb, var(--card-accent) 80%, white)' : undefined }">
         {{ item.media.metadata.title }}
       </h3>
       <p class="text-[9px] font-black text-neutral-500 uppercase tracking-widest truncate w-full">
