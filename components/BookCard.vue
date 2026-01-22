@@ -105,7 +105,7 @@ const displaySequence = computed(() => {
 
   if (meta.seriesName && typeof meta.seriesName === 'string') {
     const match = meta.seriesName.match(/#\s*([0-9]+(?:\.[0-9]+)?)(?:\s|$)/);
-    if (match) return match[1];
+    if (match) return String(match[1]);
   }
 
   return null;
@@ -198,7 +198,7 @@ onMounted(async () => {
       </div>
 
       <!-- Amethyst Glow Floating Progress -->
-      <div v-if="!hideProgress && !isFinished && Math.round(progressPercentage) > 0" class="absolute bottom-3 left-3 right-3 z-30 flex flex-col pointer-events-none">
+      <div v-if="!hideProgress && Math.round(progressPercentage) > 0" class="absolute bottom-3 left-3 right-3 z-30 flex flex-col pointer-events-none">
          
          <!-- Progress Track -->
          <div class="relative w-full h-1.5 bg-purple-950/40 backdrop-blur-sm rounded-full">
