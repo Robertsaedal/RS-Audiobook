@@ -315,36 +315,39 @@ const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep
              <span class="text-[9px] font-black uppercase tracking-[0.3em]">Monthly Volume Trend</span>
            </div>
            
-           <div v-if="totalListeningTime > 0" class="flex-1 flex items-end justify-between gap-1.5 md:gap-3 pt-10 h-48">
+           <div v-if="totalListeningTime > 0" class="flex-1 flex items-end justify-between gap-1.5 md:gap-3 pt-10 h-64">
                <div 
                  v-for="(val, index) in monthlyData" 
                  :key="index"
                  class="flex-1 flex flex-col justify-end group relative h-full"
                >
                   <!-- Tooltip -->
-                  <div class="absolute -top-10 left-1/2 -translate-x-1/2 bg-white text-black text-[9px] font-black px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-20 pointer-events-none shadow-xl border border-white/10">
-                      {{ formatDuration(val) }}
+                  <div class="absolute -top-12 left-1/2 -translate-x-1/2 bg-white text-black text-[9px] font-black px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-20 pointer-events-none shadow-xl border border-white/10">
+                      {{ monthNames[index] }}: {{ formatDuration(val) }}
                   </div>
 
                   <!-- Bar -->
                   <div 
-                    class="w-full bg-neutral-800 rounded-t-sm group-hover:bg-purple-500 transition-all duration-500 relative"
+                    class="w-full rounded-t-lg transition-all duration-700 ease-out relative overflow-hidden"
+                    :class="val > 0 ? 'bg-gradient-to-t from-purple-800 to-purple-400 shadow-[0_0_15px_rgba(168,85,247,0.3)]' : 'bg-white/5'"
                     :style="{ 
-                      height: val > 0 ? `${(val / maxMonthlyValue) * 100}%` : '4px', 
-                      opacity: val > 0 ? 1 : 0.2,
-                      backgroundColor: val > 0 ? undefined : 'rgba(255,255,255,0.05)'
+                      height: val > 0 ? `${(val / maxMonthlyValue) * 100}%` : '4px',
+                      opacity: val > 0 ? 1 : 0.2
                     }"
-                  />
+                  >
+                    <!-- Inner Shine -->
+                    <div v-if="val > 0" class="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000" />
+                  </div>
                </div>
            </div>
            
-           <div v-else class="h-48 flex flex-col items-center justify-center opacity-30 border border-white/5 border-dashed rounded-2xl">
+           <div v-else class="h-64 flex flex-col items-center justify-center opacity-30 border border-white/5 border-dashed rounded-2xl">
               <BarChart2 :size="32" class="mb-2 text-neutral-600" />
               <p class="text-[9px] font-black uppercase tracking-widest text-neutral-600">Archive Empty for {{ selectedYear }}</p>
            </div>
 
-           <div class="flex justify-between text-[8px] font-black uppercase text-neutral-700 mt-4 border-t border-white/5 pt-4">
-              <span v-for="(m, i) in monthNames" :key="i" class="w-full text-center">{{ m }}</span>
+           <div class="flex justify-between text-[8px] font-black uppercase text-neutral-700 mt-6 border-t border-white/5 pt-4">
+              <span v-for="(m, i) in monthNames" :key="i" class="w-full text-center" :class="monthlyData[i] > 0 ? 'text-purple-400' : ''">{{ m }}</span>
            </div>
         </div>
 
