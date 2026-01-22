@@ -105,7 +105,7 @@ const displaySequence = computed(() => {
 
   if (meta.seriesName && typeof meta.seriesName === 'string') {
     const match = meta.seriesName.match(/#\s*([0-9]+(?:\.[0-9]+)?)(?:\s|$)/);
-    if (match) return String(match[1]);
+    if (match) return match[1];
   }
 
   return null;
@@ -189,6 +189,7 @@ onMounted(async () => {
             <span class="text-[9px] font-black text-white uppercase tracking-[0.2em]">COMPLETE</span>
          </div>
       </div>
+      <div v-if="isFinished" class="absolute bottom-0 left-0 h-1.5 w-full bg-purple-500 z-30 shadow-[0_0_10px_rgba(168,85,247,0.5)]" />
 
       <!-- Play Overlay -->
       <div v-if="!isFinished" class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex items-center justify-center pointer-events-none">
@@ -198,7 +199,7 @@ onMounted(async () => {
       </div>
 
       <!-- Amethyst Glow Floating Progress -->
-      <div v-if="!hideProgress && Math.round(progressPercentage) > 0" class="absolute bottom-3 left-3 right-3 z-30 flex flex-col pointer-events-none">
+      <div v-if="!hideProgress && !isFinished && Math.round(progressPercentage) > 0" class="absolute bottom-3 left-3 right-3 z-30 flex flex-col pointer-events-none">
          
          <!-- Progress Track -->
          <div class="relative w-full h-1.5 bg-purple-950/40 backdrop-blur-sm rounded-full">
