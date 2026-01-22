@@ -1,10 +1,13 @@
+
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { ABSService } from '../services/absService';
+import { ABSProgress } from '../types';
 import { BookOpen, Calendar, BarChart2, AlertCircle, PlayCircle, Trophy } from 'lucide-vue-next';
 
 const props = defineProps<{
-  absService: ABSService
+  absService: ABSService,
+  progressMap?: Map<string, ABSProgress>
 }>();
 
 const isLoading = ref(false);
@@ -15,7 +18,17 @@ const stats = ref<{
   recentSessions: any[];
 } | null>(null);
 
-const totalBooksFinished = ref(0);
+// Calculate books finished directly from the reactive map if available
+const totalBooksFinished = computed(() => {
+  if (props.progressMap && props.progressMap.size > 0) {
+    let count = 0;
+    for (const p of props.progressMap.values()) {
+      if (p.isFinished) count++;
+    }
+    return count;
+  }
+  return 0;
+});
 
 const monthlyData = computed(() => {
   const months = new Array(12).fill(0);
@@ -48,13 +61,6 @@ const fetchStats = async () => {
     const data = await props.absService.getListeningStats();
     if (!data) throw new Error("No stats available.");
     stats.value = data;
-
-    // 2. Fetch specific progress list to accurately count finished books
-    const allProgress = await props.absService.getAllUserProgress();
-    if (allProgress && Array.isArray(allProgress)) {
-      totalBooksFinished.value = allProgress.filter(p => p.isFinished).length;
-    }
-
   } catch (e: any) {
     console.error("Failed to fetch stats", e);
     error.value = e.message || "Could not retrieve analytical data.";

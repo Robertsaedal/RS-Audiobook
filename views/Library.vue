@@ -1,3 +1,4 @@
+
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, onActivated, watch, computed, nextTick, reactive } from 'vue';
 import { AuthState, ABSLibraryItem, ABSSeries, ABSProgress } from '../types';
@@ -52,10 +53,11 @@ const searchResults = ref<{ books: ABSLibraryItem[], series: ABSSeries[] }>({ bo
 const isGlobalSearching = ref(false);
 let debounceTimeout: any = null;
 
-const initProgressMap = () => {
+const initProgressMap = async () => {
+  // Use local auth as baseline
   if (props.auth.user?.mediaProgress) {
     props.auth.user.mediaProgress.forEach((p: any) => {
-      const progress: ABSProgress = {
+      handleProgressUpdate({
         itemId: p.libraryItemId,
         currentTime: p.currentTime,
         duration: p.duration,
@@ -63,9 +65,20 @@ const initProgressMap = () => {
         isFinished: p.isFinished,
         lastUpdate: p.lastUpdate,
         hideFromContinueListening: p.hideFromContinueListening
-      };
-      progressMap.set(progress.itemId, progress);
+      });
     });
+  }
+
+  // Fetch complete fresh list from server to ensure stats are accurate
+  if (absService.value && !isOfflineMode.value) {
+    try {
+      const allProgress = await absService.value.getAllUserProgress();
+      if (allProgress && Array.isArray(allProgress)) {
+        allProgress.forEach(p => handleProgressUpdate(p));
+      }
+    } catch (e) {
+      console.warn("Failed to fetch full progress list", e);
+    }
   }
 };
 
@@ -97,34 +110,94 @@ const initService = async () => {
 
 const setupListeners = () => {
   if (!absService.value) return;
-  absService.value.onProgressUpdate((progress) => handleProgressUpdate(progress));
+
+  // 1. Real-Time Progress Update
+  absService.value.onProgressUpdate((p) => {
+    handleProgressUpdate(p);
+  });
+
+  // 2. Handle 'Init' - Full Sync on Connect
+  absService.value.onInit((data) => {
+      console.log('[Socket] Init received');
+      if (data.user && data.user.mediaProgress) {
+          data.user.mediaProgress.forEach((p: any) => {
+              handleProgressUpdate({
+                  itemId: p.libraryItemId,
+                  currentTime: p.currentTime,
+                  duration: p.duration,
+                  progress: p.progress,
+                  isFinished: p.isFinished,
+                  lastUpdate: p.lastUpdate,
+                  hideFromContinueListening: p.hideFromContinueListening
+              });
+          });
+      }
+  });
+
+  // 3. Handle 'User_Online' - Session Sync
+  absService.value.onUserOnline((data) => {
+      // If the online event contains session info (active playback on another device)
+      // Normalize and update.
+      if (data && data.libraryItemId) {
+           console.log('[Socket] User Online - Syncing Active Session');
+           handleProgressUpdate({
+               itemId: data.libraryItemId,
+               currentTime: data.currentTime,
+               duration: data.duration,
+               progress: (data.duration > 0) ? (data.currentTime / data.duration) : 0,
+               isFinished: false,
+               lastUpdate: Date.now()
+           });
+      }
+  });
+
   absService.value.onProgressDelete((itemId) => handleProgressDelete(itemId));
   absService.value.onLibraryUpdate(() => fetchDashboardData());
 };
 
-const handleProgressUpdate = async (progress: ABSProgress) => {
-  progressMap.set(progress.itemId, progress);
+const handleProgressUpdate = (p: ABSProgress) => {
+  const duration = p.duration || 1;
+  
+  // Calculate percentage precisely for the UI
+  const calculatedProgress = p.progress !== undefined ? p.progress : (p.currentTime / duration);
 
-  if (progress.isFinished) {
+  const newItem: ABSProgress = {
+      itemId: p.itemId,
+      currentTime: p.currentTime,
+      duration: duration,
+      progress: calculatedProgress,
+      isFinished: p.isFinished,
+      lastUpdate: p.lastUpdate || Date.now(),
+      hideFromContinueListening: p.hideFromContinueListening
+  };
+
+  // Reactivity: Update the Map entry which triggers watchers/computed
+  progressMap.set(p.itemId, newItem);
+
+  if (p.isFinished) {
     setTimeout(() => {
-        handleProgressDelete(progress.itemId);
+        handleProgressDelete(p.itemId);
         fetchDashboardData(); 
     }, 2500);
     return;
   }
 
-  const idx = currentlyReadingRaw.value.findIndex(i => i.id === progress.itemId);
-  if (idx === -1 && !progress.isFinished && !progress.hideFromContinueListening && !isOfflineMode.value && absService.value) {
-    try {
-      const response = await absService.value.getLibraryItemsPaged({
-        filter: `id.eq.${progress.itemId}`,
-        limit: 1
-      });
-      if (response.results && response.results.length > 0) {
-        currentlyReadingRaw.value = [response.results[0], ...currentlyReadingRaw.value];
-      }
-    } catch (e) {
-      fetchDashboardData();
+  // Live shelf update for active items
+  if (!isOfflineMode.value) {
+    const idx = currentlyReadingRaw.value.findIndex(i => i.id === p.itemId);
+    if (idx === -1 && !p.isFinished && !p.hideFromContinueListening) {
+      // If we receive progress for an item not on the shelf, fetch it
+      // Debounce this in a real app, but for now direct fetch is okay
+      absService.value?.getLibraryItemsPaged({ filter: `id.eq.${p.itemId}`, limit: 1 })
+        .then(response => {
+           if (response.results && response.results.length > 0) {
+             const item = response.results[0];
+             // Ensure it's not already added by a race condition
+             if (!currentlyReadingRaw.value.find(i => i.id === item.id)) {
+                currentlyReadingRaw.value = [item, ...currentlyReadingRaw.value];
+             }
+           }
+        });
     }
   }
 };
@@ -223,20 +296,16 @@ const forceSyncProgress = async () => {
   syncFeedback.value = '';
   
   try {
-    absService.value.reconnect();
+    // Force Socket Re-Auth (Triggers 'init' push from server)
+    absService.value.emitAuth();
 
-    // 1. Fetch complete current progress from server
+    // Redundant API fetch to be safe
     const allProgress = await absService.value.getAllUserProgress();
     if (allProgress && Array.isArray(allProgress)) {
-      const serverActiveIds = new Set(allProgress.map(p => p.itemId));
-      
-      // Update our local map with fresh server truth
-      allProgress.forEach(p => {
-        progressMap.set(p.itemId, p);
-      });
+      allProgress.forEach(p => handleProgressUpdate(p));
     }
 
-    // 2. Clear current shelf and force re-fetch
+    // Refresh shelves
     currentlyReadingRaw.value = [];
     await fetchDashboardData();
 
@@ -260,8 +329,8 @@ const updateOnlineStatus = () => {
 };
 
 onMounted(async () => {
-  initProgressMap(); 
   await initService();
+  await initProgressMap(); // Load full progress for stats/live updates
   await fetchDashboardData();
   if (props.initialSeriesId) await nextTick(() => handleJumpToSeries(props.initialSeriesId!));
   window.addEventListener('online', updateOnlineStatus);
@@ -410,7 +479,7 @@ const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && rec
             <SeriesShelf :absService="absService" :sortMethod="sortMethod" :desc="desc" :search="''" @select-series="selectedSeries = $event" />
           </div>
           <div v-else-if="activeTab === 'REQUEST'" class="h-full flex flex-col overflow-hidden"><RequestPortal /></div>
-          <div v-else-if="activeTab === 'STATS' && absService" class="h-full flex flex-col overflow-hidden"><StatsView :absService="absService" /></div>
+          <div v-else-if="activeTab === 'STATS' && absService" class="h-full flex flex-col overflow-hidden"><StatsView :absService="absService" :progressMap="progressMap" /></div>
         </template>
       </template>
     </div>

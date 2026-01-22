@@ -52,6 +52,14 @@ export class ABSService {
     this.initSocket();
   }
 
+  public emitAuth() {
+    if (this.socket && this.socket.connected) {
+      this.socket.emit('auth', { token: this.token });
+    } else {
+      this.reconnect();
+    }
+  }
+
   private static async fetchWithRetry(url: string, options: RequestInit, retries = 3, timeout = 10000): Promise<Response> {
     let lastError: Error | null = null;
     for (let i = 0; i < retries; i++) {
@@ -401,20 +409,44 @@ export class ABSService {
     return blob;
   }
 
+  // Socket Event Listeners
+
+  onInit(callback: (data: any) => void) {
+    this.socket?.on('init', callback);
+  }
+
+  onUserOnline(callback: (data: any) => void) {
+    this.socket?.on('user_online', callback);
+  }
+
   onProgressUpdate(callback: (progress: ABSProgress) => void) {
     this.socket?.on('user_item_progress_updated', (data) => {
-      if (data && data.itemId) callback(data);
+      // Normalize socket payload: ABS sends `libraryItemId`, we map to `itemId`
+      const itemId = data.libraryItemId || data.itemId;
+      if (itemId) {
+        callback({
+          itemId,
+          currentTime: data.currentTime,
+          duration: data.duration,
+          progress: data.progress,
+          isFinished: data.isFinished,
+          lastUpdate: data.lastUpdate || Date.now(),
+          hideFromContinueListening: data.hideFromContinueListening
+        });
+      }
     });
   }
 
   onProgressDelete(callback: (itemId: string) => void) {
-    // Standard Audiobookshelf usually emits 'user_item_progress_removed'
     this.socket?.on('user_item_progress_removed', (data) => {
-      if (data && data.itemId) callback(data.itemId);
+      if (data && (data.itemId || data.libraryItemId)) {
+        callback(data.itemId || data.libraryItemId);
+      }
     });
-    // Listen to custom requested event as well
     this.socket?.on('user_item_progress_deleted', (data) => {
-      if (data && data.itemId) callback(data.itemId);
+      if (data && (data.itemId || data.libraryItemId)) {
+        callback(data.itemId || data.libraryItemId);
+      }
     });
   }
 
