@@ -148,12 +148,10 @@ const handleChapterProgressClick = (e: MouseEvent) => {
 // --- Sleep Timer Logic ---
 const isSleepActive = computed(() => state.sleepChapters > 0 || !!state.sleepEndTime);
 
-const cardSleepStatus = computed(() => {
-  if (state.sleepChapters > 0) return `${state.sleepChapters} CH`;
-  if (state.sleepEndTime) return 'TIMER ON';
-  return 'OFF';
-});
-
+/**
+ * Calculates dynamic remaining time for chapter-based sleep timer.
+ * Formula: (Remaining time of current chapter) + (Total duration of next N-1 chapters)
+ */
 const liveSleepCountdown = computed(() => {
   if (state.sleepEndTime) {
     const diff = Math.max(0, state.sleepEndTime - liveTime.value) / 1000;
@@ -163,14 +161,34 @@ const liveSleepCountdown = computed(() => {
 
   if (state.sleepChapters > 0) {
     if (chapters.value.length === 0 || currentChapterIndex.value === -1) return null;
+    
+    // 1. Time remaining in current chapter
     let totalSeconds = Math.max(0, (currentChapter.value?.end || 0) - state.currentTime);
+    
+    // 2. Add full duration of any additional chapters in the sleep queue
     for (let i = 1; i < state.sleepChapters; i++) {
        const nextCh = chapters.value[currentChapterIndex.value + i];
-       if (nextCh) totalSeconds += (nextCh.end - nextCh.start);
+       if (nextCh) {
+         totalSeconds += (nextCh.end - nextCh.start);
+       } else {
+         // Stop if we reach the end of the book early
+         break;
+       }
     }
-    return `${secondsToTimestamp(totalSeconds / state.playbackRate)} • ${state.sleepChapters} CH`;
+    
+    // Factor in playback speed for real-world time
+    const realWorldTime = totalSeconds / state.playbackRate;
+    return `${secondsToTimestamp(realWorldTime)} • ${state.sleepChapters} CH`;
   }
   return null;
+});
+
+const cardSleepStatus = computed(() => {
+  if (state.sleepChapters > 0) {
+    return liveSleepCountdown.value || `${state.sleepChapters} CH`;
+  }
+  if (state.sleepEndTime) return liveSleepCountdown.value || 'TIMER ON';
+  return 'OFF';
 });
 
 const adjustSleepTime = (secondsToAdd: number) => {
@@ -313,7 +331,7 @@ const infoRows = computed(() => [
           <!-- Progress -->
           <div class="space-y-4">
             <div v-if="liveSleepCountdown" class="flex justify-center mb-2">
-               <span class="text-[10px] font-black tracking-widest text-purple-400 animate-pulse shadow-aether-glow">{{ liveSleepCountdown }} REMAINING</span>
+               <span class="text-[10px] font-black tracking-widest text-purple-400 animate-pulse shadow-aether-glow uppercase">{{ liveSleepCountdown }} REMAINING</span>
             </div>
             <div class="flex justify-between items-end mb-1 h-5">
                <div class="flex flex-col">
@@ -350,7 +368,7 @@ const infoRows = computed(() => [
 
           <!-- Mini Cards -->
           <div class="grid grid-cols-2 gap-4 w-full">
-            <div class="bg-neutral-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-4 flex flex-col justify-between gap-2 h-32 relative overflow-hidden">
+            <div class="bg-neutral-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-4 flex flex-col justify-between gap-2 h-36 relative overflow-hidden">
                <div class="flex justify-between items-center px-1">
                    <div class="flex items-center gap-2 text-neutral-500"><Clock :size="14" /><span class="text-[9px] font-black uppercase tracking-[0.2em]">Speed</span></div>
                    <button @click="setPreservesPitch(!state.preservesPitch)" class="flex items-center gap-1.5 px-2 py-1 rounded-full border transition-all" :class="state.preservesPitch ? 'bg-purple-600/20 border-purple-500/30 text-purple-400' : 'bg-white/5 border-white/5 text-neutral-600'">
@@ -360,31 +378,38 @@ const infoRows = computed(() => [
                </div>
                <div class="flex-1 flex flex-col items-center justify-center"><span class="text-3xl font-black font-mono tracking-tighter text-white">{{ state.playbackRate.toFixed(1) }}x</span></div>
                <div class="flex items-center gap-4 w-full justify-center">
-                 <button @click="setPlaybackRate(Math.max(0.5, state.playbackRate - 0.1))" class="p-2 bg-white/5 rounded-full text-neutral-400"><Minus :size="16" /></button>
-                 <button @click="setPlaybackRate(Math.min(3.0, state.playbackRate + 0.1))" class="p-2 bg-white/5 rounded-full text-neutral-400"><Plus :size="16" /></button>
+                 <button @click="setPlaybackRate(Math.max(0.5, state.playbackRate - 0.1))" class="p-2 bg-white/5 rounded-full text-neutral-400 transition-colors hover:text-white"><Minus :size="16" /></button>
+                 <button @click="setPlaybackRate(Math.min(3.0, state.playbackRate + 0.1))" class="p-2 bg-white/5 rounded-full text-neutral-400 transition-colors hover:text-white"><Plus :size="16" /></button>
                </div>
             </div>
 
-            <div class="bg-neutral-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-4 flex flex-col justify-between gap-2 h-32 relative overflow-hidden group">
+            <!-- Sleep Timer Card -->
+            <div class="bg-neutral-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-4 flex flex-col justify-between gap-2 h-36 relative overflow-hidden group">
                <div class="flex justify-between items-center px-1">
                  <div class="flex items-center gap-2 text-neutral-500"><Moon :size="14" /><span class="text-[9px] font-black uppercase tracking-[0.2em]">SLEEP</span></div>
-                 <span class="text-[10px] font-black font-mono" :class="isSleepActive ? 'text-purple-400' : 'text-neutral-600'">{{ cardSleepStatus }}</span>
+                 <span class="text-[10px] font-black font-mono truncate max-w-[100px] text-right" :class="isSleepActive ? 'text-purple-400' : 'text-neutral-600'">
+                    {{ cardSleepStatus }}
+                 </span>
                </div>
                <div class="flex-1 flex flex-col justify-end gap-2">
-                 <div class="flex items-center justify-between bg-white/5 rounded-lg p-1.5 px-2">
-                    <span class="text-[8px] font-bold uppercase text-neutral-500">MINS</span>
+                 <!-- Minutes Timer Row -->
+                 <div class="flex items-center justify-between bg-white/5 rounded-lg h-9 px-2">
+                    <span class="text-[8px] font-bold uppercase text-neutral-500 tracking-widest">Mins</span>
                     <div class="flex items-center gap-2">
-                       <button @click="adjustSleepTime(-900)" class="w-6 h-6 flex items-center justify-center bg-white/5 rounded text-neutral-400"><Minus :size="12" /></button>
-                       <span class="text-[9px] font-black w-6 text-center">15</span>
-                       <button @click="adjustSleepTime(900)" class="w-6 h-6 flex items-center justify-center bg-white/5 rounded text-neutral-400"><Plus :size="12" /></button>
+                       <button @click="adjustSleepTime(-900)" class="w-6 h-6 flex items-center justify-center bg-white/5 rounded text-neutral-400 hover:text-white transition-colors"><Minus :size="12" /></button>
+                       <span class="text-[10px] font-black w-6 text-center text-neutral-200">15</span>
+                       <button @click="adjustSleepTime(900)" class="w-6 h-6 flex items-center justify-center bg-white/5 rounded text-neutral-400 hover:text-white transition-colors"><Plus :size="12" /></button>
                     </div>
                  </div>
-                 <div class="flex items-center justify-between bg-white/5 rounded-lg p-1.5 px-2">
-                    <span class="text-[8px] font-bold uppercase text-neutral-500">CH</span>
+                 <!-- Chapters Timer Row -->
+                 <div class="flex items-center justify-between bg-white/5 rounded-lg h-9 px-2">
+                    <span class="text-[8px] font-bold uppercase text-neutral-500 tracking-widest">CH</span>
                     <div class="flex items-center gap-2">
-                       <button @click="adjustSleepChapters(-1)" class="w-6 h-6 flex items-center justify-center bg-white/5 rounded text-neutral-400"><Minus :size="12" /></button>
-                       <button @click="setSleepToEndOfChapter" class="text-neutral-500 hover:text-purple-400"><BookOpen :size="14" /></button>
-                       <button @click="adjustSleepChapters(1)" class="w-6 h-6 flex items-center justify-center bg-white/5 rounded text-neutral-400"><Plus :size="12" /></button>
+                       <button @click="adjustSleepChapters(-1)" class="w-6 h-6 flex items-center justify-center bg-white/5 rounded text-neutral-400 hover:text-white transition-colors"><Minus :size="12" /></button>
+                       <button @click="setSleepToEndOfChapter" class="flex items-center justify-center w-6 h-6 text-neutral-500 hover:text-purple-400 transition-colors" title="End of current chapter">
+                          <BookOpen :size="14" />
+                       </button>
+                       <button @click="adjustSleepChapters(1)" class="w-6 h-6 flex items-center justify-center bg-white/5 rounded text-neutral-400 hover:text-white transition-colors"><Plus :size="12" /></button>
                     </div>
                  </div>
                </div>
@@ -417,13 +442,13 @@ const infoRows = computed(() => [
               </div>
             </div>
 
-            <!-- Description (Reordered: Above Grid) -->
+            <!-- Description -->
             <div v-if="metadata.description" class="space-y-2">
               <h4 class="text-[10px] font-black uppercase tracking-widest text-neutral-600">Summary</h4>
               <div class="text-neutral-300 text-sm leading-relaxed whitespace-pre-line" v-html="metadata.description"></div>
             </div>
 
-            <!-- Grid Stats (Reordered: Below Summary) -->
+            <!-- Grid Stats -->
             <div class="grid grid-cols-2 gap-4">
               <div 
                 v-for="(row, i) in infoRows" 
@@ -448,3 +473,17 @@ const infoRows = computed(() => [
     <ChapterEditor v-if="showChapters" :item="activeItem" :currentTime="state.currentTime" :isPlaying="state.isPlaying" @close="showChapters = false" @seek="handleChapterSeek" />
   </div>
 </template>
+
+<style scoped>
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.book-spine {
+  box-shadow: 
+    -5px 0 15px rgba(0,0,0,0.5),
+    20px 20px 60px -15px rgba(0,0,0,0.8);
+}
+</style>
