@@ -389,9 +389,10 @@ const modalInfoRows = computed(() => {
     year = String((m as any).publishedDate).substring(0, 4);
   }
 
-  // SERIES LOGIC: Robust check matching Player.vue (Prioritize Array over root property)
+  // SERIES LOGIC: Matches Player.vue (Prioritize Array over root property)
   const seriesArray = (m as any).series;
   
+  // PRIORITY: Check Array FIRST (Rich Data), then fallback to Flat ID/Name
   let seriesId = null;
   let seriesName = null;
   let seriesSeq = null;
@@ -401,6 +402,7 @@ const modalInfoRows = computed(() => {
     seriesName = seriesArray[0].name;
     seriesSeq = seriesArray[0].sequence;
   } else {
+    // Fallback for shallow data
     seriesId = m.seriesId || null;
     seriesName = m.seriesName || null;
   }
