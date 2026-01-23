@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
 import { ABSLibraryItem, ABSProgress } from '../types';
-import { Play, CheckCircle, Smartphone } from 'lucide-vue-next';
+import { Play, CheckCircle, Smartphone, Info, Heart } from 'lucide-vue-next';
 import { OfflineManager } from '../services/offlineManager';
 import { getDominantColor } from '../services/colorUtils';
 
@@ -17,11 +17,13 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (e: 'click', item: ABSLibraryItem): void
+  (e: 'click', item: ABSLibraryItem): void,
+  (e: 'click-info', item: ABSLibraryItem): void
 }>();
 
 const imageReady = ref(false);
 const isDownloaded = ref(false);
+const isWishlisted = ref(false);
 const localCover = ref<string | null>(null);
 const triggerCompletionEffect = ref(false);
 const showTimeRemaining = ref(false);
@@ -118,6 +120,11 @@ const toggleProgressDisplay = (e: Event) => {
   showTimeRemaining.value = !showTimeRemaining.value;
 };
 
+const handleInfoClick = (e: Event) => {
+  e.stopPropagation();
+  emit('click-info', props.item);
+};
+
 watch(isFinished, (newVal) => {
   if (newVal) {
     triggerCompletionEffect.value = true;
@@ -126,10 +133,13 @@ watch(isFinished, (newVal) => {
 });
 
 onMounted(async () => {
+  // Check offline status
   if (await OfflineManager.isDownloaded(props.item.id)) {
     isDownloaded.value = true;
     localCover.value = await OfflineManager.getCoverUrl(props.item.id);
   }
+  // Check wishlist status
+  isWishlisted.value = await OfflineManager.isWishlisted(props.item.id);
 });
 </script>
 
@@ -168,10 +178,25 @@ onMounted(async () => {
         </div>
       </div>
       
-      <!-- Offline Badge (New) -->
-      <div v-if="isDownloaded" class="absolute top-2 right-2 z-30 flex items-center gap-1.5 px-2 py-1 bg-black/80 backdrop-blur-md border border-emerald-500/30 rounded-full shadow-xl">
-        <Smartphone :size="10" class="text-emerald-500" />
-        <span class="text-[8px] font-black uppercase tracking-widest text-emerald-400">Offline</span>
+      <!-- Badges -->
+      <div class="absolute top-2 right-2 z-30 flex flex-col items-end gap-1.5">
+         <!-- Info Badge (Clickable) -->
+         <div 
+           @click="handleInfoClick"
+           class="flex items-center justify-center w-6 h-6 bg-black/60 backdrop-blur-md border border-white/10 rounded-full hover:bg-white hover:text-black transition-colors cursor-pointer shadow-lg"
+         >
+           <Info :size="12" />
+         </div>
+
+         <!-- Offline Badge -->
+         <div v-if="isDownloaded" class="flex items-center justify-center w-6 h-6 bg-black/80 backdrop-blur-md border border-emerald-500/30 rounded-full shadow-xl">
+           <Smartphone :size="10" class="text-emerald-500" />
+         </div>
+
+         <!-- Wishlist Indicator (Subtle) -->
+         <div v-if="isWishlisted && !isDownloaded" class="flex items-center justify-center w-6 h-6 bg-black/80 backdrop-blur-md border border-purple-500/30 rounded-full shadow-xl">
+            <Heart :size="10" class="text-purple-400 fill-current" />
+         </div>
       </div>
 
       <!-- Finished Indicator Overlay -->

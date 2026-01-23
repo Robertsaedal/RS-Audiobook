@@ -8,11 +8,12 @@ import LibraryLayout, { LibraryTab } from '../components/LibraryLayout.vue';
 import Bookshelf from '../components/Bookshelf.vue';
 import SeriesShelf from '../components/SeriesShelf.vue';
 import SeriesView from './SeriesView.vue';
+import SavedBooks from './SavedBooks.vue';
 import RequestPortal from '../components/RequestPortal.vue';
 import StatsView from './StatsView.vue';
 import BookCard from '../components/BookCard.vue';
 import SeriesCard from '../components/SeriesCard.vue';
-import { PackageOpen, Loader2, WifiOff, RotateCw } from 'lucide-vue-next';
+import { PackageOpen, Loader2, WifiOff, RotateCw, X, Heart, Play } from 'lucide-vue-next';
 
 defineOptions({
   name: 'Library'
@@ -49,6 +50,11 @@ const currentlyReadingRaw = ref<ABSLibraryItem[]>([]);
 const continueSeriesRaw = ref<ABSLibraryItem[]>([]);
 const recentlyAddedRaw = ref<ABSLibraryItem[]>([]);
 const recentSeries = ref<ABSSeries[]>([]);
+const wishlistRaw = ref<ABSLibraryItem[]>([]); // New Shelf
+
+// Info Modal State
+const selectedInfoItem = ref<ABSLibraryItem | null>(null);
+const isInfoItemWishlisted = ref(false);
 
 // Local fallback map if props are not used (for standalone testing)
 const localProgressMap = reactive(new Map<string, ABSProgress>());
@@ -61,7 +67,6 @@ const isGlobalSearching = ref(false);
 let debounceTimeout: any = null;
 
 const initProgressMap = async () => {
-  // Use local auth as baseline
   if (props.auth.user?.mediaProgress) {
     props.auth.user.mediaProgress.forEach((p: any) => {
       handleProgressUpdate({
@@ -76,7 +81,6 @@ const initProgressMap = async () => {
     });
   }
 
-  // Fetch complete fresh list from server
   if (absService.value && !isOfflineMode.value) {
     try {
       const allProgress = await absService.value.getAllUserProgress();
@@ -90,7 +94,6 @@ const initProgressMap = async () => {
 };
 
 const initService = async () => {
-  // If parent provided a service, use it. Otherwise create new.
   if (props.providedService) {
     absService.value = props.providedService;
   } else {
@@ -128,21 +131,6 @@ const setupListeners = () => {
   if (!props.providedService) {
     absService.value.onProgressUpdate((p) => handleProgressUpdate(p));
     absService.value.onUserOnline((p) => handleProgressUpdate(p as ABSProgress));
-    absService.value.onInit((data) => {
-        if (data.user && data.user.mediaProgress) {
-            data.user.mediaProgress.forEach((p: any) => {
-                handleProgressUpdate({
-                    itemId: p.libraryItemId,
-                    currentTime: p.currentTime,
-                    duration: p.duration,
-                    progress: p.progress,
-                    isFinished: p.isFinished,
-                    lastUpdate: p.lastUpdate,
-                    hideFromContinueListening: p.hideFromContinueListening
-                });
-            });
-        }
-    });
   }
 };
 
@@ -230,13 +218,13 @@ const handleOfflineFallback = async () => {
     const p = b.userProgress;
     return !p || p.progress === 0 || p.isFinished;
   });
+  wishlistRaw.value = await OfflineManager.getWishlistBooks();
   continueSeriesRaw.value = [];
   recentSeries.value = [];
 };
 
 const hydrateList = (list: ABSLibraryItem[]) => {
   return list.map(item => {
-    // Check global/local map
     const live = activeProgressMap.value.get(item.id);
     return live ? { ...item, userProgress: live } : item;
   });
@@ -245,8 +233,12 @@ const hydrateList = (list: ABSLibraryItem[]) => {
 const hydratedCurrentlyReading = computed(() => hydrateList(currentlyReadingRaw.value));
 const hydratedContinueSeries = computed(() => hydrateList(continueSeriesRaw.value));
 const hydratedRecentlyAdded = computed(() => hydrateList(recentlyAddedRaw.value));
+const hydratedWishlist = computed(() => hydrateList(wishlistRaw.value));
 
 const fetchDashboardData = async () => {
+  // Always fetch local wishlist first
+  wishlistRaw.value = await OfflineManager.getWishlistBooks();
+
   if (!navigator.onLine) {
     await handleOfflineFallback();
     return;
@@ -282,18 +274,12 @@ const forceSyncProgress = async () => {
   syncFeedback.value = '';
   
   try {
-    // 1. Force Server PUSH via Socket
     absService.value.emitGetUserItems();
-    
-    // 2. Redundant API fetch to be safe
     const allProgress = await absService.value.getAllUserProgress();
     if (allProgress && Array.isArray(allProgress)) {
       allProgress.forEach(p => handleProgressUpdate(p, false));
     }
-
-    // 3. Refresh shelves
     await fetchDashboardData();
-
     syncFeedback.value = "Synced";
     setTimeout(() => syncFeedback.value = '', 2000);
   } catch (e) {
@@ -313,6 +299,31 @@ const updateOnlineStatus = () => {
   }
 };
 
+// --- Info Modal Logic ---
+const openInfoModal = async (item: ABSLibraryItem) => {
+  selectedInfoItem.value = item;
+  isInfoItemWishlisted.value = await OfflineManager.isWishlisted(item.id);
+};
+
+const closeInfoModal = () => {
+  selectedInfoItem.value = null;
+};
+
+const toggleWishlist = async () => {
+  if (!selectedInfoItem.value) return;
+  const newState = await OfflineManager.toggleWishlist(selectedInfoItem.value);
+  isInfoItemWishlisted.value = newState;
+  // Refresh dashboard to update shelf
+  await fetchDashboardData();
+};
+
+const playFromModal = () => {
+  if (selectedInfoItem.value) {
+    emit('select-item', selectedInfoItem.value);
+    closeInfoModal();
+  }
+};
+
 onMounted(async () => {
   await initService();
   await initProgressMap(); 
@@ -323,6 +334,8 @@ onMounted(async () => {
 });
 
 onActivated(async () => {
+  // Refresh wishlist when returning to library
+  wishlistRaw.value = await OfflineManager.getWishlistBooks();
   if (props.initialSeriesId) await nextTick(() => handleJumpToSeries(props.initialSeriesId!));
 });
 
@@ -372,7 +385,7 @@ watch(trimmedSearch, () => {
   debounceTimeout = setTimeout(performGlobalSearch, 300);
 });
 
-const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && recentlyAddedRaw.value.length === 0 && recentSeries.value.length === 0 && continueSeriesRaw.value.length === 0);
+const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && recentlyAddedRaw.value.length === 0 && recentSeries.value.length === 0 && continueSeriesRaw.value.length === 0 && wishlistRaw.value.length === 0);
 </script>
 
 <template>
@@ -405,7 +418,7 @@ const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && rec
             <section v-if="searchResults.books.length > 0 && absService" class="shelf-row">
               <div class="shelf-tag"><span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Books</span></div>
               <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
-                <BookCard v-for="item in searchResults.books" :key="item.id" :item="item" :coverUrl="absService.getCoverUrl(item.id)" show-metadata @click="emit('select-item', item)" />
+                <BookCard v-for="item in searchResults.books" :key="item.id" :item="item" :coverUrl="absService.getCoverUrl(item.id)" show-metadata @click="emit('select-item', item)" @click-info="openInfoModal" />
               </div>
             </section>
           </template>
@@ -425,15 +438,29 @@ const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && rec
                 </div>
                 <div class="flex gap-10 overflow-x-auto no-scrollbar pb-10 pl-2">
                   <div v-for="item in hydratedCurrentlyReading" :key="item.id" class="w-32 md:w-40 shrink-0">
-                    <BookCard :item="item" :coverUrl="absService.getCoverUrl(item.id)" show-metadata show-progress @click="emit('select-item', item)" @finish="handleMarkFinished" />
+                    <BookCard :item="item" :coverUrl="absService.getCoverUrl(item.id)" show-metadata show-progress @click="emit('select-item', item)" @finish="handleMarkFinished" @click-info="openInfoModal" />
                   </div>
                 </div>
               </section>
+
+              <!-- Want to Listen Shelf -->
+              <section v-if="hydratedWishlist.length > 0 && absService" class="shelf-row py-8">
+                <div class="shelf-tag gap-2">
+                  <Heart :size="12" class="text-pink-500 fill-current" />
+                  <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Want to Listen</span>
+                </div>
+                <div class="flex gap-10 overflow-x-auto no-scrollbar pb-10 pl-2">
+                  <div v-for="item in hydratedWishlist" :key="item.id" class="w-32 md:w-40 shrink-0">
+                    <BookCard :item="item" :coverUrl="absService.getCoverUrl(item.id)" show-metadata @click="emit('select-item', item)" @click-info="openInfoModal" />
+                  </div>
+                </div>
+              </section>
+
               <section v-if="hydratedContinueSeries.length > 0 && absService" class="shelf-row py-8">
                 <div class="shelf-tag"><span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Next in Series</span></div>
                 <div class="flex gap-10 overflow-x-auto no-scrollbar pb-10 pl-2">
                   <div v-for="item in hydratedContinueSeries" :key="item.id" class="w-32 md:w-40 shrink-0">
-                    <BookCard :item="item" :coverUrl="absService.getCoverUrl(item.id)" show-metadata @click="emit('select-item', item)" />
+                    <BookCard :item="item" :coverUrl="absService.getCoverUrl(item.id)" show-metadata @click="emit('select-item', item)" @click-info="openInfoModal" />
                   </div>
                 </div>
               </section>
@@ -441,7 +468,7 @@ const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && rec
                 <div class="shelf-tag"><span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Recently Added</span></div>
                 <div class="flex gap-10 overflow-x-auto no-scrollbar pb-10 pl-2">
                   <div v-for="item in hydratedRecentlyAdded" :key="item.id" class="w-32 md:w-40 shrink-0">
-                    <BookCard :item="item" :coverUrl="absService.getCoverUrl(item.id)" show-metadata @click="emit('select-item', item)" />
+                    <BookCard :item="item" :coverUrl="absService.getCoverUrl(item.id)" show-metadata @click="emit('select-item', item)" @click-info="openInfoModal" />
                   </div>
                 </div>
               </section>
@@ -462,6 +489,9 @@ const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && rec
           <div v-else-if="activeTab === 'LIBRARY' && absService" class="h-full flex flex-col overflow-hidden">
             <Bookshelf :absService="absService" :sortMethod="sortMethod" :desc="desc" :search="''" :progressMap="activeProgressMap" @select-item="emit('select-item', $event)" />
           </div>
+          <div v-else-if="activeTab === 'SAVED' && absService" class="h-full flex flex-col overflow-hidden">
+             <SavedBooks :absService="absService" @select-item="emit('select-item', $event)" @click-info="openInfoModal" />
+          </div>
           <div v-else-if="activeTab === 'SERIES' && absService" class="h-full flex flex-col overflow-hidden">
             <SeriesShelf :absService="absService" :sortMethod="seriesSortMethod" :desc="desc" :search="''" @select-series="selectedSeries = $event" />
           </div>
@@ -470,5 +500,54 @@ const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && rec
         </template>
       </template>
     </div>
+
+    <!-- Info Modal -->
+    <Transition name="fade">
+      <div v-if="selectedInfoItem && absService" class="fixed inset-0 z-[150] bg-black/95 backdrop-blur-3xl flex flex-col p-8 overflow-hidden">
+        <div class="flex justify-between items-center mb-8 shrink-0">
+          <h2 class="text-2xl font-black uppercase tracking-tighter text-white">Artifact Data</h2>
+          <button @click="closeInfoModal" class="p-3 bg-neutral-900 rounded-full text-neutral-500 hover:text-white transition-colors border border-white/5">
+            <X :size="20" />
+          </button>
+        </div>
+        
+        <div class="flex-1 overflow-y-auto custom-scrollbar">
+          <div class="max-w-2xl mx-auto space-y-8">
+            <div class="flex flex-col items-center text-center space-y-4">
+              <div class="w-40 h-60 rounded-lg shadow-2xl overflow-hidden border border-white/10">
+                <img :src="absService.getCoverUrl(selectedInfoItem.id)" class="w-full h-full object-cover" />
+              </div>
+              <div>
+                <h3 class="text-2xl font-black uppercase leading-tight">{{ selectedInfoItem.media.metadata.title }}</h3>
+                <p class="text-neutral-500 font-bold">{{ selectedInfoItem.media.metadata.authorName }}</p>
+              </div>
+            </div>
+
+            <div v-if="selectedInfoItem.media.metadata.description" class="space-y-2">
+              <h4 class="text-[10px] font-black uppercase tracking-widest text-neutral-600">Summary</h4>
+              <div class="text-neutral-300 text-sm leading-relaxed whitespace-pre-line" v-html="selectedInfoItem.media.metadata.description"></div>
+            </div>
+
+            <!-- Actions -->
+            <div class="grid grid-cols-2 gap-4">
+               <button 
+                 @click="playFromModal"
+                 class="py-4 bg-purple-600 rounded-2xl font-black uppercase tracking-widest text-white shadow-[0_0_20px_rgba(168,85,247,0.4)] flex items-center justify-center gap-2"
+               >
+                  <Play :size="16" fill="currentColor" /> Play
+               </button>
+               <button 
+                 @click="toggleWishlist"
+                 class="py-4 bg-neutral-900 border border-white/10 rounded-2xl font-black uppercase tracking-widest text-neutral-400 hover:text-pink-400 hover:border-pink-500/30 transition-all flex items-center justify-center gap-2"
+                 :class="{ 'text-pink-500 border-pink-500/50 bg-pink-500/10': isInfoItemWishlisted }"
+               >
+                  <Heart :size="16" :fill="isInfoItemWishlisted ? 'currentColor' : 'none'" /> 
+                  {{ isInfoItemWishlisted ? 'Wishlisted' : 'Want to Listen' }}
+               </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
   </LibraryLayout>
 </template>

@@ -8,7 +8,7 @@ import { OfflineManager } from '../services/offlineManager';
 import ChapterEditor from '../components/ChapterEditor.vue';
 import { 
   ChevronDown, Play, Pause, Info, X, SkipBack, SkipForward,
-  RotateCcw, RotateCw, ChevronRight, Moon, Plus, Minus, Mic, Clock, Layers, Download, CheckCircle, Calendar, ArrowRight
+  RotateCcw, RotateCw, ChevronRight, Moon, Plus, Minus, Mic, Clock, Layers, Download, CheckCircle, Calendar, ArrowRight, Heart
 } from 'lucide-vue-next';
 
 const props = defineProps<{
@@ -29,6 +29,7 @@ const showChapters = ref(false);
 const showInfo = ref(false);
 const isDownloaded = ref(false);
 const isDownloading = ref(false);
+const isWishlisted = ref(false);
 const downloadProgress = ref(0);
 const liveTime = ref(Date.now()); 
 
@@ -93,6 +94,7 @@ onMounted(async () => {
     load(props.item, props.auth);
   }
   checkDownloadStatus();
+  checkWishlistStatus();
   
   // Start local ticker for live countdowns
   tickerInterval = setInterval(() => {
@@ -103,6 +105,12 @@ onMounted(async () => {
 const checkDownloadStatus = async () => {
   if (activeItem.value?.id) {
     isDownloaded.value = await OfflineManager.isDownloaded(activeItem.value.id);
+  }
+};
+
+const checkWishlistStatus = async () => {
+  if (activeItem.value?.id) {
+    isWishlisted.value = await OfflineManager.isWishlisted(activeItem.value.id);
   }
 };
 
@@ -221,7 +229,7 @@ const handleToggleDownload = async () => {
   if (isDownloading.value) return;
   if (isDownloaded.value) {
     if (confirm("Remove download?")) {
-      await OfflineManager.removeBook(activeItem.value.id);
+      await OfflineManager.deleteBook(activeItem.value.id); // Updated to deleteBook
       isDownloaded.value = false;
     }
   } else {
@@ -236,6 +244,11 @@ const handleToggleDownload = async () => {
       downloadProgress.value = 0;
     }
   }
+};
+
+const handleToggleWishlist = async () => {
+  const newState = await OfflineManager.toggleWishlist(activeItem.value);
+  isWishlisted.value = newState;
 };
 
 const infoRows = computed(() => [
@@ -445,6 +458,18 @@ const infoRows = computed(() => [
                 <h3 class="text-2xl font-black uppercase leading-tight">{{ metadata.title }}</h3>
                 <p class="text-neutral-500 font-bold">{{ metadata.authorName }}</p>
               </div>
+            </div>
+
+            <!-- Wishlist Toggle -->
+            <div class="flex justify-center">
+              <button 
+                @click="handleToggleWishlist"
+                class="px-6 py-3 bg-neutral-900 border border-white/10 rounded-full font-black uppercase tracking-widest text-xs hover:text-pink-400 hover:border-pink-500/30 transition-all flex items-center gap-2 active:scale-95"
+                :class="{ 'text-pink-500 border-pink-500/50 bg-pink-500/10': isWishlisted, 'text-neutral-400': !isWishlisted }"
+              >
+                 <Heart :size="14" :fill="isWishlisted ? 'currentColor' : 'none'" /> 
+                 {{ isWishlisted ? 'Wishlisted' : 'Want to Listen' }}
+              </button>
             </div>
 
             <!-- Description -->

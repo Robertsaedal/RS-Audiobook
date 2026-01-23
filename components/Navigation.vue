@@ -1,9 +1,9 @@
 
 <script setup lang="ts">
-import { Home, Layers, LogOut, Activity, PlusSquare } from 'lucide-vue-next';
+import { Home, Layers, LogOut, Activity, PlusSquare, Bookmark } from 'lucide-vue-next';
 import AppLogo from './AppLogo.vue';
 
-export type NavTab = 'HOME' | 'SERIES' | 'REQUEST';
+export type NavTab = 'HOME' | 'SERIES' | 'REQUEST' | 'SAVED';
 
 const props = defineProps<{
   activeTab: NavTab
@@ -16,6 +16,7 @@ const emit = defineEmits<{
 
 const navItems = [
   { id: 'HOME' as NavTab, icon: Home, label: 'Home' },
+  { id: 'SAVED' as NavTab, icon: Bookmark, label: 'Saved' },
   { id: 'SERIES' as NavTab, icon: Layers, label: 'Series' },
   { id: 'REQUEST' as NavTab, icon: PlusSquare, label: 'Request' },
 ];
