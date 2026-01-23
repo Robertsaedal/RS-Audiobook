@@ -44,8 +44,8 @@ const handleImageLoad = async () => {
     :style="{ '--series-accent': accentColor }"
   >
     <!-- Card Visuals Container -->
-    <!-- Added padding-right to accommodate the fan-out without clipping in tight grids -->
-    <div class="relative w-full aspect-[2/3] mb-5 z-10 perspective-1000">
+    <!-- Added top margin to account for the upward stack offset -->
+    <div class="relative w-full aspect-[2/3] mb-4 mt-3 z-10">
       
       <!-- Ambient Glow (Background) -->
       <div 
@@ -57,24 +57,26 @@ const handleImageLoad = async () => {
       <div class="relative w-full h-full">
         
         <!-- Bottom Layer (3rd Book) -->
+        <!-- Offset: Right 12px, Top -12px -->
         <div 
           v-if="stackImages[2]"
-          class="absolute inset-0 rounded-md bg-neutral-900 shadow-2xl transition-all duration-300 ease-out origin-bottom-left z-0 border-l border-white/20 overflow-hidden brightness-50 translate-x-[24px] rotate-[8deg] group-hover:translate-x-[36px] group-hover:rotate-[12deg]"
+          class="absolute inset-0 rounded-md bg-neutral-900 shadow-sm transition-transform duration-300 ease-out z-0 border border-white/5 overflow-hidden brightness-75 translate-x-3 -translate-y-3"
         >
           <img :src="stackImages[2]" class="w-full h-full object-cover" loading="lazy" />
         </div>
 
         <!-- Middle Layer (2nd Book) -->
+        <!-- Offset: Right 6px, Top -6px -->
         <div 
           v-if="stackImages[1]"
-          class="absolute inset-0 rounded-md bg-neutral-900 shadow-2xl transition-all duration-300 ease-out origin-bottom-left z-10 border-l border-white/20 overflow-hidden brightness-75 translate-x-[12px] rotate-[4deg] group-hover:translate-x-[18px] group-hover:rotate-[6deg]"
+          class="absolute inset-0 rounded-md bg-neutral-900 shadow-md transition-transform duration-300 ease-out z-10 border border-white/10 overflow-hidden brightness-90 translate-x-1.5 -translate-y-1.5"
         >
           <img :src="stackImages[1]" class="w-full h-full object-cover" loading="lazy" />
         </div>
 
         <!-- Top Layer (Main Cover) -->
         <div 
-          class="absolute inset-0 rounded-md overflow-hidden drop-shadow-xl border border-white/10 z-20 bg-neutral-900 transition-transform duration-300 group-hover:-translate-y-2"
+          class="absolute inset-0 rounded-md overflow-hidden drop-shadow-xl border border-white/10 z-20 bg-neutral-900 transition-transform duration-300 group-hover:-translate-y-1"
           :style="{ borderColor: colorLoaded ? 'color-mix(in srgb, var(--series-accent) 40%, transparent)' : 'rgba(255,255,255,0.1)' }"
         >
           <div v-if="!imageReady" class="absolute inset-0 animate-pulse bg-neutral-800" />
@@ -91,7 +93,7 @@ const handleImageLoad = async () => {
 
       <!-- Floating Badge -->
       <div 
-        class="absolute -top-3 -right-3 z-30 flex items-center justify-center backdrop-blur-xl border border-white/20 shadow-lg transition-all duration-300 group-hover:scale-110 group-hover:-translate-y-1"
+        class="absolute -top-4 -right-2 z-30 flex items-center justify-center backdrop-blur-xl border border-white/20 shadow-lg transition-all duration-300 group-hover:scale-110"
         :class="bookCount >= 10 ? 'px-2.5 py-1 rounded-full min-w-[32px]' : 'w-8 h-8 rounded-full'"
         :style="{ 
           backgroundColor: colorLoaded ? 'color-mix(in srgb, var(--series-accent) 80%, black)' : '#A855F7',
@@ -115,9 +117,3 @@ const handleImageLoad = async () => {
     </div>
   </button>
 </template>
-
-<style scoped>
-.perspective-1000 {
-  perspective: 1000px;
-}
-</style>

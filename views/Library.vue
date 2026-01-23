@@ -1,4 +1,3 @@
-
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, onActivated, watch, computed, nextTick, reactive } from 'vue';
 import { AuthState, ABSLibraryItem, ABSSeries, ABSProgress } from '../types';
@@ -345,15 +344,22 @@ const playFromModal = () => {
 };
 
 const handleSeriesClickFromModal = async (seriesId: string | null, seriesName?: string) => {
+  console.log('Navigating to Series ID:', seriesId);
+  
+  if (!seriesId) {
+    if (seriesName) {
+      console.warn('Missing Series ID, falling back to search for:', seriesName);
+      closeInfoModal();
+      searchTerm.value = seriesName;
+      return;
+    }
+    console.error('Missing Series ID and Name. Navigation aborted.');
+    return;
+  }
+
   // CRITICAL: Close modal first, then navigate
   closeInfoModal();
-  
-  if (seriesId) {
-    await handleJumpToSeries(seriesId);
-  } else if (seriesName) {
-    // Fallback: Search for the series name if no ID is attached
-    searchTerm.value = seriesName;
-  }
+  await handleJumpToSeries(seriesId);
 };
 
 const secondsToTimestamp = (s: number) => {
@@ -379,13 +385,14 @@ const modalInfoRows = computed(() => {
     year = String((m as any).publishedDate).substring(0, 4);
   }
 
-  // SERIES LOGIC: Robust check matching Player.vue
-  // Check Root properties OR Array properties
+  // SERIES LOGIC: Robust check matching Player.vue (Prioritize Array over root property)
   const seriesArray = (m as any).series;
   const hasSeriesArray = Array.isArray(seriesArray) && seriesArray.length > 0;
 
-  const seriesId = m.seriesId || (hasSeriesArray ? seriesArray[0].id : null);
-  const seriesName = m.seriesName || (hasSeriesArray ? seriesArray[0].name : null);
+  // PRIORITY 1: Array ID. PRIORITY 2: Root ID.
+  const seriesId = (hasSeriesArray ? seriesArray[0].id : null) || m.seriesId || null;
+  const seriesName = (hasSeriesArray ? seriesArray[0].name : null) || m.seriesName || null;
+  
   const seriesSeq = m.seriesSequence || (m as any).sequence || (hasSeriesArray ? seriesArray[0].sequence : null);
 
   const seriesDisplay = seriesName ? (seriesSeq ? `${seriesName} #${seriesSeq}` : seriesName) : null;

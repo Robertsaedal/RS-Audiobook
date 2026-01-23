@@ -198,7 +198,8 @@ export class ABSService {
     const query = new URLSearchParams();
     if (params?.limit) query.append('limit', params.limit.toString());
     
-    // Explicitly including 'series' and 'expanded' for shelves as well
+    // Explicitly including 'series' and 'expanded' for shelves as well.
+    // Ensure 'series' is definitely present to allow ID extraction on homepage items.
     query.append('include', 'progress,userProgress,metadata,series,media');
     query.append('expanded', '1');
     query.append('_cb', Date.now().toString());
