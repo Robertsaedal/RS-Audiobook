@@ -1,3 +1,4 @@
+
 import { createApp } from 'vue';
 import App from './App.vue';
 import './index.css';
@@ -8,6 +9,11 @@ window.addEventListener('beforeinstallprompt', (e) => {
   // Store the event globally so App.vue can access it later
   (window as any).deferredPrompt = e;
 });
+
+// NAVIGATION GUARD: Ensure history state exists so "Back" doesn't exit immediately
+if (!window.history.state) {
+  window.history.replaceState({ page: 'home' }, '', window.location.pathname);
+}
 
 // Register Service Worker for PWA support
 if ('serviceWorker' in navigator) {

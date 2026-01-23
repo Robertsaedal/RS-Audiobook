@@ -1,3 +1,4 @@
+
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, defineAsyncComponent, computed, reactive, watch } from 'vue';
 import { AuthState, ABSLibraryItem, ABSProgress } from './types';
@@ -27,8 +28,18 @@ const showPwaBanner = ref(false);
 const isIOS = ref(false);
 
 const handlePopState = (event: PopStateEvent) => {
-  if (currentView.value === 'player') {
-    closePlayer(false); // Close without pushing state
+  const hash = window.location.hash;
+  
+  // Player View Logic: If hash indicates player, force player view
+  if (hash.startsWith('#player')) {
+    if (currentView.value !== 'player') {
+      currentView.value = 'player';
+    }
+  } else {
+    // If hash is NOT player (e.g. empty, #series, #info), revert to Library
+    if (currentView.value === 'player') {
+      currentView.value = 'library';
+    }
   }
 };
 
@@ -108,6 +119,7 @@ const initAbsService = () => {
 };
 
 onMounted(() => {
+  // Check auth
   const savedAuth = localStorage.getItem('rs_auth');
   if (savedAuth) {
     try {
@@ -185,15 +197,19 @@ const handleLogout = () => {
 
 const openPlayer = (item: ABSLibraryItem) => {
   selectedItem.value = item;
-  currentView.value = 'player';
   isStreaming.value = true;
-  history.pushState({ player: true }, '', '#player');
+  
+  // Push history state so back button closes player instead of app
+  if (window.location.hash !== '#player') {
+    window.history.pushState({ view: 'player' }, '', '#player');
+  }
+  currentView.value = 'player';
 };
 
 const expandMiniPlayer = () => {
   if (currentView.value !== 'player') {
+    window.history.pushState({ view: 'player' }, '', '#player');
     currentView.value = 'player';
-    history.pushState({ player: true }, '', '#player');
   }
 };
 
@@ -207,9 +223,11 @@ const handleItemUpdated = (updatedItem: ABSLibraryItem) => {
 };
 
 const closePlayer = (shouldPopState = true) => {
-  currentView.value = 'library';
-  if (shouldPopState && window.location.hash === '#player') {
-    history.back();
+  // If we are currently at #player or a sub-route of player, pop it
+  if (shouldPopState && window.location.hash.startsWith('#player')) {
+    window.history.back(); 
+  } else {
+    currentView.value = 'library';
   }
 };
 </script>

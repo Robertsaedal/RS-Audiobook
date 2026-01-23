@@ -1,10 +1,10 @@
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
+import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { AuthState, ABSLibraryItem } from '../types';
 import { usePlayer } from '../composables/usePlayer';
 import { ABSService } from '../services/absService';
-import { OfflineManager } from '../services/offlineManager';
+import { OfflineManager, downloadQueue } from '../services/offlineManager'; // Import Queue
 import ChapterEditor from '../components/ChapterEditor.vue';
 import { 
   ChevronDown, Play, Pause, Info, X, SkipBack, SkipForward,
@@ -28,28 +28,54 @@ const absService = computed(() => new ABSService(props.auth.serverUrl, props.aut
 const showChapters = ref(false);
 const showInfo = ref(false);
 const isDownloaded = ref(false);
-const isDownloading = ref(false);
 const isWishlisted = ref(false);
-const downloadProgress = ref(0);
 const liveTime = ref(Date.now()); 
-
 let tickerInterval: any = null;
 
 const activeItem = computed(() => state.activeItem || props.item);
+
+// Reactive Download State from Global Queue
+const downloadStatus = computed(() => downloadQueue.get(activeItem.value.id));
+const isDownloading = computed(() => !!downloadStatus.value?.isDownloading);
+const downloadProgress = computed(() => downloadStatus.value?.progress || 0);
+
+const onPopState = () => {
+  const hash = window.location.hash;
+  if (showChapters.value && hash !== '#player-chapters') {
+    showChapters.value = false;
+  }
+  if (showInfo.value && hash !== '#player-info') {
+    showInfo.value = false;
+  }
+};
+
+const openChapters = () => {
+    window.history.pushState({ modal: 'chapters'}, '', '#player-chapters');
+    showChapters.value = true;
+};
+
+const closeChapters = () => {
+    if (window.location.hash === '#player-chapters') window.history.back();
+    else showChapters.value = false;
+};
+
+const openInfoOverlay = () => {
+    window.history.pushState({ modal: 'info'}, '', '#player-info');
+    showInfo.value = true;
+};
+
+const closeInfoOverlay = () => {
+    if (window.location.hash === '#player-info') window.history.back();
+    else showInfo.value = false;
+};
 
 const coverUrl = computed(() => {
   const baseUrl = props.auth.serverUrl.replace(/\/api\/?$/, '').replace(/\/+$/, '');
   return `${baseUrl}/api/items/${activeItem.value.id}/cover?token=${props.auth.user?.token}`;
 });
 
-const isFinished = computed(() => {
-  return activeItem.value?.userProgress?.isFinished || false;
-});
-
-const chapters = computed(() => {
-  if (!activeItem.value?.media?.chapters) return [];
-  return activeItem.value.media.chapters;
-});
+const isFinished = computed(() => activeItem.value?.userProgress?.isFinished || false);
+const chapters = computed(() => activeItem.value.media.chapters || []);
 
 const currentChapterIndex = computed(() => {
   if (chapters.value.length === 0) return -1;
@@ -61,7 +87,6 @@ const currentChapterIndex = computed(() => {
 
 const currentChapter = computed(() => currentChapterIndex.value !== -1 ? chapters.value[currentChapterIndex.value] : null);
 
-// Chapter specific progress Math
 const chapterProgressPercent = computed(() => {
   if (!currentChapter.value) return 0;
   const chapterDur = currentChapter.value.end - currentChapter.value.start;
@@ -70,7 +95,6 @@ const chapterProgressPercent = computed(() => {
   return Math.max(0, Math.min(100, (elapsed / chapterDur) * 100));
 });
 
-// Effective time remaining considers playback speed
 const chapterTimeRemaining = computed(() => {
   if (!currentChapter.value) return 0;
   const rawRemaining = Math.max(0, currentChapter.value.end - state.currentTime);
@@ -89,17 +113,13 @@ const secondsToTimestamp = (s: number) => {
 };
 
 onMounted(async () => {
-  // If loading same item, don't re-init fully
   if (state.activeItem?.id !== props.item.id) {
     load(props.item, props.auth);
   }
   checkDownloadStatus();
   checkWishlistStatus();
-  
-  // Start local ticker for live countdowns
-  tickerInterval = setInterval(() => {
-    liveTime.value = Date.now();
-  }, 1000);
+  window.addEventListener('popstate', onPopState);
+  tickerInterval = setInterval(() => { liveTime.value = Date.now(); }, 1000);
 });
 
 const checkDownloadStatus = async () => {
@@ -115,6 +135,7 @@ const checkWishlistStatus = async () => {
 };
 
 onUnmounted(() => {
+  window.removeEventListener('popstate', onPopState);
   if (tickerInterval) clearInterval(tickerInterval);
 });
 
@@ -139,9 +160,7 @@ const skipToPrevChapter = () => {
   }
 };
 
-const handleChapterSeek = (time: number) => {
-  seek(time);
-};
+const handleChapterSeek = (time: number) => seek(time);
 
 const handleChapterProgressClick = (e: MouseEvent) => {
   if (!currentChapter.value) return;
@@ -156,47 +175,26 @@ const handleChapterProgressClick = (e: MouseEvent) => {
 // --- Sleep Timer Logic ---
 const isSleepActive = computed(() => state.sleepChapters > 0 || !!state.sleepEndTime);
 
-/**
- * Calculates dynamic remaining time for chapter-based sleep timer.
- * Formula: (Remaining time of current chapter) + (Total duration of next N-1 chapters)
- */
 const liveSleepCountdownText = computed(() => {
-  let timeText = '';
-  let chapterText = '';
-
   if (state.sleepEndTime) {
     const diff = Math.max(0, state.sleepEndTime - liveTime.value) / 1000;
     if (diff <= 0) return null;
-    timeText = secondsToTimestamp(diff);
+    return secondsToTimestamp(diff);
   } else if (state.sleepChapters > 0) {
      if (chapters.value.length === 0 || currentChapterIndex.value === -1) return null;
-    
-    // 1. Time remaining in current chapter
     let totalSeconds = Math.max(0, (currentChapter.value?.end || 0) - state.currentTime);
-    
-    // 2. Add full duration of any additional chapters in the sleep queue
     for (let i = 1; i < state.sleepChapters; i++) {
        const nextCh = chapters.value[currentChapterIndex.value + i];
-       if (nextCh) {
-         totalSeconds += (nextCh.end - nextCh.start);
-       } else {
-         break;
-       }
+       if (nextCh) totalSeconds += (nextCh.end - nextCh.start);
+       else break;
     }
-    const realWorldTime = totalSeconds / state.playbackRate;
-    timeText = secondsToTimestamp(realWorldTime);
-    chapterText = ` • ${state.sleepChapters} CH`;
-  } else {
-    return null;
+    return `${secondsToTimestamp(totalSeconds / state.playbackRate)} • ${state.sleepChapters} CH`;
   }
-  
-  return `${timeText}${chapterText}`;
+  return null;
 });
 
 const cardSleepStatus = computed(() => {
-  if (state.sleepChapters > 0) {
-    return `${state.sleepChapters} CH`;
-  }
+  if (state.sleepChapters > 0) return `${state.sleepChapters} CH`;
   if (state.sleepEndTime) return 'TIMER ON';
   return 'OFF';
 });
@@ -221,27 +219,25 @@ const handleSeriesClick = (e: Event) => {
   e.stopPropagation(); 
   if (derivedSeriesId.value) {
     emit('select-series', derivedSeriesId.value);
-    showInfo.value = false;
+    closeInfoOverlay();
   }
 };
 
 const handleToggleDownload = async () => {
-  if (isDownloading.value) return;
+  if (isDownloading.value) return; // Prevent double click
   if (isDownloaded.value) {
     if (confirm("Remove download?")) {
-      await OfflineManager.deleteBook(activeItem.value.id); // Updated to deleteBook
+      await OfflineManager.deleteBook(activeItem.value.id);
       isDownloaded.value = false;
     }
   } else {
-    isDownloading.value = true;
     try {
-      await OfflineManager.saveBook(absService.value, activeItem.value, (pct) => downloadProgress.value = pct);
-      isDownloaded.value = true;
+      // Start global download
+      OfflineManager.startDownload(absService.value, activeItem.value).then(() => {
+        isDownloaded.value = true;
+      });
     } catch (e) {
       alert("Download failed.");
-    } finally {
-      isDownloading.value = false;
-      downloadProgress.value = 0;
     }
   }
 };
@@ -253,18 +249,14 @@ const handleToggleWishlist = async () => {
 
 const infoRows = computed(() => {
   const m = metadata.value;
-  // Handle different narrator formats (string or array of strings)
   let narrator = m.narratorName;
   if (!narrator && (m as any).narrators && Array.isArray((m as any).narrators)) {
     narrator = (m as any).narrators.join(', ');
   }
-
-  // Handle Year
   let year = m.publishedYear;
   if (!year && (m as any).publishedDate) {
     year = (m as any).publishedDate.substring(0, 4);
   }
-
   return [
     { label: 'Narrator', value: narrator || 'Unknown', icon: Mic },
     { label: 'Series', value: m.seriesName || 'Standalone', icon: Layers, isClickable: !!derivedSeriesId.value },
@@ -277,7 +269,6 @@ const infoRows = computed(() => {
 <template>
   <div class="h-[100dvh] w-full bg-[#0d0d0d] text-white flex flex-col relative overflow-hidden font-sans select-none safe-top safe-bottom">
     
-    <!-- Dynamic Glow Backdrop -->
     <div 
       class="absolute inset-0 z-0 pointer-events-none transition-colors duration-1000 ease-in-out"
       :style="{ backgroundColor: state.accentColor }"
@@ -292,12 +283,11 @@ const infoRows = computed(() => {
     </Transition>
 
     <template v-if="!state.isLoading">
-      <!-- Top Navigation -->
       <header class="px-6 py-4 md:py-6 flex justify-between items-center z-20 shrink-0">
         <button @click="emit('back')" class="p-2 text-neutral-600 hover:text-white transition-colors">
           <ChevronDown :size="24" />
         </button>
-        <button @click="showChapters = true" class="flex flex-col items-center gap-1 group">
+        <button @click="openChapters" class="flex flex-col items-center gap-1 group">
           <span class="text-[7px] font-black uppercase tracking-[0.5em] text-neutral-700 group-hover:text-purple-500 transition-colors">CHAPTER INDEX</span>
           <div class="flex items-center gap-2 max-w-[200px]">
             <span class="text-[10px] font-black uppercase tracking-widest text-neutral-300 truncate">{{ currentChapter?.title || 'Segment 01' }}</span>
@@ -309,22 +299,19 @@ const infoRows = computed(() => {
             <div v-if="isDownloading" class="absolute inset-0 flex items-center justify-center">
                <svg class="w-full h-full -rotate-90" viewBox="0 0 36 36">
                  <path class="text-neutral-800" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" stroke-width="4" />
-                 <path class="text-purple-500" :stroke-dasharray="downloadProgress + ', 100'" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" stroke-width="4" />
+                 <path class="text-purple-500 transition-all duration-300" :stroke-dasharray="downloadProgress + ', 100'" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" stroke-width="4" />
                </svg>
             </div>
             <CheckCircle v-else-if="isDownloaded" :size="22" />
             <Download v-else :size="22" />
           </button>
-          <button @click="showInfo = true" class="p-2 text-neutral-600 hover:text-white transition-colors"><Info :size="22" /></button>
+          <button @click="openInfoOverlay" class="p-2 text-neutral-600 hover:text-white transition-colors"><Info :size="22" /></button>
         </div>
       </header>
 
-      <!-- Main Layout -->
       <div class="flex-1 w-full flex flex-col lg:flex-row overflow-hidden relative z-10 gap-4 lg:gap-0 min-h-0">
-        <!-- Visuals (Upper Section) -->
         <div class="flex-1 lg:w-[40%] flex flex-col items-center justify-center px-6 relative z-10 min-h-0 lg:pb-0">
-          <!-- Cover -->
-          <div @click="showInfo = true" class="relative w-full max-w-[240px] md:max-w-[320px] aspect-[2/3] group cursor-pointer perspective-1000 shrink-0 mb-4 lg:mb-10 max-h-[40vh] md:max-h-[55vh] lg:max-h-[60vh]">
+          <div @click="openInfoOverlay" class="relative w-full max-w-[240px] md:max-w-[320px] aspect-[2/3] group cursor-pointer perspective-1000 shrink-0 mb-4 lg:mb-10 max-h-[40vh] md:max-h-[55vh] lg:max-h-[60vh]">
             <div 
                class="absolute -inset-10 blur-[100px] rounded-full opacity-40 transition-colors duration-1000"
                :style="{ backgroundColor: state.accentColor }"
@@ -334,7 +321,6 @@ const infoRows = computed(() => {
             </div>
           </div>
 
-          <!-- Metadata -->
           <div class="text-center space-y-2 w-full max-w-md px-4 z-10 shrink-0">
             <div class="flex flex-col gap-1">
               <div class="flex items-center justify-center gap-2">
@@ -343,7 +329,6 @@ const infoRows = computed(() => {
               </div>
               <p class="text-sm md:text-lg font-bold text-neutral-500 line-clamp-1">{{ metadata.authorName }}</p>
             </div>
-            <!-- Enhanced Series Button -->
             <button 
               v-if="metadata.seriesName" 
               @click="handleSeriesClick" 
@@ -358,9 +343,7 @@ const infoRows = computed(() => {
           </div>
         </div>
 
-        <!-- Controls (Lower Section) -->
         <div class="shrink-0 lg:flex-1 lg:w-[60%] lg:h-full flex flex-col justify-end lg:justify-center px-6 pb-6 lg:pb-0 lg:px-24 space-y-6 lg:space-y-16 w-full max-w-xl lg:max-w-3xl mx-auto lg:mx-0 z-20">
-          <!-- Progress -->
           <div class="space-y-3">
             <div class="flex justify-between items-end mb-1 h-5 relative">
                <div class="flex flex-col">
@@ -368,7 +351,6 @@ const infoRows = computed(() => {
                  <span class="text-base md:text-lg font-black font-mono-timer tracking-tighter text-white">{{ secondsToTimestamp(state.currentTime - (currentChapter?.start || 0)) }}</span>
                </div>
                
-               <!-- CENTRAL SLEEP TIMER (Typography Matched) -->
                <div v-if="liveSleepCountdownText" class="absolute left-1/2 -translate-x-1/2 bottom-0 flex items-center justify-center">
                  <span class="text-base md:text-lg font-black font-mono-timer tracking-tighter text-purple-400 whitespace-nowrap shadow-aether-glow">{{ liveSleepCountdownText }}</span>
                </div>
@@ -386,7 +368,6 @@ const infoRows = computed(() => {
             </div>
           </div>
 
-          <!-- Playback Buttons -->
           <div class="flex items-center justify-center gap-4 md:gap-8">
             <button @click="skipToPrevChapter" class="p-3 text-neutral-700 hover:text-purple-400"><SkipBack :size="20" /></button>
             <button @click="seek(state.currentTime - 10)" class="p-3 text-neutral-700 hover:text-white"><RotateCcw :size="24" /></button>
@@ -401,7 +382,6 @@ const infoRows = computed(() => {
             <button @click="skipToNextChapter" class="p-3 text-neutral-700 hover:text-purple-400"><SkipForward :size="20" /></button>
           </div>
 
-          <!-- Mini Cards -->
           <div class="grid grid-cols-2 gap-3 md:gap-4 w-full h-32 md:h-36">
             <div class="bg-neutral-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-3 md:p-4 flex flex-col justify-between gap-2 relative overflow-hidden">
                <div class="flex items-center justify-center w-full relative">
@@ -414,16 +394,12 @@ const infoRows = computed(() => {
                </div>
             </div>
 
-            <!-- Sleep Timer Card -->
             <div class="bg-neutral-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-3 md:p-4 flex flex-col justify-between gap-2 relative overflow-hidden group">
                <div class="flex justify-between items-center px-1">
                  <div class="flex items-center gap-2 text-neutral-500"><Moon :size="14" /><span class="text-[9px] font-black uppercase tracking-[0.2em]">SLEEP</span></div>
-                 <span class="text-[10px] font-black font-mono truncate max-w-[100px] text-right" :class="isSleepActive ? 'text-purple-400' : 'text-neutral-600'">
-                    {{ cardSleepStatus }}
-                 </span>
+                 <span class="text-[10px] font-black font-mono truncate max-w-[100px] text-right" :class="isSleepActive ? 'text-purple-400' : 'text-neutral-600'">{{ cardSleepStatus }}</span>
                </div>
                <div class="flex-1 flex flex-col justify-end gap-2">
-                 <!-- Minutes Timer Row -->
                  <div class="flex items-center justify-between bg-white/5 rounded-lg h-8 md:h-9 px-2">
                     <span class="text-[8px] font-bold uppercase text-neutral-500 tracking-widest">Mins</span>
                     <div class="flex items-center gap-2 h-full">
@@ -432,16 +408,13 @@ const infoRows = computed(() => {
                        <button @click="adjustSleepTime(900)" class="w-6 h-6 flex items-center justify-center bg-white/5 rounded text-neutral-400 hover:text-white transition-colors"><Plus :size="12" /></button>
                     </div>
                  </div>
-                 <!-- Chapters Timer Row -->
                  <div class="flex items-center justify-between bg-white/5 rounded-lg h-8 md:h-9 px-2">
                     <div class="flex items-center gap-2">
                       <span class="text-[8px] font-bold uppercase text-neutral-500 tracking-widest">CH</span>
                     </div>
                     <div class="flex items-center gap-2 h-full">
                        <button @click="adjustSleepChapters(-1)" class="w-6 h-6 flex items-center justify-center bg-white/5 rounded text-neutral-400 hover:text-white transition-colors"><Minus :size="12" /></button>
-                       <span class="text-[10px] font-black w-6 text-center text-neutral-200">
-                         {{ state.sleepChapters > 0 ? state.sleepChapters : '-' }}
-                       </span>
+                       <span class="text-[10px] font-black w-6 text-center text-neutral-200">{{ state.sleepChapters > 0 ? state.sleepChapters : '-' }}</span>
                        <button @click="adjustSleepChapters(1)" class="w-6 h-6 flex items-center justify-center bg-white/5 rounded text-neutral-400 hover:text-white transition-colors"><Plus :size="12" /></button>
                     </div>
                  </div>
@@ -452,19 +425,16 @@ const infoRows = computed(() => {
       </div>
     </template>
     
-    <!-- Info Overlay -->
     <Transition name="fade">
       <div v-if="showInfo" class="fixed inset-0 z-[200] bg-black/95 backdrop-blur-3xl flex flex-col p-8 overflow-hidden">
         <div class="flex justify-between items-center mb-8 shrink-0">
           <h2 class="text-2xl font-black uppercase tracking-tighter text-white">Artifact Data</h2>
-          <button @click="showInfo = false" class="p-3 bg-neutral-900 rounded-full text-neutral-500 hover:text-white transition-colors border border-white/5">
+          <button @click="closeInfoOverlay" class="p-3 bg-neutral-900 rounded-full text-neutral-500 hover:text-white transition-colors border border-white/5">
             <X :size="20" />
           </button>
         </div>
-        
         <div class="flex-1 overflow-y-auto custom-scrollbar">
           <div class="max-w-2xl mx-auto space-y-8">
-            <!-- Cover & Title -->
             <div class="flex flex-col items-center text-center space-y-4">
               <div class="w-40 h-60 rounded-lg shadow-2xl overflow-hidden border border-white/10">
                 <img :src="coverUrl" class="w-full h-full object-cover" />
@@ -474,34 +444,18 @@ const infoRows = computed(() => {
                 <p class="text-neutral-500 font-bold">{{ metadata.authorName }}</p>
               </div>
             </div>
-
-            <!-- Wishlist Toggle -->
             <div class="flex justify-center">
-              <button 
-                @click="handleToggleWishlist"
-                class="px-6 py-3 bg-neutral-900 border border-white/10 rounded-full font-black uppercase tracking-widest text-xs hover:text-pink-400 hover:border-pink-500/30 transition-all flex items-center gap-2 active:scale-95"
-                :class="{ 'text-pink-500 border-pink-500/50 bg-pink-500/10': isWishlisted, 'text-neutral-400': !isWishlisted }"
-              >
+              <button @click="handleToggleWishlist" class="px-6 py-3 bg-neutral-900 border border-white/10 rounded-full font-black uppercase tracking-widest text-xs hover:text-pink-400 hover:border-pink-500/30 transition-all flex items-center gap-2 active:scale-95" :class="{ 'text-pink-500 border-pink-500/50 bg-pink-500/10': isWishlisted, 'text-neutral-400': !isWishlisted }">
                  <Heart :size="14" :fill="isWishlisted ? 'currentColor' : 'none'" /> 
                  {{ isWishlisted ? 'Wishlisted' : 'Want to Listen' }}
               </button>
             </div>
-
-            <!-- Description -->
             <div v-if="metadata.description" class="space-y-2">
               <h4 class="text-[10px] font-black uppercase tracking-widest text-neutral-600">Summary</h4>
               <div class="text-neutral-300 text-sm leading-relaxed whitespace-pre-line" v-html="metadata.description"></div>
             </div>
-
-            <!-- Grid Stats -->
             <div class="grid grid-cols-2 gap-4">
-              <div 
-                v-for="(row, i) in infoRows" 
-                :key="i" 
-                class="bg-white/5 border border-white/5 p-4 rounded-2xl flex flex-col gap-1"
-                :class="row.isClickable ? 'cursor-pointer hover:bg-purple-600/10 hover:border-purple-500/30' : ''"
-                @click="row.isClickable ? handleSeriesClick($event) : null"
-              >
+              <div v-for="(row, i) in infoRows" :key="i" class="bg-white/5 border border-white/5 p-4 rounded-2xl flex flex-col gap-1" :class="row.isClickable ? 'cursor-pointer hover:bg-purple-600/10 hover:border-purple-500/30' : ''" @click="row.isClickable ? handleSeriesClick($event) : null">
                 <div class="flex items-center gap-2 text-neutral-500 mb-1">
                   <component :is="row.icon" :size="12" />
                   <span class="text-[9px] font-black uppercase tracking-widest">{{ row.label }}</span>
@@ -509,29 +463,16 @@ const infoRows = computed(() => {
                 <span class="text-sm font-bold text-white truncate" :class="row.isClickable ? 'text-purple-400' : ''">{{ row.value }}</span>
               </div>
             </div>
-            
           </div>
         </div>
       </div>
     </Transition>
-
-    <ChapterEditor v-if="showChapters" :item="activeItem" :currentTime="state.currentTime" :isPlaying="state.isPlaying" @close="showChapters = false" @seek="handleChapterSeek" />
+    <ChapterEditor v-if="showChapters" :item="activeItem" :currentTime="state.currentTime" :isPlaying="state.isPlaying" @close="closeChapters" @seek="handleChapterSeek" />
   </div>
 </template>
 
 <style scoped>
-.line-clamp-2 {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.book-spine {
-  box-shadow: 
-    -5px 0 15px rgba(0,0,0,0.5),
-    20px 20px 60px -15px rgba(0,0,0,0.8);
-}
-.shadow-aether-glow {
-  text-shadow: 0 0 10px rgba(168,85,247,0.5);
-}
+.line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.book-spine { box-shadow: -5px 0 15px rgba(0,0,0,0.5), 20px 20px 60px -15px rgba(0,0,0,0.8); }
+.shadow-aether-glow { text-shadow: 0 0 10px rgba(168,85,247,0.5); }
 </style>

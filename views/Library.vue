@@ -63,6 +63,26 @@ const searchResults = ref<{ books: ABSLibraryItem[], series: ABSSeries[] }>({ bo
 const isGlobalSearching = ref(false);
 let debounceTimeout: any = null;
 
+// --- Navigation Guard ---
+const onPopState = (event: PopStateEvent) => {
+  const hash = window.location.hash;
+  
+  // Handle Info Modal Back
+  if (selectedInfoItem.value && hash !== '#info') {
+    selectedInfoItem.value = null;
+  }
+  
+  // Handle Series View Back
+  // We close Series view if hash is NOT #series, NOT #info, and NOT #player
+  // (We check #player because if we go forward to player, we keep series open in background)
+  if (selectedSeries.value) {
+    if (hash !== '#series' && hash !== '#info' && !hash.startsWith('#player')) {
+      selectedSeries.value = null;
+      emit('clear-initial-series');
+    }
+  }
+};
+
 const initProgressMap = async () => {
   if (props.auth.user?.mediaProgress) {
     props.auth.user.mediaProgress.forEach((p: any) => {
@@ -297,12 +317,17 @@ const updateOnlineStatus = () => {
 
 // --- Info Modal Logic ---
 const openInfoModal = async (item: ABSLibraryItem) => {
+  window.history.pushState({ modal: 'info' }, '', '#info');
   selectedInfoItem.value = item;
   isInfoItemWishlisted.value = await OfflineManager.isWishlisted(item.id);
 };
 
 const closeInfoModal = () => {
-  selectedInfoItem.value = null;
+  if (window.location.hash === '#info') {
+    window.history.back();
+  } else {
+    selectedInfoItem.value = null;
+  }
 };
 
 const toggleWishlist = async () => {
@@ -356,6 +381,7 @@ onMounted(async () => {
   if (props.initialSeriesId) await nextTick(() => handleJumpToSeries(props.initialSeriesId!));
   window.addEventListener('online', updateOnlineStatus);
   window.addEventListener('offline', updateOnlineStatus);
+  window.addEventListener('popstate', onPopState);
 });
 
 onActivated(async () => {
@@ -369,20 +395,50 @@ onUnmounted(() => {
   }
   window.removeEventListener('online', updateOnlineStatus);
   window.removeEventListener('offline', updateOnlineStatus);
+  window.removeEventListener('popstate', onPopState);
 });
 
 const handleJumpToSeries = async (seriesId: string) => {
   if (!absService.value || isOfflineMode.value) return;
-  if (selectedSeries.value?.id === seriesId) { activeTab.value = 'SERIES'; emit('clear-initial-series'); return; }
+  
+  // Guard against duplicate navigation or overwriting
+  if (selectedSeries.value?.id === seriesId) return;
+
   try {
     const series = await absService.value.getSeries(seriesId);
-    if (series) { selectedSeries.value = series; activeTab.value = 'SERIES'; emit('clear-initial-series'); }
+    if (series) {
+      // Manually manage history for series navigation
+      if (window.location.hash !== '#series') {
+        window.history.pushState({ series: true }, '', '#series');
+      }
+      selectedSeries.value = series;
+      activeTab.value = 'SERIES';
+      emit('clear-initial-series'); 
+    }
   } catch (e) { emit('clear-initial-series'); }
+};
+
+const handleSelectSeries = (series: ABSSeries) => {
+  window.history.pushState({ series: true }, '', '#series');
+  selectedSeries.value = series;
+};
+
+const closeSeries = () => {
+  if (window.location.hash === '#series') {
+    window.history.back();
+  } else {
+    selectedSeries.value = null;
+  }
 };
 
 const handleTabChange = (tab: LibraryTab) => {
   activeTab.value = tab;
-  selectedSeries.value = null;
+  // If we change tabs manually, ensure we clear series if we were in one, but only if not just browsing
+  if (selectedSeries.value) {
+    selectedSeries.value = null;
+    // We could clean up history here, but it's complex without router. 
+    // Usually user uses back button to exit series.
+  }
   searchTerm.value = ''; 
   if (tab === 'HOME') fetchDashboardData();
 };
@@ -422,7 +478,7 @@ const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && rec
         </div>
       </Transition>
 
-      <SeriesView v-if="selectedSeries && absService" :series="selectedSeries" :absService="absService" :auth="auth" :progressMap="activeProgressMap" @back="selectedSeries = null" @select-item="emit('select-item', $event)" @click-info="openInfoModal" />
+      <SeriesView v-if="selectedSeries && absService" :series="selectedSeries" :absService="absService" :auth="auth" :progressMap="activeProgressMap" @back="closeSeries" @select-item="emit('select-item', $event)" @click-info="openInfoModal" />
 
       <template v-else>
         <div v-if="trimmedSearch" class="h-full bg-[#0d0d0d] overflow-y-auto custom-scrollbar pt-8 pb-40">
@@ -435,7 +491,7 @@ const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && rec
               <div class="shelf-tag"><span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Series</span></div>
               <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-8">
                 <div v-for="series in searchResults.series" :key="series.id">
-                  <SeriesCard :series="series" :coverUrl="absService.getCoverUrl(series.books?.[0]?.id || '')" :bookCovers="series.books?.slice(0, 3).map(b => absService.getCoverUrl(b.id)) || []" @click="selectedSeries = series" />
+                  <SeriesCard :series="series" :coverUrl="absService.getCoverUrl(series.books?.[0]?.id || '')" :bookCovers="series.books?.slice(0, 3).map(b => absService.getCoverUrl(b.id)) || []" @click="handleSelectSeries(series)" />
                 </div>
               </div>
             </section>
@@ -500,7 +556,7 @@ const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && rec
                 <div class="shelf-tag"><span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Recent Series</span></div>
                 <div class="flex gap-10 overflow-x-auto no-scrollbar pb-6 pl-2">
                   <div v-for="series in recentSeries" :key="series.id" class="w-32 md:w-40 shrink-0">
-                    <SeriesCard :series="series" :coverUrl="absService.getCoverUrl(series.books?.[0]?.id || '')" :bookCovers="series.books?.slice(0, 3).map(b => absService.getCoverUrl(b.id)) || []" @click="selectedSeries = series" />
+                    <SeriesCard :series="series" :coverUrl="absService.getCoverUrl(series.books?.[0]?.id || '')" :bookCovers="series.books?.slice(0, 3).map(b => absService.getCoverUrl(b.id)) || []" @click="handleSelectSeries(series)" />
                   </div>
                 </div>
               </section>
@@ -517,7 +573,7 @@ const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && rec
              <SavedView :absService="absService" :progressMap="activeProgressMap" @select-item="emit('select-item', $event)" @click-info="openInfoModal" />
           </div>
           <div v-else-if="activeTab === 'SERIES' && absService" class="h-full flex flex-col overflow-hidden">
-            <SeriesShelf :absService="absService" :sortMethod="seriesSortMethod" :desc="desc" :search="''" @select-series="selectedSeries = $event" />
+            <SeriesShelf :absService="absService" :sortMethod="seriesSortMethod" :desc="desc" :search="''" @select-series="handleSelectSeries" />
           </div>
           <div v-else-if="activeTab === 'REQUEST'" class="h-full flex flex-col overflow-hidden"><RequestPortal /></div>
           <div v-else-if="activeTab === 'STATS' && absService" class="h-full flex flex-col overflow-hidden"><StatsView :absService="absService" :progressMap="activeProgressMap" /></div>
@@ -526,67 +582,69 @@ const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && rec
     </div>
 
     <!-- Info Modal -->
-    <Transition name="fade">
-      <div v-if="selectedInfoItem && absService" class="fixed inset-0 z-[200] bg-black/95 backdrop-blur-3xl flex flex-col p-4 md:p-8 overflow-hidden safe-top safe-bottom">
-        <div class="flex justify-between items-center mb-4 shrink-0">
-          <h2 class="text-xl md:text-2xl font-black uppercase tracking-tighter text-white">Artifact Data</h2>
-          <button @click="closeInfoModal" class="p-3 bg-neutral-900 rounded-full text-neutral-500 hover:text-white transition-colors border border-white/5 z-50 shadow-xl">
-            <X :size="20" />
-          </button>
-        </div>
-        
-        <div class="flex-1 overflow-y-auto custom-scrollbar pb-10">
-          <div class="max-w-2xl mx-auto space-y-8">
-            <div class="flex flex-col items-center text-center space-y-4">
-              <div class="w-32 h-48 md:w-40 md:h-60 rounded-lg shadow-2xl overflow-hidden border border-white/10">
-                <img :src="absService.getCoverUrl(selectedInfoItem.id)" class="w-full h-full object-cover" />
-              </div>
-              <div>
-                <h3 class="text-xl md:text-2xl font-black uppercase leading-tight">{{ selectedInfoItem.media.metadata.title }}</h3>
-                <p class="text-neutral-500 font-bold">{{ selectedInfoItem.media.metadata.authorName }}</p>
-              </div>
-            </div>
-
-            <div v-if="selectedInfoItem.media.metadata.description" class="space-y-2">
-              <h4 class="text-[10px] font-black uppercase tracking-widest text-neutral-600">Summary</h4>
-              <div class="text-neutral-300 text-sm leading-relaxed whitespace-pre-line" v-html="selectedInfoItem.media.metadata.description"></div>
-            </div>
-
-            <!-- Enhanced Info Grid (Pills) -->
-            <div class="grid grid-cols-2 gap-4">
-              <div 
-                v-for="(row, i) in modalInfoRows" 
-                :key="i" 
-                class="bg-white/5 border border-white/5 p-4 rounded-2xl flex flex-col gap-1"
-              >
-                <div class="flex items-center gap-2 text-neutral-500 mb-1">
-                  <component :is="row.icon" :size="12" />
-                  <span class="text-[9px] font-black uppercase tracking-widest">{{ row.label }}</span>
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="selectedInfoItem && absService" class="fixed inset-0 z-[200] bg-black/95 backdrop-blur-3xl flex flex-col p-4 md:p-8 overflow-hidden safe-top safe-bottom">
+          <div class="flex justify-between items-center mb-4 shrink-0">
+            <h2 class="text-xl md:text-2xl font-black uppercase tracking-tighter text-white">Artifact Data</h2>
+            <button @click="closeInfoModal" class="p-3 bg-neutral-900 rounded-full text-neutral-500 hover:text-white transition-colors border border-white/5 z-50 shadow-xl">
+              <X :size="20" />
+            </button>
+          </div>
+          
+          <div class="flex-1 overflow-y-auto custom-scrollbar pb-32">
+            <div class="max-w-2xl mx-auto space-y-8">
+              <div class="flex flex-col items-center text-center space-y-4">
+                <div class="w-32 h-48 md:w-40 md:h-60 rounded-lg shadow-2xl overflow-hidden border border-white/10">
+                  <img :src="absService.getCoverUrl(selectedInfoItem.id)" class="w-full h-full object-cover" />
                 </div>
-                <span class="text-sm font-bold text-white truncate">{{ row.value }}</span>
+                <div>
+                  <h3 class="text-xl md:text-2xl font-black uppercase leading-tight">{{ selectedInfoItem.media.metadata.title }}</h3>
+                  <p class="text-neutral-500 font-bold">{{ selectedInfoItem.media.metadata.authorName }}</p>
+                </div>
               </div>
-            </div>
 
-            <!-- Actions -->
-            <div class="grid grid-cols-2 gap-4 pt-4">
-               <button 
-                 @click="playFromModal"
-                 class="py-4 bg-purple-600 rounded-2xl font-black uppercase tracking-widest text-white shadow-[0_0_20px_rgba(168,85,247,0.4)] flex items-center justify-center gap-2"
-               >
-                  <Play :size="16" fill="currentColor" /> Play
-               </button>
-               <button 
-                 @click="toggleWishlist"
-                 class="py-4 bg-neutral-900 border border-white/10 rounded-2xl font-black uppercase tracking-widest text-neutral-400 hover:text-pink-400 hover:border-pink-500/30 transition-all flex items-center justify-center gap-2"
-                 :class="{ 'text-pink-500 border-pink-500/50 bg-pink-500/10': isInfoItemWishlisted }"
-               >
-                  <Heart :size="16" :fill="isInfoItemWishlisted ? 'currentColor' : 'none'" /> 
-                  {{ isInfoItemWishlisted ? 'Wishlisted' : 'Want to Listen' }}
-               </button>
+              <div v-if="selectedInfoItem.media.metadata.description" class="space-y-2">
+                <h4 class="text-[10px] font-black uppercase tracking-widest text-neutral-600">Summary</h4>
+                <div class="text-neutral-300 text-sm leading-relaxed whitespace-pre-line" v-html="selectedInfoItem.media.metadata.description"></div>
+              </div>
+
+              <!-- Enhanced Info Grid (Pills) -->
+              <div class="grid grid-cols-2 gap-4">
+                <div 
+                  v-for="(row, i) in modalInfoRows" 
+                  :key="i" 
+                  class="bg-white/5 border border-white/5 p-4 rounded-2xl flex flex-col gap-1"
+                >
+                  <div class="flex items-center gap-2 text-neutral-500 mb-1">
+                    <component :is="row.icon" :size="12" />
+                    <span class="text-[9px] font-black uppercase tracking-widest">{{ row.label }}</span>
+                  </div>
+                  <span class="text-sm font-bold text-white truncate">{{ row.value }}</span>
+                </div>
+              </div>
+
+              <!-- Actions -->
+              <div class="grid grid-cols-2 gap-4 pt-4">
+                 <button 
+                   @click="playFromModal"
+                   class="py-4 bg-purple-600 rounded-2xl font-black uppercase tracking-widest text-white shadow-[0_0_20px_rgba(168,85,247,0.4)] flex items-center justify-center gap-2"
+                 >
+                    <Play :size="16" fill="currentColor" /> Play
+                 </button>
+                 <button 
+                   @click="toggleWishlist"
+                   class="py-4 bg-neutral-900 border border-white/10 rounded-2xl font-black uppercase tracking-widest text-neutral-400 hover:text-pink-400 hover:border-pink-500/30 transition-all flex items-center justify-center gap-2"
+                   :class="{ 'text-pink-500 border-pink-500/50 bg-pink-500/10': isInfoItemWishlisted }"
+                 >
+                    <Heart :size="16" :fill="isInfoItemWishlisted ? 'currentColor' : 'none'" /> 
+                    {{ isInfoItemWishlisted ? 'Wishlisted' : 'Want to Listen' }}
+                 </button>
+              </div>
             </div>
           </div>
         </div>
-      </div>
-    </Transition>
+      </Transition>
+    </Teleport>
   </LibraryLayout>
 </template>
