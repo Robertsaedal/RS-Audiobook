@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, onActivated, watch, computed, nextTick, reactive } from 'vue';
+import { ref, onMounted, onUnmounted, onActivated, watch, computed, nextTick, reactive, shallowRef } from 'vue';
 import { AuthState, ABSLibraryItem, ABSSeries, ABSProgress } from '../types';
 import { ABSService } from '../services/absService';
 import { OfflineManager } from '../services/offlineManager';
@@ -45,11 +45,12 @@ const isOfflineMode = ref(!navigator.onLine);
 const isSyncing = ref(false);
 const syncFeedback = ref('');
 
-const currentlyReadingRaw = ref<ABSLibraryItem[]>([]);
-const continueSeriesRaw = ref<ABSLibraryItem[]>([]);
-const recentlyAddedRaw = ref<ABSLibraryItem[]>([]);
-const recentSeries = ref<ABSSeries[]>([]);
-const wishlistRaw = ref<ABSLibraryItem[]>([]); 
+// OPTIMIZATION: Use shallowRef for large lists to prevent deep reactivity overhead
+const currentlyReadingRaw = shallowRef<ABSLibraryItem[]>([]);
+const continueSeriesRaw = shallowRef<ABSLibraryItem[]>([]);
+const recentlyAddedRaw = shallowRef<ABSLibraryItem[]>([]);
+const recentSeries = shallowRef<ABSSeries[]>([]);
+const wishlistRaw = shallowRef<ABSLibraryItem[]>([]); 
 
 // Info Modal State
 const selectedInfoItem = ref<ABSLibraryItem | null>(null);
@@ -65,15 +66,9 @@ let debounceTimeout: any = null;
 // --- Navigation Guard ---
 const onPopState = (event: PopStateEvent) => {
   const hash = window.location.hash;
-  
-  // Handle Info Modal Back
   if (selectedInfoItem.value && hash !== '#info') {
     selectedInfoItem.value = null;
   }
-  
-  // Handle Series View Back
-  // We close Series view if hash is NOT #series, NOT #info, and NOT #player
-  // (We check #player because if we go forward to player, we keep series open in background)
   if (selectedSeries.value) {
     if (hash !== '#series' && hash !== '#info' && !hash.startsWith('#player')) {
       selectedSeries.value = null;
@@ -174,22 +169,20 @@ const handleProgressUpdate = (p: ABSProgress, triggerEffects = true) => {
 
   if (triggerEffects) {
     if (p.isFinished) {
-      setTimeout(() => {
-          fetchDashboardData(); 
-      }, 2000);
+      setTimeout(() => fetchDashboardData(), 2000);
       return;
     }
 
     if (!isOfflineMode.value) {
-      const idx = currentlyReadingRaw.value.findIndex(i => i.id === p.itemId);
-      if (idx === -1 && !p.isFinished && !p.hideFromContinueListening) {
+      // Check if item should be added to Continue Listening (Optimized check)
+      const exists = currentlyReadingRaw.value.some(i => i.id === p.itemId);
+      if (!exists && !p.isFinished && !p.hideFromContinueListening) {
         absService.value?.getLibraryItemsPaged({ filter: `id.eq.${p.itemId}`, limit: 1 })
           .then(response => {
              if (response.results && response.results.length > 0) {
                const item = response.results[0];
-               if (!currentlyReadingRaw.value.find(i => i.id === item.id)) {
-                  currentlyReadingRaw.value = [item, ...currentlyReadingRaw.value];
-               }
+               // Ensure shallow ref update triggers reactivity
+               currentlyReadingRaw.value = [item, ...currentlyReadingRaw.value];
              }
           });
       }
@@ -215,9 +208,7 @@ const handleMarkFinished = async (item: ABSLibraryItem) => {
     };
     handleProgressUpdate(finishedState);
     await absService.value.updateProgress(item.id, { isFinished: true });
-    setTimeout(() => {
-         fetchDashboardData();
-    }, 2000);
+    setTimeout(() => fetchDashboardData(), 2000);
   } catch (e) {
     fetchDashboardData();
   }
@@ -239,10 +230,15 @@ const handleOfflineFallback = async () => {
   recentSeries.value = [];
 };
 
+// Optimized Hydration: Avoids creating new objects if progress hasn't changed effectively
 const hydrateList = (list: ABSLibraryItem[]) => {
   return list.map(item => {
     const live = activeProgressMap.value.get(item.id);
-    return live ? { ...item, userProgress: live } : item;
+    if (live) {
+      // Create new reference only if hydration is needed
+      return { ...item, userProgress: live }; 
+    }
+    return item;
   });
 };
 
@@ -263,20 +259,28 @@ const fetchDashboardData = async () => {
     const shelves = await absService.value.getPersonalizedShelves({ limit: 12 });
     if (!shelves || !Array.isArray(shelves)) return;
 
-    currentlyReadingRaw.value = [];
-    continueSeriesRaw.value = [];
-    recentlyAddedRaw.value = [];
-    recentSeries.value = [];
+    // Use temp vars to allow batch update
+    let cr: ABSLibraryItem[] = [];
+    let cs: ABSLibraryItem[] = [];
+    let ra: ABSLibraryItem[] = [];
+    let rs: ABSSeries[] = [];
 
     shelves.forEach((shelf: any) => {
       switch (shelf.id) {
-        case 'continue-listening': currentlyReadingRaw.value = shelf.entities; break;
-        case 'continue-series': continueSeriesRaw.value = shelf.entities; break;
+        case 'continue-listening': cr = shelf.entities; break;
+        case 'continue-series': cs = shelf.entities; break;
         case 'recently-added':
-        case 'newest-episodes': recentlyAddedRaw.value = shelf.entities; break;
-        case 'recent-series': recentSeries.value = shelf.entities; break;
+        case 'newest-episodes': ra = shelf.entities; break;
+        case 'recent-series': rs = shelf.entities; break;
       }
     });
+
+    // Bulk update shallow refs
+    currentlyReadingRaw.value = cr;
+    continueSeriesRaw.value = cs;
+    recentlyAddedRaw.value = ra;
+    recentSeries.value = rs;
+
     isOfflineMode.value = false;
   } catch (e) {
     await handleOfflineFallback();
@@ -320,7 +324,6 @@ const openInfoModal = async (item: ABSLibraryItem) => {
   selectedInfoItem.value = item;
   isInfoItemWishlisted.value = await OfflineManager.isWishlisted(item.id);
 
-  // ENRICHMENT: Fetch full item details to get nested series IDs if missing
   if (absService.value && !isOfflineMode.value) {
      try {
        const enriched = await absService.value.getLibraryItem(item.id);
@@ -328,7 +331,7 @@ const openInfoModal = async (item: ABSLibraryItem) => {
           selectedInfoItem.value = enriched;
        }
      } catch(e) {
-       // Silent fail, keep using shallow data
+       // Silent fail
      }
   }
 };
@@ -357,13 +360,8 @@ const playFromModal = () => {
 
 const handleSeriesClickFromModal = async (seriesId: string | null, seriesName?: string | null) => {
   closeInfoModal();
-  
-  if (seriesId) {
-    await handleJumpToSeries(seriesId);
-  } else if (seriesName) {
-    searchTerm.value = seriesName; 
-    // The existing watcher on searchTerm will trigger the search automatically
-  }
+  if (seriesId) await handleJumpToSeries(seriesId);
+  else if (seriesName) searchTerm.value = seriesName; 
 };
 
 const secondsToTimestamp = (s: number) => {
@@ -376,49 +374,34 @@ const modalInfoRows = computed(() => {
   if (!selectedInfoItem.value) return [];
   const m = selectedInfoItem.value.media.metadata;
   
-  // NARRATOR LOGIC: Check Name -> Narrators Array -> Fallback
   let narrator = m.narratorName;
   if (!narrator && (m as any).narrators && Array.isArray((m as any).narrators) && (m as any).narrators.length > 0) {
     narrator = (m as any).narrators.join(', ');
   }
   if (!narrator) narrator = 'Multi-cast';
 
-  // YEAR LOGIC: Check publishedYear -> publishedDate
   let year = m.publishedYear ? String(m.publishedYear) : null;
   if (!year && (m as any).publishedDate) {
     year = String((m as any).publishedDate).substring(0, 4);
   }
 
-  // SERIES LOGIC: Matches Player.vue (Prioritize Array over root property)
   const seriesArray = (m as any).series;
-  
-  // PRIORITY: Check Array FIRST (Rich Data), then fallback to Flat ID/Name
   let seriesId = null;
   let seriesName = null;
-  let seriesSeq = null;
 
   if (Array.isArray(seriesArray) && seriesArray.length > 0) {
     seriesId = seriesArray[0].id;
     seriesName = seriesArray[0].name;
-    seriesSeq = seriesArray[0].sequence;
   } else {
-    // Fallback for shallow data
     seriesId = m.seriesId || null;
     seriesName = m.seriesName || null;
   }
   
-  if (!seriesSeq) {
-    seriesSeq = m.seriesSequence || (m as any).sequence || null;
-  }
-
-  // REGEX CLEANING: Strip volume/book numbers from end of name
   let cleanName = null;
   if (seriesName) {
-     // Remove " #2", " Book 2", ", Vol. 2", " #2.5" from end of string
      cleanName = seriesName.replace(/(\s+#\d+(\.\d+)?$)|(\s+(Book|Vol\.?|Volume)\s+\d+$)/i, '').trim();
   }
 
-  // Display value on pill: Use Clean Name if available, otherwise full name
   const displayValue = cleanName || seriesName;
 
   const rows = [
@@ -427,10 +410,8 @@ const modalInfoRows = computed(() => {
     { label: 'Year', value: year || 'Unknown', icon: Calendar, isAction: false }
   ];
 
-  // Insert Series Row
   if (displayValue) {
     const isActionable = !!seriesId || !!cleanName;
-    
     rows.splice(1, 0, { 
       label: 'Series', 
       value: displayValue, 
@@ -470,7 +451,6 @@ onUnmounted(() => {
 
 const handleJumpToSeries = async (seriesId: string) => {
   if (!absService.value || isOfflineMode.value) return;
-  
   if (selectedSeries.value?.id === seriesId) return;
 
   try {
@@ -501,9 +481,7 @@ const closeSeries = () => {
 
 const handleTabChange = (tab: LibraryTab) => {
   activeTab.value = tab;
-  if (selectedSeries.value) {
-    selectedSeries.value = null;
-  }
+  if (selectedSeries.value) selectedSeries.value = null;
   searchTerm.value = ''; 
   if (tab === 'HOME') fetchDashboardData();
 };

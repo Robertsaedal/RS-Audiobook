@@ -441,10 +441,12 @@ export class ABSService {
   // Socket Event Listeners
 
   onInit(callback: (data: any) => void) {
+    this.socket?.off('init'); // Deduplicate
     this.socket?.on('init', callback);
   }
 
   onUserOnline(callback: (data: any) => void) {
+    this.socket?.off('user_online');
     this.socket?.on('user_online', (payload: any) => {
       if (payload && payload.session && payload.session.libraryItemId) {
          callback({
@@ -460,6 +462,7 @@ export class ABSService {
   }
 
   onProgressUpdate(callback: (progress: ABSProgress) => void) {
+    this.socket?.off('user_item_progress_updated');
     this.socket?.on('user_item_progress_updated', (payload: any) => {
       const data = payload.data || payload; 
       const itemId = data.libraryItemId || data.itemId;
@@ -479,6 +482,9 @@ export class ABSService {
   }
 
   onProgressDelete(callback: (itemId: string) => void) {
+    this.socket?.off('user_item_progress_removed');
+    this.socket?.off('user_item_progress_deleted');
+    
     this.socket?.on('user_item_progress_removed', (data) => {
       if (data && (data.itemId || data.libraryItemId)) {
         callback(data.itemId || data.libraryItemId);
@@ -492,6 +498,10 @@ export class ABSService {
   }
 
   onLibraryUpdate(callback: () => void) {
+    this.socket?.off('item_added');
+    this.socket?.off('item_removed');
+    this.socket?.off('series_updated');
+    
     this.socket?.on('item_added', callback);
     this.socket?.on('item_removed', callback);
     this.socket?.on('series_updated', callback);

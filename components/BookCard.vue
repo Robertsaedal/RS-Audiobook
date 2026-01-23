@@ -1,8 +1,7 @@
-
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { ABSLibraryItem, ABSProgress } from '../types';
-import { Play, CheckCircle, Smartphone, Info, Heart, Loader2 } from 'lucide-vue-next';
+import { Play, Smartphone, Info, Heart } from 'lucide-vue-next';
 import { OfflineManager } from '../services/offlineManager';
 import { getDominantColor } from '../services/colorUtils';
 
@@ -14,7 +13,7 @@ const props = defineProps<{
   fallbackSequence?: number | string | null,
   showProgress?: boolean,
   hideProgress?: boolean,
-  downloadProgress?: number | null // NEW: Optional download progress (0-100)
+  downloadProgress?: number | null
 }>();
 
 const emit = defineEmits<{
@@ -22,14 +21,18 @@ const emit = defineEmits<{
   (e: 'click-info', item: ABSLibraryItem): void
 }>();
 
+const rootEl = ref<HTMLElement | null>(null);
+const isVisible = ref(false); // Controls loading of heavy assets
 const imageReady = ref(false);
 const isDownloaded = ref(false);
 const isWishlisted = ref(false);
 const localCover = ref<string | null>(null);
 const triggerCompletionEffect = ref(false);
-const showTimeRemaining = ref(false);
-const accentColor = ref('#A855F7'); // Default Purple
+const accentColor = ref('#A855F7');
 const colorLoaded = ref(false);
+
+// Optimize: Intersection Observer for lazy loading logic
+let observer: IntersectionObserver | null = null;
 
 const progressData = computed(() => {
   return props.item.userProgress || 
@@ -40,90 +43,50 @@ const progressData = computed(() => {
 
 const progressPercentage = computed(() => {
   const p = progressData.value;
-  const media = props.item.media;
-
-  if (p?.isFinished || (p as any)?.isCompleted) return 100;
-
-  const totalDuration = media?.duration || p?.duration || 0;
-  const currentTime = p?.currentTime || 0;
-
-  if (totalDuration > 0 && currentTime > 0) {
-    const calculatedPct = (currentTime / totalDuration) * 100;
-    return Math.min(100, Math.max(0, calculatedPct));
-  }
-
-  if (typeof p?.progress === 'number' && p.progress > 0) {
-    const serverPct = p.progress <= 1 ? p.progress * 100 : p.progress;
-    return Math.min(100, Math.max(0, serverPct));
-  }
-
-  return 0;
-});
-
-const remainingTimeText = computed(() => {
-  const p = progressData.value;
-  const media = props.item.media;
-  if (!p || !media) return '0m';
+  if (!p) return 0;
   
-  const total = media.duration || p.duration || 0;
+  if (p.isFinished || (p as any).isCompleted) return 100;
+
+  const total = p.duration || props.item.media.duration || 0;
   const current = p.currentTime || 0;
-  const left = Math.max(0, total - current);
-  
-  if (left <= 0) return '0m';
 
-  const h = Math.floor(left / 3600);
-  const m = Math.floor((left % 3600) / 60);
-
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
+  if (total > 0 && current > 0) {
+    return Math.min(100, (current / total) * 100);
+  }
+  return 0;
 });
 
 const isFinished = computed(() => {
   const p = progressData.value;
   if (!p) return false;
-  if (p.isFinished || (p as any).isCompleted) return true;
-  return progressPercentage.value >= 99.5;
+  return p.isFinished || (p as any).isCompleted || progressPercentage.value >= 99.5;
 });
 
 const displaySequence = computed(() => {
-  // 1. Check direct override prop (often passed from SeriesView)
   if (props.fallbackSequence !== undefined && props.fallbackSequence !== null) {
     if (typeof props.fallbackSequence === 'string' && props.fallbackSequence.trim() === '') return null;
     return props.fallbackSequence;
   }
   const meta = props.item.media?.metadata;
   if (!meta) return null;
-  // 2. Check seriesSequence explicitly
+  
   if (meta.seriesSequence !== undefined && meta.seriesSequence !== null) return meta.seriesSequence;
-  // 3. Check generic sequence
   if (meta.sequence !== undefined && meta.sequence !== null) return meta.sequence;
-  // 4. Check array of series objects
   if (Array.isArray(meta.series) && meta.series.length > 0) {
     const s = meta.series[0];
     if (s.sequence !== undefined && s.sequence !== null) return s.sequence;
   }
-  
-  // 5. REGEX FALLBACK: Check string fields for embedded numbers
-  const regex = /(?:Book|Vol|No\.?|#)\s*(\d+(\.\d+)?)/i;
-  
-  const fieldsToCheck = [
-    meta.seriesName,
-    (meta as any).subtitle,
-    meta.title // Fallback to title as last resort
-  ];
-
-  for (const field of fieldsToCheck) {
-    if (field && typeof field === 'string') {
-      const match = field.match(regex);
-      if (match) return match[1];
-    }
-  }
-
   return null;
 });
 
-const handleImageLoad = async () => {
-  imageReady.value = true;
+const initVisuals = async () => {
+  // Only called when element is near viewport
+  if (await OfflineManager.isDownloaded(props.item.id)) {
+    isDownloaded.value = true;
+    localCover.value = await OfflineManager.getCoverUrl(props.item.id);
+  }
+  isWishlisted.value = await OfflineManager.isWishlisted(props.item.id);
+  
   if (!colorLoaded.value) {
     const src = localCover.value || props.coverUrl;
     if (src) {
@@ -133,9 +96,8 @@ const handleImageLoad = async () => {
   }
 };
 
-const toggleProgressDisplay = (e: Event) => {
-  e.stopPropagation();
-  showTimeRemaining.value = !showTimeRemaining.value;
+const handleImageLoad = () => {
+  imageReady.value = true;
 };
 
 const handleInfoClick = (e: Event) => {
@@ -143,24 +105,34 @@ const handleInfoClick = (e: Event) => {
   emit('click-info', props.item);
 };
 
+onMounted(() => {
+  if (rootEl.value) {
+    observer = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting) {
+        isVisible.value = true;
+        initVisuals();
+        observer?.disconnect();
+      }
+    }, { rootMargin: '200px' }); // Load 200px before appearing
+    observer.observe(rootEl.value);
+  }
+});
+
+onUnmounted(() => {
+  observer?.disconnect();
+});
+
 watch(isFinished, (newVal) => {
   if (newVal) {
     triggerCompletionEffect.value = true;
     setTimeout(() => { triggerCompletionEffect.value = false; }, 2000);
   }
 });
-
-onMounted(async () => {
-  if (await OfflineManager.isDownloaded(props.item.id)) {
-    isDownloaded.value = true;
-    localCover.value = await OfflineManager.getCoverUrl(props.item.id);
-  }
-  isWishlisted.value = await OfflineManager.isWishlisted(props.item.id);
-});
 </script>
 
 <template>
   <button 
+    ref="rootEl"
     @click="emit('click', item)"
     class="flex flex-col text-left group transition-all outline-none w-full relative h-full"
     :style="{ '--card-accent': accentColor }"
@@ -174,10 +146,11 @@ onMounted(async () => {
       <!-- Completion Flash Effect -->
       <div v-if="triggerCompletionEffect" class="absolute inset-0 z-50 pointer-events-none bg-purple-500/20 mix-blend-overlay animate-pulse" />
 
-      <!-- Shimmer Placeholder -->
-      <div v-if="!imageReady" class="absolute inset-0 z-10 animate-shimmer" />
+      <!-- Shimmer Placeholder (Visible until lazy load fires + img loads) -->
+      <div v-if="!imageReady || !isVisible" class="absolute inset-0 z-10 animate-shimmer" />
 
       <img 
+        v-if="isVisible"
         :src="localCover || coverUrl" 
         @load="handleImageLoad"
         class="w-full h-full object-cover transition-opacity duration-700" 
@@ -198,7 +171,7 @@ onMounted(async () => {
       </div>
       
       <!-- Book Sequence Badge -->
-      <div v-if="displaySequence !== null && !downloadProgress" class="absolute top-2 left-2 z-30">
+      <div v-if="displaySequence !== null && !downloadProgress && isVisible" class="absolute top-2 left-2 z-30">
         <div class="px-2 py-1 bg-black/70 backdrop-blur-md border border-white/10 rounded-md shadow-lg">
           <span class="text-[10px] font-black text-purple-400 tracking-tighter">
             #{{ displaySequence }}
@@ -207,7 +180,7 @@ onMounted(async () => {
       </div>
       
       <!-- Badges -->
-      <div v-if="!downloadProgress" class="absolute top-2 right-2 z-30 flex flex-col items-end gap-1.5">
+      <div v-if="!downloadProgress && isVisible" class="absolute top-2 right-2 z-30 flex flex-col items-end gap-1.5">
          <div 
            @click="handleInfoClick"
            class="flex items-center justify-center w-6 h-6 bg-black/60 backdrop-blur-md border border-white/10 rounded-full hover:bg-white hover:text-black transition-colors cursor-pointer shadow-lg"
@@ -223,21 +196,21 @@ onMounted(async () => {
       </div>
 
       <!-- Finished Indicator Overlay -->
-      <div v-if="isFinished && !downloadProgress" class="absolute inset-0 flex items-center justify-center z-40 bg-black/40 backdrop-grayscale-[0.5] pointer-events-none">
+      <div v-if="isFinished && !downloadProgress && isVisible" class="absolute inset-0 flex items-center justify-center z-40 bg-black/40 backdrop-grayscale-[0.5] pointer-events-none">
          <div class="px-4 py-1.5 bg-purple-600/90 backdrop-blur-md border border-purple-400/30 rounded-full flex items-center justify-center shadow-xl transform -rotate-12">
             <span class="text-[9px] font-black text-white uppercase tracking-[0.2em]">COMPLETE</span>
          </div>
       </div>
 
       <!-- Play Overlay -->
-      <div v-if="!isFinished && !downloadProgress" class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex items-center justify-center pointer-events-none">
+      <div v-if="!isFinished && !downloadProgress && isVisible" class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex items-center justify-center pointer-events-none">
         <div class="w-14 h-14 rounded-full bg-purple-600 text-white flex items-center justify-center shadow-[0_0_30px_rgba(168,85,247,0.5)] transform scale-90 group-hover:scale-100 transition-transform">
           <Play :size="24" fill="currentColor" class="translate-x-0.5" />
         </div>
       </div>
 
       <!-- Progress Bar (Hidden if downloading) -->
-      <div v-if="!hideProgress && !isFinished && progressPercentage > 0 && !downloadProgress" class="absolute bottom-3 left-3 right-3 z-30 flex flex-col pointer-events-none">
+      <div v-if="!hideProgress && !isFinished && progressPercentage > 0 && !downloadProgress && isVisible" class="absolute bottom-3 left-3 right-3 z-30 flex flex-col pointer-events-none">
          <div class="relative w-full h-1.5 bg-purple-950/40 backdrop-blur-sm rounded-full">
             <div 
               class="h-full bg-purple-500 rounded-full shadow-[0_0_10px_rgba(168,85,247,0.4)] transition-all duration-300 relative" 
