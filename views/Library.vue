@@ -343,19 +343,8 @@ const playFromModal = () => {
   }
 };
 
-const handleSeriesClickFromModal = async (seriesId: string | null, seriesName?: string) => {
-  console.log('Navigating to Series ID:', seriesId);
-  
-  if (!seriesId) {
-    if (seriesName) {
-      console.warn('Missing Series ID, falling back to search for:', seriesName);
-      closeInfoModal();
-      searchTerm.value = seriesName;
-      return;
-    }
-    console.error('Missing Series ID and Name. Navigation aborted.');
-    return;
-  }
+const handleSeriesClickFromModal = async (seriesId: string | null) => {
+  if (!seriesId) return;
 
   // CRITICAL: Close modal first, then navigate
   closeInfoModal();
@@ -387,31 +376,49 @@ const modalInfoRows = computed(() => {
 
   // SERIES LOGIC: Robust check matching Player.vue (Prioritize Array over root property)
   const seriesArray = (m as any).series;
-  const hasSeriesArray = Array.isArray(seriesArray) && seriesArray.length > 0;
-
-  // PRIORITY 1: Array ID. PRIORITY 2: Root ID.
-  const seriesId = (hasSeriesArray ? seriesArray[0].id : null) || m.seriesId || null;
-  const seriesName = (hasSeriesArray ? seriesArray[0].name : null) || m.seriesName || null;
   
-  const seriesSeq = m.seriesSequence || (m as any).sequence || (hasSeriesArray ? seriesArray[0].sequence : null);
+  let seriesId = null;
+  let seriesName = null;
+  let seriesSeq = null;
+
+  if (Array.isArray(seriesArray) && seriesArray.length > 0) {
+    seriesId = seriesArray[0].id;
+    seriesName = seriesArray[0].name;
+    seriesSeq = seriesArray[0].sequence;
+  } else {
+    seriesId = m.seriesId || null;
+    seriesName = m.seriesName || null;
+  }
+  
+  if (!seriesSeq) {
+    seriesSeq = m.seriesSequence || (m as any).sequence || null;
+  }
 
   const seriesDisplay = seriesName ? (seriesSeq ? `${seriesName} #${seriesSeq}` : seriesName) : null;
 
   const rows = [
-    { label: 'Narrator', value: narrator || 'Unknown', icon: Mic },
-    { label: 'Duration', value: secondsToTimestamp(selectedInfoItem.value.media.duration), icon: Clock },
-    { label: 'Year', value: year || 'Unknown', icon: Calendar }
+    { label: 'Narrator', value: narrator || 'Unknown', icon: Mic, isAction: false },
+    { label: 'Duration', value: secondsToTimestamp(selectedInfoItem.value.media.duration), icon: Clock, isAction: false },
+    { label: 'Year', value: year || 'Unknown', icon: Calendar, isAction: false }
   ];
 
-  // Insert Series Row if display string exists
-  if (seriesDisplay) {
+  // Insert Series Row
+  // Only make it an ACTION (Purple Button) if we have a valid ID.
+  // Otherwise, if we have a display name but no ID, show it as a static info row.
+  if (seriesDisplay && seriesId) {
     rows.splice(1, 0, { 
       label: 'Series', 
       value: seriesDisplay, 
       icon: Layers,
       isAction: true,
-      actionId: seriesId || null,
-      actionName: seriesName
+      actionId: seriesId
+    } as any);
+  } else if (seriesDisplay) {
+    rows.splice(1, 0, { 
+      label: 'Series', 
+      value: seriesDisplay, 
+      icon: Layers,
+      isAction: false
     } as any);
   }
 
@@ -660,7 +667,7 @@ const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && rec
                       ? 'bg-purple-600 border border-purple-500/50 hover:bg-purple-500 cursor-pointer group active:scale-95 shadow-lg shadow-purple-900/20 hover:scale-105' 
                       : 'bg-white/5 border border-white/5'
                   ]"
-                  @click="row.isAction ? handleSeriesClickFromModal(row.actionId, row.actionName) : null"
+                  @click="row.isAction ? handleSeriesClickFromModal(row.actionId) : null"
                 >
                   <div class="flex items-center gap-2 mb-1" :class="row.isAction ? 'text-purple-200' : 'text-neutral-500'">
                     <component :is="row.icon" :size="12" />
