@@ -251,12 +251,27 @@ const handleToggleWishlist = async () => {
   isWishlisted.value = newState;
 };
 
-const infoRows = computed(() => [
-  { label: 'Narrator', value: metadata.value.narratorName || 'Unknown', icon: Mic },
-  { label: 'Series', value: metadata.value.seriesName || 'Standalone', icon: Layers, isClickable: !!derivedSeriesId.value },
-  { label: 'Duration', value: secondsToTimestamp(state.duration), icon: Clock },
-  { label: 'Year', value: metadata.value.publishedYear || 'Unknown', icon: Calendar }
-]);
+const infoRows = computed(() => {
+  const m = metadata.value;
+  // Handle different narrator formats (string or array of strings)
+  let narrator = m.narratorName;
+  if (!narrator && (m as any).narrators && Array.isArray((m as any).narrators)) {
+    narrator = (m as any).narrators.join(', ');
+  }
+
+  // Handle Year
+  let year = m.publishedYear;
+  if (!year && (m as any).publishedDate) {
+    year = (m as any).publishedDate.substring(0, 4);
+  }
+
+  return [
+    { label: 'Narrator', value: narrator || 'Unknown', icon: Mic },
+    { label: 'Series', value: m.seriesName || 'Standalone', icon: Layers, isClickable: !!derivedSeriesId.value },
+    { label: 'Duration', value: secondsToTimestamp(state.duration), icon: Clock },
+    { label: 'Year', value: year || 'Unknown', icon: Calendar }
+  ];
+});
 </script>
 
 <template>

@@ -1,3 +1,4 @@
+
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, nextTick, computed } from 'vue';
 import { ABSLibraryItem, ABSProgress } from '../types';
@@ -16,7 +17,8 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (e: 'select-item', item: ABSLibraryItem): void
+  (e: 'select-item', item: ABSLibraryItem): void,
+  (e: 'click-info', item: ABSLibraryItem): void
 }>();
 
 const libraryItems = ref<ABSLibraryItem[]>([]);
@@ -258,6 +260,7 @@ watch(() => [props.sortMethod, props.desc, props.search], () => reset(), { deep:
           :coverUrl="absService.getCoverUrl(item.id)"
           show-metadata
           @click="emit('select-item', item)"
+          @click-info="emit('click-info', item)"
         />
       </div>
 

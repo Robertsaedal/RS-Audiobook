@@ -15,7 +15,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'back'): void,
-  (e: 'select-item', item: ABSLibraryItem): void
+  (e: 'select-item', item: ABSLibraryItem): void,
+  (e: 'click-info', item: ABSLibraryItem): void
 }>();
 
 const localSeries = ref({ ...props.series });
@@ -268,7 +269,8 @@ onMounted(() => {
             show-metadata
             show-progress
             :fallback-sequence="getSequence(book)"
-            @click="emit('select-item', book)" 
+            @click="emit('select-item', book)"
+            @click-info="emit('click-info', book)" 
           />
         </div>
       </section>

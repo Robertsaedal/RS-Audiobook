@@ -328,11 +328,24 @@ const secondsToTimestamp = (s: number) => {
 const modalInfoRows = computed(() => {
   if (!selectedInfoItem.value) return [];
   const m = selectedInfoItem.value.media.metadata;
+  
+  // Handle different narrator formats (string or array of strings)
+  let narrator = m.narratorName;
+  if (!narrator && (m as any).narrators && Array.isArray((m as any).narrators)) {
+    narrator = (m as any).narrators.join(', ');
+  }
+
+  // Handle Year
+  let year = m.publishedYear;
+  if (!year && (m as any).publishedDate) {
+    year = (m as any).publishedDate.substring(0, 4);
+  }
+
   return [
-    { label: 'Narrator', value: m.narratorName || 'Unknown', icon: Mic },
+    { label: 'Narrator', value: narrator || 'Unknown', icon: Mic },
     { label: 'Series', value: m.seriesName || 'Standalone', icon: Layers },
     { label: 'Duration', value: secondsToTimestamp(selectedInfoItem.value.media.duration), icon: Clock },
-    { label: 'Year', value: m.publishedYear || 'Unknown', icon: Calendar }
+    { label: 'Year', value: year || 'Unknown', icon: Calendar }
   ];
 });
 
@@ -409,7 +422,7 @@ const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && rec
         </div>
       </Transition>
 
-      <SeriesView v-if="selectedSeries && absService" :series="selectedSeries" :absService="absService" :auth="auth" :progressMap="activeProgressMap" @back="selectedSeries = null" @select-item="emit('select-item', $event)" />
+      <SeriesView v-if="selectedSeries && absService" :series="selectedSeries" :absService="absService" :auth="auth" :progressMap="activeProgressMap" @back="selectedSeries = null" @select-item="emit('select-item', $event)" @click-info="openInfoModal" />
 
       <template v-else>
         <div v-if="trimmedSearch" class="h-full bg-[#0d0d0d] overflow-y-auto custom-scrollbar pt-8 pb-40">
@@ -498,7 +511,7 @@ const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && rec
             </div>
           </div>
           <div v-else-if="activeTab === 'LIBRARY' && absService" class="h-full flex flex-col overflow-hidden">
-            <Bookshelf :absService="absService" :sortMethod="sortMethod" :desc="desc" :search="''" :progressMap="activeProgressMap" @select-item="emit('select-item', $event)" />
+            <Bookshelf :absService="absService" :sortMethod="sortMethod" :desc="desc" :search="''" :progressMap="activeProgressMap" @select-item="emit('select-item', $event)" @click-info="openInfoModal" />
           </div>
           <div v-else-if="activeTab === 'SAVED' && absService" class="h-full flex flex-col overflow-hidden">
              <SavedView :absService="absService" :progressMap="activeProgressMap" @select-item="emit('select-item', $event)" @click-info="openInfoModal" />
@@ -514,22 +527,22 @@ const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && rec
 
     <!-- Info Modal -->
     <Transition name="fade">
-      <div v-if="selectedInfoItem && absService" class="fixed inset-0 z-[150] bg-black/95 backdrop-blur-3xl flex flex-col p-8 overflow-hidden">
-        <div class="flex justify-between items-center mb-8 shrink-0">
-          <h2 class="text-2xl font-black uppercase tracking-tighter text-white">Artifact Data</h2>
+      <div v-if="selectedInfoItem && absService" class="fixed inset-0 z-[200] bg-black/95 backdrop-blur-3xl flex flex-col p-4 md:p-8 overflow-hidden safe-top safe-bottom">
+        <div class="flex justify-between items-center mb-4 shrink-0">
+          <h2 class="text-xl md:text-2xl font-black uppercase tracking-tighter text-white">Artifact Data</h2>
           <button @click="closeInfoModal" class="p-3 bg-neutral-900 rounded-full text-neutral-500 hover:text-white transition-colors border border-white/5 z-50 shadow-xl">
             <X :size="20" />
           </button>
         </div>
         
-        <div class="flex-1 overflow-y-auto custom-scrollbar">
+        <div class="flex-1 overflow-y-auto custom-scrollbar pb-10">
           <div class="max-w-2xl mx-auto space-y-8">
             <div class="flex flex-col items-center text-center space-y-4">
-              <div class="w-40 h-60 rounded-lg shadow-2xl overflow-hidden border border-white/10">
+              <div class="w-32 h-48 md:w-40 md:h-60 rounded-lg shadow-2xl overflow-hidden border border-white/10">
                 <img :src="absService.getCoverUrl(selectedInfoItem.id)" class="w-full h-full object-cover" />
               </div>
               <div>
-                <h3 class="text-2xl font-black uppercase leading-tight">{{ selectedInfoItem.media.metadata.title }}</h3>
+                <h3 class="text-xl md:text-2xl font-black uppercase leading-tight">{{ selectedInfoItem.media.metadata.title }}</h3>
                 <p class="text-neutral-500 font-bold">{{ selectedInfoItem.media.metadata.authorName }}</p>
               </div>
             </div>
