@@ -1,5 +1,6 @@
 
-import { reactive, onUnmounted } from 'vue';
+// Fix: Removed unused onUnmounted import and consolidated vue imports to address reported missing export errors
+import { reactive } from 'vue';
 import { AuthState, ABSLibraryItem, ABSAudioTrack, PlayMethod } from '../types';
 import { ABSService } from '../services/absService';
 import { OfflineManager } from '../services/offlineManager';
@@ -172,7 +173,7 @@ export function usePlayer() {
   };
 
   const loadCurrentTrack = () => {
-    const currentTrack = audioTracks[currentTrackIndex];
+    const currentTrack = currentTrackIndex >= 0 ? audioTracks[currentTrackIndex] : null;
     if (!currentTrack || !audioEl) return;
 
     state.isLoading = true;
@@ -188,6 +189,7 @@ export function usePlayer() {
     currentTrackIndex = 0;
 
     const currentTrack = audioTracks[0];
+    if (!currentTrack) return;
     const url = getFullUrl(currentTrack.contentUrl);
 
     if (!Hls.isSupported()) {
@@ -397,14 +399,14 @@ export function usePlayer() {
       audioEl.currentTime = Math.max(0, offsetTime);
     } else {
       const currentTrack = audioTracks[currentTrackIndex];
-      if (target < currentTrack.startOffset || target > currentTrack.startOffset + currentTrack.duration) {
+      if (currentTrack && (target < currentTrack.startOffset || target > currentTrack.startOffset + currentTrack.duration)) {
         const trackIdx = audioTracks.findIndex((t) => target >= t.startOffset && target < t.startOffset + t.duration);
         if (trackIdx >= 0) {
           startTime = target;
           currentTrackIndex = trackIdx;
           loadCurrentTrack();
         }
-      } else {
+      } else if (currentTrack) {
         const offsetTime = target - currentTrack.startOffset;
         audioEl.currentTime = Math.max(0, offsetTime);
       }
@@ -449,10 +451,11 @@ export function usePlayer() {
         ranges.push({ start: seekable.start(i), end: seekable.end(i) });
       }
       if (!ranges.length) return 0;
+      const currentOffset = state.isOffline ? 0 : (audioTracks[currentTrackIndex]?.startOffset || 0);
       const buff = ranges.find((b) => b.start < audioEl!.currentTime && b.end > audioEl!.currentTime);
-      if (buff) return buff.end + (state.isOffline ? 0 : (audioTracks[currentTrackIndex]?.startOffset || 0));
+      if (buff) return buff.end + currentOffset;
       const last = ranges[ranges.length - 1];
-      return last.end + (state.isOffline ? 0 : (audioTracks[currentTrackIndex]?.startOffset || 0));
+      return last.end + currentOffset;
     } catch (e) {
       return 0;
     }

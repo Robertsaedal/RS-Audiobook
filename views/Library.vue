@@ -10,7 +10,7 @@ import SeriesShelf from '../components/SeriesShelf.vue';
 import SeriesView from './SeriesView.vue';
 import RequestPortal from '../components/RequestPortal.vue';
 import StatsView from './StatsView.vue';
-import SavedView from './SavedView.vue';
+import SavedBooks from './SavedBooks.vue';
 import BookCard from '../components/BookCard.vue';
 import SeriesCard from '../components/SeriesCard.vue';
 import { PackageOpen, Loader2, WifiOff, RotateCw, Heart } from 'lucide-vue-next';
@@ -86,7 +86,7 @@ onMounted(async () => {
   window.addEventListener('online', fetchDashboardData);
 });
 
-onActivated(fetchWishlist);
+onActivated(fetchDashboardData);
 
 const handleInfoClick = (item: ABSLibraryItem) => {
   emit('open-info', item);
@@ -140,7 +140,7 @@ const handleTabChange = (tab: LibraryTab) => {
         <Bookshelf :absService="absService" sortMethod="addedAt" :desc="1" :search="''" :progressMap="activeProgressMap" @select-item="emit('select-item', $event)" @info-click="handleInfoClick" />
       </div>
       <div v-else-if="activeTab === 'SAVED'" class="h-full flex flex-col overflow-hidden">
-        <SavedView @select-item="emit('select-item', $event)" @info-click="handleInfoClick" />
+        <SavedBooks @select-item="emit('select-item', $event)" @info-click="handleInfoClick" />
       </div>
       <div v-else-if="activeTab === 'STATS' && absService" class="h-full flex flex-col overflow-hidden"><StatsView :absService="absService" :progressMap="activeProgressMap" /></div>
       <div v-else-if="activeTab === 'REQUEST'" class="h-full flex flex-col overflow-hidden"><RequestPortal /></div>
