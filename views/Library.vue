@@ -36,7 +36,7 @@ const absService = ref<ABSService | null>(null);
 const activeTab = ref<LibraryTab>('HOME');
 const searchTerm = ref('');
 const sortMethod = ref('addedAt'); 
-const seriesSortMethod = ref('lastBookAdded'); // Default to most recently updated series
+const seriesSortMethod = ref('lastBookAdded'); 
 const desc = ref(1);
 const selectedSeries = ref<ABSSeries | null>(null);
 const isScanning = ref(false);
@@ -117,19 +117,14 @@ const initService = async () => {
     }
   }
 
-  // Only setup local listeners if we created the service OR if we want redundant local handling
-  // If service is provided, App.vue handles global map updates.
-  // However, we still need to know when shelves should update (item_added etc)
   setupListeners();
 };
 
 const setupListeners = () => {
   if (!absService.value) return;
 
-  // Listen for library updates to refresh shelves
   absService.value.onLibraryUpdate(() => fetchDashboardData());
   
-  // If we are using a local service (not provided by parent), we must handle progress
   if (!props.providedService) {
     absService.value.onProgressUpdate((p) => handleProgressUpdate(p));
     absService.value.onUserOnline((p) => handleProgressUpdate(p as ABSProgress));
@@ -165,8 +160,6 @@ const handleProgressUpdate = (p: ABSProgress, triggerEffects = true) => {
       hideFromContinueListening: p.hideFromContinueListening
   };
 
-  // Update map (Global map is reactive, so modifying it here works if passed via prop)
-  // If props.progressMap is passed, we update it. If not, we update local.
   const mapToUpdate = props.progressMap || localProgressMap;
   const existing = mapToUpdate.get(p.itemId);
   if (existing) {
@@ -290,7 +283,6 @@ const forceSyncProgress = async () => {
   
   try {
     // 1. Force Server PUSH via Socket
-    // Use the shared service instance to ensure the listener in App.vue catches the response
     absService.value.emitGetUserItems();
     
     // 2. Redundant API fetch to be safe
@@ -454,9 +446,9 @@ const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && rec
                 </div>
               </section>
               <section v-if="recentSeries.length > 0 && absService" class="shelf-row py-8">
-                <div class="shelf-tag"><span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Series Stacks</span></div>
-                <div class="flex gap-16 overflow-x-auto no-scrollbar pb-6 pl-4">
-                  <div v-for="series in recentSeries" :key="series.id" class="w-44 md:w-56 shrink-0">
+                <div class="shelf-tag"><span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Recent Series</span></div>
+                <div class="flex gap-10 overflow-x-auto no-scrollbar pb-6 pl-2">
+                  <div v-for="series in recentSeries" :key="series.id" class="w-32 md:w-40 shrink-0">
                     <SeriesCard :series="series" :coverUrl="absService.getCoverUrl(series.books?.[0]?.id || '')" :bookCovers="series.books?.slice(0, 3).map(b => absService.getCoverUrl(b.id)) || []" @click="selectedSeries = series" />
                   </div>
                 </div>

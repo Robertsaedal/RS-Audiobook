@@ -1,3 +1,4 @@
+
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { ABSSeries } from '../types';
@@ -18,6 +19,15 @@ const accentColor = ref('#A855F7'); // Default Purple
 const colorLoaded = ref(false);
 
 const bookCount = computed(() => props.series.books?.length || props.series.total || props.series.numBooks || 0);
+
+// Prepare stack layers (max 3 items)
+// We want the first item on top, so we grab slice(0, 3)
+const stackImages = computed(() => {
+  if (props.bookCovers && props.bookCovers.length > 0) {
+    return props.bookCovers.slice(0, 3);
+  }
+  return [props.coverUrl];
+});
 
 const handleImageLoad = async () => {
   imageReady.value = true;
@@ -43,19 +53,41 @@ const handleImageLoad = async () => {
         :style="{ backgroundColor: accentColor }"
       />
 
-      <!-- Infinite Stack Container -->
-      <div class="relative w-full h-full transition-transform duration-500 ease-out group-hover:-translate-y-1.5 stack-layer">
+      <!-- Dynamic Stack Container -->
+      <div class="relative w-full h-full">
         
-        <!-- Main Cover -->
+        <!-- Render Stack Layers (Reverse Loop to paint bottom-up if using absolute z-index, but we use explicit z-indexes) -->
+        <template v-if="stackImages.length > 1">
+           <!-- Bottom Layer (3rd Book) -->
+           <div 
+             v-if="stackImages[2]"
+             class="absolute inset-0 rounded-md bg-neutral-900 border border-white/5 shadow-2xl transition-transform duration-500 ease-out group-hover:translate-x-4 group-hover:rotate-6 z-0"
+             class-img="brightness-50"
+             style="transform: rotate(6deg) translateX(4px);"
+           >
+              <img :src="stackImages[2]" class="w-full h-full object-cover brightness-[0.4]" loading="lazy" />
+           </div>
+
+           <!-- Middle Layer (2nd Book) -->
+           <div 
+             v-if="stackImages[1]"
+             class="absolute inset-0 rounded-md bg-neutral-900 border border-white/5 shadow-2xl transition-transform duration-500 ease-out group-hover:translate-x-2 group-hover:rotate-3 z-10"
+             style="transform: rotate(3deg) translateX(2px);"
+           >
+              <img :src="stackImages[1]" class="w-full h-full object-cover brightness-[0.65]" loading="lazy" />
+           </div>
+        </template>
+
+        <!-- Top Layer (Main Cover) -->
         <div 
-          class="relative w-full h-full rounded-md overflow-hidden shadow-2xl border border-white/10 z-20 bg-neutral-900"
+          class="absolute inset-0 rounded-md overflow-hidden shadow-2xl border border-white/10 z-20 bg-neutral-900 transition-transform duration-500 group-hover:-translate-y-1"
           :style="{ borderColor: colorLoaded ? 'color-mix(in srgb, var(--series-accent) 40%, transparent)' : 'rgba(255,255,255,0.1)' }"
         >
           <div v-if="!imageReady" class="absolute inset-0 animate-pulse bg-neutral-800" />
           <img 
-            :src="coverUrl" 
+            :src="stackImages[0] || coverUrl" 
             @load="handleImageLoad"
-            class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+            class="w-full h-full object-cover"
             :class="{ 'opacity-0': !imageReady, 'opacity-100': imageReady }"
             loading="lazy"
           />
@@ -93,53 +125,5 @@ const handleImageLoad = async () => {
 <style scoped>
 .perspective-1000 {
   perspective: 1000px;
-}
-
-/* 
-  The Stack Effect
-  Using pseudo elements to create the 'pages' behind
-*/
-.stack-layer::before,
-.stack-layer::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  border-radius: 6px;
-  background-color: #1a1a1a; /* Dark page/book color */
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
-  transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1); /* Bouncy spring */
-  z-index: -1;
-  transform-origin: bottom center;
-}
-
-/* Layer 1 (Middle) */
-.stack-layer::before {
-  transform: rotate(3deg) translateX(4px);
-  background: linear-gradient(to right, #262626, #1a1a1a);
-  opacity: 0.8;
-  z-index: -1;
-}
-
-/* Layer 2 (Bottom) */
-.stack-layer::after {
-  transform: rotate(6deg) translateX(8px) translateY(2px);
-  background: linear-gradient(to right, #262626, #111);
-  opacity: 0.6;
-  z-index: -2;
-}
-
-/* Hover: Tighten the stack */
-.group:hover .stack-layer::before {
-  transform: rotate(1.5deg) translateX(2px);
-  opacity: 0.9;
-}
-
-.group:hover .stack-layer::after {
-  transform: rotate(3deg) translateX(4px) translateY(1px);
-  opacity: 0.7;
 }
 </style>

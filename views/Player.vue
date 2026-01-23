@@ -8,7 +8,7 @@ import { OfflineManager } from '../services/offlineManager';
 import ChapterEditor from '../components/ChapterEditor.vue';
 import { 
   ChevronDown, Play, Pause, Info, X, SkipBack, SkipForward,
-  RotateCcw, RotateCw, ChevronRight, Moon, Plus, Minus, Mic, Clock, Layers, Download, CheckCircle, BookOpen, Calendar, ArrowRight
+  RotateCcw, RotateCw, ChevronRight, Moon, Plus, Minus, Mic, Clock, Layers, Download, CheckCircle, Calendar, ArrowRight
 } from 'lucide-vue-next';
 
 const props = defineProps<{
@@ -152,15 +152,16 @@ const isSleepActive = computed(() => state.sleepChapters > 0 || !!state.sleepEnd
  * Calculates dynamic remaining time for chapter-based sleep timer.
  * Formula: (Remaining time of current chapter) + (Total duration of next N-1 chapters)
  */
-const liveSleepCountdown = computed(() => {
+const liveSleepCountdownText = computed(() => {
+  let timeText = '';
+  let chapterText = '';
+
   if (state.sleepEndTime) {
     const diff = Math.max(0, state.sleepEndTime - liveTime.value) / 1000;
     if (diff <= 0) return null;
-    return secondsToTimestamp(diff);
-  }
-
-  if (state.sleepChapters > 0) {
-    if (chapters.value.length === 0 || currentChapterIndex.value === -1) return null;
+    timeText = secondsToTimestamp(diff);
+  } else if (state.sleepChapters > 0) {
+     if (chapters.value.length === 0 || currentChapterIndex.value === -1) return null;
     
     // 1. Time remaining in current chapter
     let totalSeconds = Math.max(0, (currentChapter.value?.end || 0) - state.currentTime);
@@ -171,23 +172,24 @@ const liveSleepCountdown = computed(() => {
        if (nextCh) {
          totalSeconds += (nextCh.end - nextCh.start);
        } else {
-         // Stop if we reach the end of the book early
          break;
        }
     }
-    
-    // Factor in playback speed for real-world time
     const realWorldTime = totalSeconds / state.playbackRate;
-    return `${secondsToTimestamp(realWorldTime)} • ${state.sleepChapters} CH`;
+    timeText = secondsToTimestamp(realWorldTime);
+    chapterText = ` • ${state.sleepChapters} CH`;
+  } else {
+    return null;
   }
-  return null;
+  
+  return `${timeText}${chapterText} REMAINING`;
 });
 
 const cardSleepStatus = computed(() => {
   if (state.sleepChapters > 0) {
-    return liveSleepCountdown.value || `${state.sleepChapters} CH`;
+    return `${state.sleepChapters} CH`;
   }
-  if (state.sleepEndTime) return liveSleepCountdown.value || 'TIMER ON';
+  if (state.sleepEndTime) return 'TIMER ON';
   return 'OFF';
 });
 
@@ -263,7 +265,7 @@ const infoRows = computed(() => [
 
     <template v-if="!state.isLoading">
       <!-- Top Navigation -->
-      <header class="px-8 py-6 md:py-8 flex justify-between items-center z-20 shrink-0">
+      <header class="px-6 py-4 md:py-6 flex justify-between items-center z-20 shrink-0">
         <button @click="emit('back')" class="p-2 text-neutral-600 hover:text-white transition-colors">
           <ChevronDown :size="24" />
         </button>
@@ -290,10 +292,11 @@ const infoRows = computed(() => [
       </header>
 
       <!-- Main Layout -->
-      <div class="flex-1 w-full h-full flex flex-col lg:flex-row overflow-hidden relative z-10 gap-6 lg:gap-0">
-        <!-- Visuals -->
-        <div class="flex-1 lg:flex-none lg:w-[40%] flex flex-col items-center justify-center px-8 relative z-10 min-h-0 pb-6 lg:pb-0">
-          <div @click="showInfo = true" class="relative w-full max-w-[240px] md:max-w-[280px] aspect-[2/3] group cursor-pointer perspective-1000 shrink-0 mb-6 lg:mb-10 max-h-[35vh] lg:max-h-[50vh]">
+      <div class="flex-1 w-full flex flex-col lg:flex-row overflow-hidden relative z-10 gap-4 lg:gap-0 min-h-0">
+        <!-- Visuals (Upper Section) -->
+        <div class="flex-1 lg:w-[40%] flex flex-col items-center justify-center px-6 relative z-10 min-h-0 lg:pb-0">
+          <!-- Cover -->
+          <div @click="showInfo = true" class="relative w-full max-w-[200px] md:max-w-[280px] aspect-[2/3] group cursor-pointer perspective-1000 shrink-0 mb-4 lg:mb-10 max-h-[30vh] md:max-h-[40vh] lg:max-h-[50vh]">
             <div 
                class="absolute -inset-10 blur-[100px] rounded-full opacity-40 transition-colors duration-1000"
                :style="{ backgroundColor: state.accentColor }"
@@ -302,22 +305,24 @@ const infoRows = computed(() => [
                <img :src="coverUrl" class="w-full h-full object-contain bg-black" />
             </div>
           </div>
-          <div class="text-center space-y-4 w-full max-w-md px-4 z-10">
-            <div class="space-y-2">
-              <div class="flex items-center justify-center gap-3">
-                <h1 class="text-xl sm:text-2xl md:text-3xl font-black uppercase tracking-tight text-white leading-tight line-clamp-2 text-balance">{{ metadata.title }}</h1>
-                <CheckCircle v-if="isFinished" class="text-green-500 shrink-0" :size="24" fill="currentColor" stroke-width="2" stroke="black" />
+
+          <!-- Metadata -->
+          <div class="text-center space-y-2 w-full max-w-md px-4 z-10 shrink-0">
+            <div class="flex flex-col gap-1">
+              <div class="flex items-center justify-center gap-2">
+                <h1 class="text-lg sm:text-2xl md:text-3xl font-black uppercase tracking-tight text-white leading-tight line-clamp-2 text-balance">{{ metadata.title }}</h1>
+                <CheckCircle v-if="isFinished" class="text-green-500 shrink-0" :size="20" fill="currentColor" stroke-width="2" stroke="black" />
               </div>
-              <p class="text-lg font-bold text-neutral-500 line-clamp-1">{{ metadata.authorName }}</p>
+              <p class="text-sm md:text-lg font-bold text-neutral-500 line-clamp-1">{{ metadata.authorName }}</p>
             </div>
             <!-- Enhanced Series Button -->
             <button 
               v-if="metadata.seriesName" 
               @click="handleSeriesClick" 
-              class="group flex items-center justify-center gap-2 mx-auto mt-3 px-5 py-2 rounded-full bg-purple-500/10 border border-purple-500/20 hover:bg-purple-500/20 hover:border-purple-500/40 transition-all active:scale-95"
+              class="group flex items-center justify-center gap-2 mx-auto px-4 py-1.5 rounded-full bg-purple-500/10 border border-purple-500/20 hover:bg-purple-500/20 hover:border-purple-500/40 transition-all active:scale-95"
             >
-              <Layers :size="14" class="text-purple-500" />
-              <span class="text-purple-400 font-bold text-xs">
+              <Layers :size="12" class="text-purple-500" />
+              <span class="text-purple-400 font-bold text-[10px] md:text-xs">
                 {{ metadata.seriesName }} {{ metadata.seriesSequence ? `#${metadata.seriesSequence}` : '' }}
               </span>
               <ArrowRight :size="12" class="text-purple-500/50 group-hover:text-purple-500 transition-colors group-hover:translate-x-1" />
@@ -325,18 +330,24 @@ const infoRows = computed(() => [
           </div>
         </div>
 
-        <!-- Controls -->
-        <div class="shrink-0 lg:flex-1 lg:w-[60%] lg:h-full flex flex-col justify-end lg:justify-center px-8 pb-10 lg:pb-0 lg:px-24 space-y-8 lg:space-y-16 w-full max-w-xl lg:max-w-3xl mx-auto lg:mx-0 z-20">
+        <!-- Controls (Lower Section) -->
+        <div class="shrink-0 lg:flex-1 lg:w-[60%] lg:h-full flex flex-col justify-end lg:justify-center px-6 pb-6 lg:pb-0 lg:px-24 space-y-6 lg:space-y-16 w-full max-w-xl lg:max-w-3xl mx-auto lg:mx-0 z-20">
           <!-- Progress -->
-          <div class="space-y-4">
-            <div class="flex justify-between items-end mb-1 h-5">
+          <div class="space-y-3">
+            <div class="flex justify-between items-end mb-1 h-5 relative">
                <div class="flex flex-col">
                  <span class="text-[8px] font-black text-neutral-600 uppercase tracking-widest">Elapsed</span>
-                 <span class="text-lg font-black font-mono-timer tracking-tighter text-white">{{ secondsToTimestamp(state.currentTime - (currentChapter?.start || 0)) }}</span>
+                 <span class="text-base md:text-lg font-black font-mono-timer tracking-tighter text-white">{{ secondsToTimestamp(state.currentTime - (currentChapter?.start || 0)) }}</span>
                </div>
+               
+               <!-- CENTRAL SLEEP TIMER -->
+               <div v-if="liveSleepCountdownText" class="absolute left-1/2 -translate-x-1/2 bottom-0.5 flex items-center justify-center">
+                 <span class="text-[9px] font-black uppercase tracking-wider text-purple-400 whitespace-nowrap">{{ liveSleepCountdownText }}</span>
+               </div>
+
                <div class="flex flex-col items-end">
                  <span class="text-[8px] font-black text-neutral-600 uppercase tracking-widest">Remaining</span>
-                 <span class="text-lg font-black font-mono-timer tracking-tighter text-neutral-400 shadow-none drop-shadow-none">-{{ secondsToTimestamp(chapterTimeRemaining) }}</span>
+                 <span class="text-base md:text-lg font-black font-mono-timer tracking-tighter text-neutral-400 shadow-none drop-shadow-none">-{{ secondsToTimestamp(chapterTimeRemaining) }}</span>
                </div>
             </div>
             <div class="h-3 w-full bg-neutral-900 rounded-full relative overflow-hidden shadow-inner border border-white/5 cursor-pointer" @click="handleChapterProgressClick">
@@ -353,22 +364,22 @@ const infoRows = computed(() => [
             <button @click="seek(state.currentTime - 10)" class="p-3 text-neutral-700 hover:text-white"><RotateCcw :size="24" /></button>
             <button 
               @click="togglePlay" 
-              class="w-20 h-20 rounded-full bg-purple-600/10 flex items-center justify-center border border-purple-500/30 shadow-[0_0_50px_rgba(168,85,247,0.2)] active:scale-95 transition-all group relative"
+              class="w-16 h-16 md:w-20 md:h-20 rounded-full bg-purple-600/10 flex items-center justify-center border border-purple-500/30 shadow-[0_0_50px_rgba(168,85,247,0.2)] active:scale-95 transition-all group relative"
             >
-              <Pause v-if="state.isPlaying" :size="32" class="text-purple-500 fill-current" />
-              <Play v-else :size="32" class="text-purple-500 fill-current translate-x-1" />
+              <Pause v-if="state.isPlaying" :size="28" class="text-purple-500 fill-current" />
+              <Play v-else :size="28" class="text-purple-500 fill-current translate-x-1" />
             </button>
             <button @click="seek(state.currentTime + 30)" class="p-3 text-neutral-700 hover:text-white"><RotateCw :size="24" /></button>
             <button @click="skipToNextChapter" class="p-3 text-neutral-700 hover:text-purple-400"><SkipForward :size="20" /></button>
           </div>
 
           <!-- Mini Cards -->
-          <div class="grid grid-cols-2 gap-4 w-full">
-            <div class="bg-neutral-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-4 flex flex-col justify-between gap-2 h-36 relative overflow-hidden">
+          <div class="grid grid-cols-2 gap-3 md:gap-4 w-full h-32 md:h-36">
+            <div class="bg-neutral-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-3 md:p-4 flex flex-col justify-between gap-2 relative overflow-hidden">
                <div class="flex items-center justify-center w-full relative">
                    <div class="flex items-center gap-2 text-neutral-500"><Clock :size="14" /><span class="text-[9px] font-black uppercase tracking-[0.2em]">Speed</span></div>
                </div>
-               <div class="flex-1 flex flex-col items-center justify-center"><span class="text-3xl font-black font-mono tracking-tighter text-white">{{ state.playbackRate.toFixed(1) }}x</span></div>
+               <div class="flex-1 flex flex-col items-center justify-center"><span class="text-2xl md:text-3xl font-black font-mono tracking-tighter text-white">{{ state.playbackRate.toFixed(1) }}x</span></div>
                <div class="flex items-center gap-4 w-full justify-center">
                  <button @click="setPlaybackRate(Math.max(0.5, state.playbackRate - 0.1))" class="p-2 bg-white/5 rounded-full text-neutral-400 transition-colors hover:text-white"><Minus :size="16" /></button>
                  <button @click="setPlaybackRate(Math.min(3.0, state.playbackRate + 0.1))" class="p-2 bg-white/5 rounded-full text-neutral-400 transition-colors hover:text-white"><Plus :size="16" /></button>
@@ -376,7 +387,7 @@ const infoRows = computed(() => [
             </div>
 
             <!-- Sleep Timer Card -->
-            <div class="bg-neutral-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-4 flex flex-col justify-between gap-2 h-36 relative overflow-hidden group">
+            <div class="bg-neutral-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-3 md:p-4 flex flex-col justify-between gap-2 relative overflow-hidden group">
                <div class="flex justify-between items-center px-1">
                  <div class="flex items-center gap-2 text-neutral-500"><Moon :size="14" /><span class="text-[9px] font-black uppercase tracking-[0.2em]">SLEEP</span></div>
                  <span class="text-[10px] font-black font-mono truncate max-w-[100px] text-right" :class="isSleepActive ? 'text-purple-400' : 'text-neutral-600'">
@@ -385,7 +396,7 @@ const infoRows = computed(() => [
                </div>
                <div class="flex-1 flex flex-col justify-end gap-2">
                  <!-- Minutes Timer Row -->
-                 <div class="flex items-center justify-between bg-white/5 rounded-lg h-9 px-2">
+                 <div class="flex items-center justify-between bg-white/5 rounded-lg h-8 md:h-9 px-2">
                     <span class="text-[8px] font-bold uppercase text-neutral-500 tracking-widest">Mins</span>
                     <div class="flex items-center gap-2 h-full">
                        <button @click="adjustSleepTime(-900)" class="w-6 h-6 flex items-center justify-center bg-white/5 rounded text-neutral-400 hover:text-white transition-colors"><Minus :size="12" /></button>
@@ -394,10 +405,9 @@ const infoRows = computed(() => [
                     </div>
                  </div>
                  <!-- Chapters Timer Row -->
-                 <div class="flex items-center justify-between bg-white/5 rounded-lg h-9 px-2">
+                 <div class="flex items-center justify-between bg-white/5 rounded-lg h-8 md:h-9 px-2">
                     <div class="flex items-center gap-2">
                       <span class="text-[8px] font-bold uppercase text-neutral-500 tracking-widest">CH</span>
-                      <span v-if="state.sleepChapters > 0" class="text-[8px] text-purple-400 font-mono tracking-tight">{{ liveSleepCountdown }}</span>
                     </div>
                     <div class="flex items-center gap-2 h-full">
                        <button @click="adjustSleepChapters(-1)" class="w-6 h-6 flex items-center justify-center bg-white/5 rounded text-neutral-400 hover:text-white transition-colors"><Minus :size="12" /></button>
