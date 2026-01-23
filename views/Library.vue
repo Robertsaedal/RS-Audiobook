@@ -8,7 +8,7 @@ import LibraryLayout, { LibraryTab } from '../components/LibraryLayout.vue';
 import Bookshelf from '../components/Bookshelf.vue';
 import SeriesShelf from '../components/SeriesShelf.vue';
 import SeriesView from './SeriesView.vue';
-import SavedBooks from './SavedBooks.vue';
+import SavedView from './SavedView.vue';
 import RequestPortal from '../components/RequestPortal.vue';
 import StatsView from './StatsView.vue';
 import BookCard from '../components/BookCard.vue';
@@ -490,7 +490,7 @@ const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && rec
             <Bookshelf :absService="absService" :sortMethod="sortMethod" :desc="desc" :search="''" :progressMap="activeProgressMap" @select-item="emit('select-item', $event)" />
           </div>
           <div v-else-if="activeTab === 'SAVED' && absService" class="h-full flex flex-col overflow-hidden">
-             <SavedBooks :absService="absService" @select-item="emit('select-item', $event)" @click-info="openInfoModal" />
+             <SavedView :absService="absService" :progressMap="activeProgressMap" @select-item="emit('select-item', $event)" @click-info="openInfoModal" />
           </div>
           <div v-else-if="activeTab === 'SERIES' && absService" class="h-full flex flex-col overflow-hidden">
             <SeriesShelf :absService="absService" :sortMethod="seriesSortMethod" :desc="desc" :search="''" @select-series="selectedSeries = $event" />

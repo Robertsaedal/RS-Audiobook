@@ -3,12 +3,12 @@
 import { computed, ref, nextTick } from 'vue';
 import { 
   Home, BookOpen, Layers,
-  RotateCw, PlusSquare, Search, BarChart2, ArrowLeft, LogOut
+  RotateCw, PlusSquare, Search, BarChart2, ArrowLeft, LogOut, Bookmark
 } from 'lucide-vue-next';
 import confetti from 'canvas-confetti';
 import AppLogo from './AppLogo.vue';
 
-export type LibraryTab = 'HOME' | 'LIBRARY' | 'SERIES' | 'REQUEST' | 'STATS';
+export type LibraryTab = 'HOME' | 'LIBRARY' | 'SERIES' | 'SAVED' | 'REQUEST' | 'STATS';
 
 const props = defineProps<{
   activeTab: LibraryTab;
@@ -27,12 +27,13 @@ const emit = defineEmits<{
   (e: 'update:search', val: string): void;
 }>();
 
-const version = "5.8.0";
+const version = "5.9.0";
 const showMobileSearch = ref(false);
 const mobileInputRef = ref<HTMLInputElement | null>(null);
 
 const navItems = [
   { id: 'HOME' as LibraryTab, icon: Home, label: 'Home' },
+  { id: 'SAVED' as LibraryTab, icon: Bookmark, label: 'Saved' },
   { id: 'LIBRARY' as LibraryTab, icon: BookOpen, label: 'Library' },
   { id: 'SERIES' as LibraryTab, icon: Layers, label: 'Series' },
   { id: 'STATS' as LibraryTab, icon: BarChart2, label: 'Stats' },
