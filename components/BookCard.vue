@@ -102,6 +102,23 @@ const displaySequence = computed(() => {
     const s = meta.series[0];
     if (s.sequence !== undefined && s.sequence !== null) return s.sequence;
   }
+  
+  // 5. REGEX FALLBACK: Check string fields for embedded numbers
+  const regex = /(?:Book|Vol|No\.?|#)\s*(\d+(\.\d+)?)/i;
+  
+  const fieldsToCheck = [
+    meta.seriesName,
+    (meta as any).subtitle,
+    meta.title // Fallback to title as last resort
+  ];
+
+  for (const field of fieldsToCheck) {
+    if (field && typeof field === 'string') {
+      const match = field.match(regex);
+      if (match) return match[1];
+    }
+  }
+
   return null;
 });
 
@@ -134,9 +151,6 @@ watch(isFinished, (newVal) => {
 });
 
 onMounted(async () => {
-  // Debug log requested by user
-  console.log('Book:', props.item.media.metadata.title, 'Sequence:', displaySequence.value, 'Full Meta:', props.item.media.metadata);
-
   if (await OfflineManager.isDownloaded(props.item.id)) {
     isDownloaded.value = true;
     localCover.value = await OfflineManager.getCoverUrl(props.item.id);
