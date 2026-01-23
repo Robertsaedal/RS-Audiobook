@@ -4,6 +4,10 @@ import vue from '@vitejs/plugin-vue';
 
 export default defineConfig({
   plugins: [vue()],
+  define: {
+    // Provides a fallback for the Discord Webhook to prevent 'undefined' errors during transformation
+    'process.env.VITE_DISCORD_WEBHOOK': JSON.stringify(process.env.VITE_DISCORD_WEBHOOK || '')
+  },
   build: {
     target: 'esnext',
     sourcemap: false, // Critical: Disable for faster builds and lower memory usage on Vercel

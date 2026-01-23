@@ -34,7 +34,7 @@ const emit = defineEmits<{
   (e: 'clear-initial-series'): void
 }>();
 
-const absService = ref<ABSService | null>(null);
+const absService = ref<ABSService | null>(props.providedService || null);
 const activeTab = ref<LibraryTab>('HOME');
 const searchTerm = ref('');
 const sortMethod = ref('addedAt'); 
@@ -63,27 +63,51 @@ const handleProgressUpdate = (p: ABSProgress, triggerEffects = true) => {
 
 const fetchDashboardData = async () => {
   fetchWishlist();
+  
+  if (!absService.value) return;
+
+  // Wait for library selection if not present
+  if (!absService.value.libraryId) {
+    await absService.value.getLibraries();
+  }
+
+  if (!absService.value.libraryId) {
+    console.warn("No library ID available for fetching dashboard.");
+    return;
+  }
+
   if (!navigator.onLine) {
     const localBooks = await OfflineManager.getAllDownloadedBooks();
-    currentlyReadingRaw.value = localBooks.filter(b => b.userProgress?.progress > 0 && !b.userProgress?.isFinished);
+    currentlyReadingRaw.value = localBooks.filter(b => (b.userProgress?.progress || 0) > 0 && !b.userProgress?.isFinished);
     recentlyAddedRaw.value = localBooks;
     return;
   }
-  if (!absService.value) return;
+
   try {
     const shelves = await absService.value.getPersonalizedShelves({ limit: 12 });
-    shelves.forEach((shelf: any) => {
-      if (shelf.id === 'continue-listening') currentlyReadingRaw.value = shelf.entities;
-      if (shelf.id === 'recently-added') recentlyAddedRaw.value = shelf.entities;
-      if (shelf.id === 'recent-series') recentSeries.value = shelf.entities;
-    });
-  } catch (e) { console.warn("Dash fetch failed", e); }
+    if (shelves && Array.isArray(shelves)) {
+      shelves.forEach((shelf: any) => {
+        if (shelf.id === 'continue-listening') currentlyReadingRaw.value = shelf.entities || [];
+        if (shelf.id === 'recently-added') recentlyAddedRaw.value = shelf.entities || [];
+        if (shelf.id === 'recent-series') recentSeries.value = shelf.entities || [];
+      });
+    }
+  } catch (e) { 
+    console.warn("Dashboard fetch failed", e); 
+  }
 };
 
 onMounted(async () => {
-  absService.value = props.providedService || new ABSService(props.auth.serverUrl, props.auth.user?.token || '');
+  if (!absService.value) {
+    absService.value = new ABSService(props.auth.serverUrl, props.auth.user?.token || '', props.auth.user?.id, props.auth.user?.defaultLibraryId);
+  }
   await fetchDashboardData();
   window.addEventListener('online', fetchDashboardData);
+});
+
+// Watch for libraryId changes to trigger re-fetch
+watch(() => absService.value?.libraryId, (newId) => {
+  if (newId) fetchDashboardData();
 });
 
 onActivated(fetchDashboardData);
@@ -102,6 +126,13 @@ const handleTabChange = (tab: LibraryTab) => {
   <LibraryLayout :activeTab="activeTab" v-model:search="searchTerm" :isScanning="isScanning" :isStreaming="isStreaming" :username="auth.user?.username" @tab-change="handleTabChange" @logout="emit('logout')" @scan="absService?.scanLibrary()">
     <div class="flex-1 min-h-0 h-full flex flex-col relative">
       <div v-if="activeTab === 'HOME'" class="h-full overflow-y-auto custom-scrollbar pt-4 pb-40">
+        
+        <!-- Empty State if no items found and not loading -->
+        <div v-if="!currentlyReadingRaw.length && !recentlyAddedRaw.length && !wishlistItems.length" class="flex flex-col items-center justify-center py-40 opacity-30">
+           <Loader2 class="animate-spin mb-4" :size="32" />
+           <p class="text-[10px] font-black uppercase tracking-widest">Awaiting Artifact Response...</p>
+        </div>
+
         <!-- Continue Listening -->
         <section v-if="currentlyReadingRaw.length > 0 && absService" class="shelf-row py-8">
           <div class="shelf-tag"><span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Continue Listening</span></div>

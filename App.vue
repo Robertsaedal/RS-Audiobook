@@ -1,9 +1,8 @@
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, defineAsyncComponent, reactive } from 'vue';
+import { ref, onMounted, defineAsyncComponent, reactive, watch } from 'vue';
 import { AuthState, ABSLibraryItem, ABSProgress } from './types';
 import { ABSService } from './services/absService';
-import InstallPwaBanner from './components/InstallPwaBanner.vue';
 import MiniPlayer from './components/MiniPlayer.vue';
 
 const Login = defineAsyncComponent(() => import('./views/Login.vue'));
@@ -15,17 +14,46 @@ const auth = ref<AuthState | null>(null);
 const selectedItem = ref<ABSLibraryItem | null>(null);
 const isInitializing = ref(true);
 const isStreaming = ref(false);
-const initialSeriesId = ref<string | null>(null);
 const showInfoOnOpen = ref(false);
 
 const absService = ref<ABSService | null>(null);
 const progressMap = reactive(new Map<string, ABSProgress>());
 
-onMounted(() => {
+// Global handler for successful authentication
+const handleAuthSuccess = async (authState: AuthState) => {
+  auth.value = authState;
+  
+  // Initialize or update ABSService
+  const service = new ABSService(
+    authState.serverUrl, 
+    authState.user?.token || '',
+    authState.user?.id,
+    authState.user?.defaultLibraryId
+  );
+  
+  // Discover and set default library if missing
+  if (!service.libraryId) {
+    await service.getLibraries();
+    if (service.libraryId && auth.value.user) {
+      auth.value.user.defaultLibraryId = service.libraryId;
+      localStorage.setItem('rs_auth', JSON.stringify(auth.value));
+    }
+  }
+
+  absService.value = service;
+  currentView.value = 'library';
+};
+
+onMounted(async () => {
   const savedAuth = localStorage.getItem('rs_auth');
   if (savedAuth) {
-    auth.value = JSON.parse(savedAuth);
-    currentView.value = 'library';
+    try {
+      const parsedAuth = JSON.parse(savedAuth) as AuthState;
+      await handleAuthSuccess(parsedAuth);
+    } catch (e) {
+      console.error('Session restoration failed', e);
+      handleLogout();
+    }
   }
   isInitializing.value = false;
 });
@@ -39,7 +67,11 @@ const openPlayer = (item: ABSLibraryItem, showInfo = false) => {
 };
 
 const handleLogout = () => {
+  if (absService.value) {
+    absService.value.disconnect();
+  }
   auth.value = null;
+  absService.value = null;
   localStorage.removeItem('rs_auth');
   currentView.value = 'login';
 };
@@ -58,12 +90,13 @@ const closePlayer = () => {
 
     <template v-else>
       <Transition name="fade" mode="out-in">
-        <Login v-if="currentView === 'login'" @login="auth = $event; currentView = 'library'" />
+        <Login v-if="currentView === 'login'" @login="handleAuthSuccess" />
         <Library 
-          v-else-if="currentView === 'library' && auth"
+          v-else-if="currentView === 'library' && auth && absService"
           :auth="auth" 
           :isStreaming="isStreaming"
           :progressMap="progressMap"
+          :providedService="absService"
           @select-item="openPlayer($event, false)" 
           @open-info="openPlayer($event, true)"
           @logout="handleLogout" 

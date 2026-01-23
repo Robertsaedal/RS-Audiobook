@@ -4,8 +4,8 @@ import { ref, watch, onMounted } from 'vue';
 import { Search, BookOpen, Send, CheckCircle, User, Fingerprint, MessageSquare, Loader2, X, AlertTriangle, RotateCw, Check } from 'lucide-vue-next';
 import confetti from 'canvas-confetti';
 
-// Configuration - Now pulling from environment variables
-const DISCORD_WEBHOOK_URL = import.meta.env.VITE_DISCORD_WEBHOOK;
+// Configuration - Pulling from environment variables with defensive fallback
+const DISCORD_WEBHOOK_URL = import.meta.env.VITE_DISCORD_WEBHOOK || '';
 const EMBED_COLOR = 11032055; // #A855F7 in decimal
 
 const searchTerm = ref('');
@@ -65,10 +65,11 @@ const selectBook = (book: any) => {
 const transmitRequest = async (event: MouseEvent) => {
   if (!selectedBook.value || transmissionStatus.value === 'sending') return;
   
-  // Security Guard: Check if webhook is defined
-  if (!DISCORD_WEBHOOK_URL) {
+  // Defensive check for the webhook configuration
+  if (!DISCORD_WEBHOOK_URL || DISCORD_WEBHOOK_URL.trim() === '') {
+    console.warn('[RequestPortal] VITE_DISCORD_WEBHOOK is not configured in environment variables.');
     transmissionStatus.value = 'error';
-    errorMsg.value = 'Configuration Error: VITE_DISCORD_WEBHOOK is not defined.';
+    errorMsg.value = 'Network transmission not configured (Missing Webhook).';
     return;
   }
 
@@ -90,7 +91,7 @@ const transmitRequest = async (event: MouseEvent) => {
         url: selectedBook.value.thumbnail || 'https://via.placeholder.com/200?text=No+Artifact+Visual'
       },
       footer: {
-        text: 'Aether Transmission Protocol • Portal V5.2'
+        text: 'Aether Transmission Protocol • Portal V5.8'
       },
       timestamp: new Date().toISOString()
     }]
