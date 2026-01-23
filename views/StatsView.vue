@@ -1,9 +1,9 @@
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { ABSService } from '../services/absService';
 import { ABSProgress } from '../types';
-import { AlertCircle, PlayCircle, Trophy, ChevronLeft, ChevronRight, Clock, Calendar } from 'lucide-vue-next';
+import { AlertCircle, PlayCircle, Trophy, ChevronLeft, ChevronRight, Clock, Calendar, BarChart2 } from 'lucide-vue-next';
 
 const props = defineProps<{
   absService: ABSService,
@@ -103,6 +103,28 @@ const activeDaysCount = computed(() => {
   return count;
 });
 
+// Chart Data Aggregation
+const monthlyChartData = computed(() => {
+  const months = new Array(12).fill(0);
+  if (!stats.value?.days) return months;
+
+  Object.entries(stats.value.days).forEach(([dateStr, seconds]) => {
+    const parsed = parseYearMonth(dateStr);
+    if (parsed && parsed.year === selectedYear.value) {
+      // Convert to hours for the chart
+      months[parsed.month] += (Number(seconds) / 3600);
+    }
+  });
+  return months;
+});
+
+const maxChartValue = computed(() => {
+  const max = Math.max(...monthlyChartData.value);
+  return max > 0 ? max : 10; // Default scale if empty
+});
+
+const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
 const displaySessions = computed(() => {
     // ABS API sometimes returns sessions in 'recentSessions' or 'items' depending on version
     return stats.value?.items || stats.value?.recentSessions || [];
@@ -135,6 +157,11 @@ const fetchStats = async () => {
 const changeYear = (delta: number) => {
   selectedYear.value += delta;
 };
+
+watch(selectedYear, () => {
+  // If we had an API that filtered by year server-side, we'd call it here.
+  // Since ABS usually returns all history or we are using client side filtering, just re-compute.
+});
 
 onMounted(() => {
   fetchStats();
@@ -222,6 +249,49 @@ onMounted(() => {
                 <span class="text-sm font-black text-neutral-500 uppercase">Days</span>
              </div>
           </div>
+        </div>
+
+        <!-- Volume Chart -->
+        <div class="bg-neutral-900/40 border border-white/5 rounded-3xl p-6 md:p-8">
+           <div class="flex items-center gap-3 text-neutral-500 mb-8">
+              <BarChart2 :size="18" />
+              <span class="text-[9px] font-black uppercase tracking-[0.3em]">Volume by Month</span>
+           </div>
+           
+           <div class="h-48 md:h-64 flex items-end justify-between gap-2 md:gap-4 relative">
+              <!-- Grid Lines (Optional visual) -->
+              <div class="absolute inset-0 flex flex-col justify-between pointer-events-none opacity-10">
+                 <div class="w-full h-px bg-white"></div>
+                 <div class="w-full h-px bg-white"></div>
+                 <div class="w-full h-px bg-white"></div>
+                 <div class="w-full h-px bg-white"></div>
+                 <div class="w-full h-px bg-white"></div>
+              </div>
+
+              <div 
+                v-for="(hours, index) in monthlyChartData" 
+                :key="index"
+                class="flex flex-col items-center justify-end h-full flex-1 group relative z-10"
+              >
+                <!-- Tooltip -->
+                <div class="absolute bottom-[calc(100%+10px)] left-1/2 -translate-x-1/2 bg-neutral-800 text-white text-[9px] font-bold px-2 py-1 rounded shadow-xl opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-20 pointer-events-none border border-white/10">
+                   {{ hours.toFixed(1) }} Hours
+                </div>
+
+                <!-- Bar -->
+                <div 
+                  class="w-full md:w-4/5 bg-neutral-800 rounded-t-sm transition-all duration-500 ease-out group-hover:bg-purple-500 relative overflow-hidden"
+                  :style="{ height: `${(hours / maxChartValue) * 100}%` }"
+                >
+                   <div class="absolute bottom-0 left-0 right-0 h-1/2 bg-gradient-to-t from-black/20 to-transparent" />
+                </div>
+                
+                <!-- Label -->
+                <span class="text-[8px] md:text-[9px] font-bold text-neutral-600 mt-3 uppercase tracking-wider group-hover:text-purple-400 transition-colors">
+                  {{ monthLabels[index] }}
+                </span>
+              </div>
+           </div>
         </div>
 
         <!-- Activity History -->

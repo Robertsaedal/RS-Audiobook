@@ -22,7 +22,7 @@ const emit = defineEmits<{
   (e: 'item-updated', updatedItem: ABSLibraryItem): void
 }>();
 
-const { state, load, play, pause, seek, setPlaybackRate, setPreservesPitch, setSleepChapters, setSleepTimer, destroy } = usePlayer();
+const { state, load, play, pause, seek, setPlaybackRate, setSleepChapters, setSleepTimer, destroy } = usePlayer();
 const absService = computed(() => new ABSService(props.auth.serverUrl, props.auth.user?.token || ''));
 
 const showChapters = ref(false);
@@ -290,10 +290,10 @@ const infoRows = computed(() => [
       </header>
 
       <!-- Main Layout -->
-      <div class="flex-1 w-full h-full flex flex-col lg:flex-row overflow-hidden relative z-10">
+      <div class="flex-1 w-full h-full flex flex-col lg:flex-row overflow-hidden relative z-10 gap-6 lg:gap-0">
         <!-- Visuals -->
-        <div class="flex-1 lg:flex-none lg:w-[40%] flex flex-col items-center justify-center px-8 pb-4 lg:pb-0 relative z-10 min-h-0">
-          <div @click="showInfo = true" class="relative w-full max-w-[260px] md:max-w-[280px] aspect-[2/3] group cursor-pointer perspective-1000 shrink-0 mb-6 lg:mb-10 max-h-[35vh] lg:max-h-[50vh]">
+        <div class="flex-1 lg:flex-none lg:w-[40%] flex flex-col items-center justify-center px-8 relative z-10 min-h-0 pb-6 lg:pb-0">
+          <div @click="showInfo = true" class="relative w-full max-w-[240px] md:max-w-[280px] aspect-[2/3] group cursor-pointer perspective-1000 shrink-0 mb-6 lg:mb-10 max-h-[35vh] lg:max-h-[50vh]">
             <div 
                class="absolute -inset-10 blur-[100px] rounded-full opacity-40 transition-colors duration-1000"
                :style="{ backgroundColor: state.accentColor }"
@@ -305,7 +305,7 @@ const infoRows = computed(() => [
           <div class="text-center space-y-4 w-full max-w-md px-4 z-10">
             <div class="space-y-2">
               <div class="flex items-center justify-center gap-3">
-                <h1 class="text-2xl md:text-3xl font-black uppercase tracking-tight text-white leading-tight line-clamp-2">{{ metadata.title }}</h1>
+                <h1 class="text-xl sm:text-2xl md:text-3xl font-black uppercase tracking-tight text-white leading-tight line-clamp-2 text-balance">{{ metadata.title }}</h1>
                 <CheckCircle v-if="isFinished" class="text-green-500 shrink-0" :size="24" fill="currentColor" stroke-width="2" stroke="black" />
               </div>
               <p class="text-lg font-bold text-neutral-500 line-clamp-1">{{ metadata.authorName }}</p>
@@ -326,12 +326,9 @@ const infoRows = computed(() => [
         </div>
 
         <!-- Controls -->
-        <div class="shrink-0 lg:flex-1 lg:w-[60%] lg:h-full flex flex-col justify-end lg:justify-center px-8 pb-12 lg:pb-0 lg:px-24 space-y-10 lg:space-y-16 w-full max-w-xl lg:max-w-3xl mx-auto lg:mx-0 z-20">
+        <div class="shrink-0 lg:flex-1 lg:w-[60%] lg:h-full flex flex-col justify-end lg:justify-center px-8 pb-10 lg:pb-0 lg:px-24 space-y-8 lg:space-y-16 w-full max-w-xl lg:max-w-3xl mx-auto lg:mx-0 z-20">
           <!-- Progress -->
           <div class="space-y-4">
-            <div v-if="liveSleepCountdown" class="flex justify-center mb-2">
-               <span class="text-[10px] font-black tracking-widest text-purple-400 animate-pulse shadow-aether-glow uppercase">{{ liveSleepCountdown }} REMAINING</span>
-            </div>
             <div class="flex justify-between items-end mb-1 h-5">
                <div class="flex flex-col">
                  <span class="text-[8px] font-black text-neutral-600 uppercase tracking-widest">Elapsed</span>
@@ -339,7 +336,7 @@ const infoRows = computed(() => [
                </div>
                <div class="flex flex-col items-end">
                  <span class="text-[8px] font-black text-neutral-600 uppercase tracking-widest">Remaining</span>
-                 <span class="text-lg font-black font-mono-timer tracking-tighter text-purple-500">-{{ secondsToTimestamp(chapterTimeRemaining) }}</span>
+                 <span class="text-lg font-black font-mono-timer tracking-tighter text-neutral-400 shadow-none drop-shadow-none">-{{ secondsToTimestamp(chapterTimeRemaining) }}</span>
                </div>
             </div>
             <div class="h-3 w-full bg-neutral-900 rounded-full relative overflow-hidden shadow-inner border border-white/5 cursor-pointer" @click="handleChapterProgressClick">
@@ -368,12 +365,8 @@ const infoRows = computed(() => [
           <!-- Mini Cards -->
           <div class="grid grid-cols-2 gap-4 w-full">
             <div class="bg-neutral-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-4 flex flex-col justify-between gap-2 h-36 relative overflow-hidden">
-               <div class="flex justify-between items-center px-1">
+               <div class="flex items-center justify-center w-full relative">
                    <div class="flex items-center gap-2 text-neutral-500"><Clock :size="14" /><span class="text-[9px] font-black uppercase tracking-[0.2em]">Speed</span></div>
-                   <button @click="setPreservesPitch(!state.preservesPitch)" class="flex items-center gap-1.5 px-2 py-1 rounded-full border transition-all" :class="state.preservesPitch ? 'bg-purple-600/20 border-purple-500/30 text-purple-400' : 'bg-white/5 border-white/5 text-neutral-600'">
-                      <div class="w-1.5 h-1.5 rounded-full" :class="state.preservesPitch ? 'bg-purple-500 shadow-[0_0_8px_#A855F7]' : 'bg-neutral-600'" />
-                      <span class="text-[8px] font-black uppercase">Natural</span>
-                   </button>
                </div>
                <div class="flex-1 flex flex-col items-center justify-center"><span class="text-3xl font-black font-mono tracking-tighter text-white">{{ state.playbackRate.toFixed(1) }}x</span></div>
                <div class="flex items-center gap-4 w-full justify-center">

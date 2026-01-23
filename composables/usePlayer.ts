@@ -31,7 +31,7 @@ const state = reactive<PlayerState>({
   duration: 0,
   bufferedTime: 0,
   playbackRate: 1.0,
-  preservesPitch: true, 
+  preservesPitch: true, // Always true now
   isLoading: false,
   error: null,
   sessionId: null,
@@ -74,9 +74,10 @@ export function usePlayer() {
     audioEl.style.display = 'none';
     audioEl.crossOrigin = 'anonymous';
     
-    (audioEl as any).preservesPitch = state.preservesPitch;
-    (audioEl as any).webkitPreservesPitch = state.preservesPitch;
-    (audioEl as any).mozPreservesPitch = state.preservesPitch;
+    // Hardcode Pitch Correction
+    (audioEl as any).preservesPitch = true;
+    (audioEl as any).webkitPreservesPitch = true;
+    (audioEl as any).mozPreservesPitch = true;
 
     document.body.appendChild(audioEl);
 
@@ -376,10 +377,8 @@ export function usePlayer() {
     playWhenReady = state.isPlaying;
 
     if (state.isOffline) {
-      // Offline Blob Seek Logic
       try {
         audioEl.currentTime = target;
-        // Force update state immediately so UI reflects seek
         state.currentTime = target;
         
         if (playWhenReady) {
@@ -391,7 +390,6 @@ export function usePlayer() {
       return;
     } 
 
-    // Online Seek Logic
     if (state.isHls) {
       const offsetTime = target - (audioTracks[currentTrackIndex]?.startOffset || 0);
       audioEl.currentTime = Math.max(0, offsetTime);
@@ -417,13 +415,9 @@ export function usePlayer() {
     if (audioEl) audioEl.playbackRate = rate;
   };
 
+  // Deprecated/No-op as pitch is now always preserved
   const setPreservesPitch = (val: boolean) => {
-    state.preservesPitch = val;
-    if (audioEl) {
-      (audioEl as any).preservesPitch = val;
-      (audioEl as any).webkitPreservesPitch = val;
-      (audioEl as any).mozPreservesPitch = val;
-    }
+    state.preservesPitch = true;
   };
 
   const setSleepChapters = (count: number) => {

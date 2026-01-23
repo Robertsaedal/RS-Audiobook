@@ -280,7 +280,7 @@ export class ABSService {
     recentSessions: any[];
   } | null> {
     const data = await this.fetchApi(`/me/listening-stats?_cb=${Date.now()}`);
-    if (!data) return null;
+    if (!data) return { totalTime: 0, days: {}, recentSessions: [] }; // Fallback to avoid null checks failing
     return data;
   }
 

@@ -36,6 +36,7 @@ const absService = ref<ABSService | null>(null);
 const activeTab = ref<LibraryTab>('HOME');
 const searchTerm = ref('');
 const sortMethod = ref('addedAt'); 
+const seriesSortMethod = ref('lastBookAdded'); // Default to most recently updated series
 const desc = ref(1);
 const selectedSeries = ref<ABSSeries | null>(null);
 const isScanning = ref(false);
@@ -470,7 +471,7 @@ const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && rec
             <Bookshelf :absService="absService" :sortMethod="sortMethod" :desc="desc" :search="''" :progressMap="activeProgressMap" @select-item="emit('select-item', $event)" />
           </div>
           <div v-else-if="activeTab === 'SERIES' && absService" class="h-full flex flex-col overflow-hidden">
-            <SeriesShelf :absService="absService" :sortMethod="sortMethod" :desc="desc" :search="''" @select-series="selectedSeries = $event" />
+            <SeriesShelf :absService="absService" :sortMethod="seriesSortMethod" :desc="desc" :search="''" @select-series="selectedSeries = $event" />
           </div>
           <div v-else-if="activeTab === 'REQUEST'" class="h-full flex flex-col overflow-hidden"><RequestPortal /></div>
           <div v-else-if="activeTab === 'STATS' && absService" class="h-full flex flex-col overflow-hidden"><StatsView :absService="absService" :progressMap="activeProgressMap" /></div>
