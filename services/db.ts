@@ -1,3 +1,4 @@
+
 import Dexie, { type Table } from 'dexie';
 import { ABSLibraryItem } from '../types';
 
@@ -9,13 +10,21 @@ export interface OfflineBook {
   downloadedAt: number;
 }
 
+export interface WishlistItem {
+  itemId: string;
+  metadata: ABSLibraryItem;
+  addedAt: number;
+}
+
 export class AppDatabase extends Dexie {
   downloads!: Table<OfflineBook, string>;
+  wishlist!: Table<WishlistItem, string>;
 
   constructor() {
     super('RSAudioDatabase');
-    (this as any).version(1).stores({
-      downloads: 'itemId, downloadedAt'
+    (this as any).version(2).stores({
+      downloads: 'itemId, downloadedAt',
+      wishlist: 'itemId, addedAt'
     });
   }
 }

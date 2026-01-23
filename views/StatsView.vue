@@ -165,13 +165,13 @@ const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep
 </script>
 
 <template>
-  <div class="h-full flex flex-col overflow-hidden animate-fade-in relative bg-[#0d0d0d] -mx-4 md:-mx-8">
-    <div class="flex-1 overflow-y-auto custom-scrollbar px-4 md:px-8 pb-40">
+  <div class="h-full flex flex-col overflow-hidden animate-fade-in relative bg-[#0d0d0d]">
+    <div class="flex-1 overflow-y-auto custom-scrollbar pb-40">
       
       <!-- Header -->
       <div class="pt-8 pb-8 flex items-end justify-between">
         <div>
-          <h1 class="text-4xl md:text-5xl font-black uppercase tracking-tighter text-white mb-2">My Analytics</h1>
+          <h1 class="text-4xl md:text-5xl font-black uppercase tracking-tighter text-white mb-2">Analytics</h1>
           <p class="text-[10px] font-black uppercase tracking-[0.4em] text-purple-500">Listening Intelligence</p>
         </div>
         

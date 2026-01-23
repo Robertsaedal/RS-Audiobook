@@ -194,8 +194,8 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="h-full flex flex-col overflow-hidden animate-fade-in relative bg-[#0d0d0d] -mx-4 md:-mx-8">
-    <div class="flex-1 overflow-y-auto custom-scrollbar px-4 md:px-8">
+  <div class="h-full flex flex-col overflow-hidden animate-fade-in relative bg-[#0d0d0d]">
+    <div class="flex-1 overflow-y-auto custom-scrollbar">
       <section class="relative h-[50vh] -mx-4 md:-mx-8 overflow-hidden mb-16 group">
         <div 
           class="absolute inset-0 bg-cover bg-center scale-110 blur-[40px] opacity-30 transition-transform duration-[5s] group-hover:scale-125"
@@ -245,7 +245,7 @@ onMounted(() => {
         </div>
       </section>
 
-      <section class="space-y-12 pb-40 px-4 md:px-0">
+      <section class="space-y-12 pb-40">
         <div class="flex items-center justify-between px-2">
           <div class="flex items-center gap-3 text-neutral-700">
             <Layers :size="12" />

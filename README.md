@@ -65,4 +65,16 @@ View your app in AI Studio: [https://ai.studio/apps/drive/1FKZkq810By4UyccXiWR5D
 
 <div align="center">
   <h3>Screenshots</h3>
-  <p><i>Optimized for Portrait & Landscape</i></
+  <p><i>Optimized for Portrait & Landscape</i></p>
+   <p align="center">
+  <img width="300" alt="Screenshot 2026-01-22 104902" src="https://github.com/user-attachments/assets/de66f722-6952-4327-972d-22d1cb5822bf" />
+  <img width="300" alt="Screenshot 2026-01-22 104853" src="https://github.com/user-attachments/assets/41e75bde-0883-4021-870d-4eaf46407aa6" />
+  <img width="300" alt="Screenshot 2026-01-22 104839" src="https://github.com/user-attachments/assets/e95398af-fae4-43b6-ba84-cee77ca1ca51" />
+</p>
+
+  <p align="center">
+<img width="600" alt="Screenshot 2026-01-22 104756" src="https://github.com/user-attachments/assets/68570714-f5a5-4f8d-8be0-6b97fe30fe96" />
+<img width="600" alt="Screenshot 2026-01-22 104742" src="https://github.com/user-attachments/assets/b97e90cc-20af-4282-8077-9d107da48cd2" />
+<img width="600" alt="Screenshot 2026-01-22 104724" src="https://github.com/user-attachments/assets/6d2e96b9-675d-4666-95fa-3fd080172e84" />
+
+</p>

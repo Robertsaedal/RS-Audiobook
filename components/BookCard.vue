@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
 import { ABSLibraryItem, ABSProgress } from '../types';
-import { Play, CheckCircle, Smartphone } from 'lucide-vue-next';
+import { Play, Smartphone, Info, Heart } from 'lucide-vue-next';
 import { OfflineManager } from '../services/offlineManager';
 import { getDominantColor } from '../services/colorUtils';
 
@@ -17,89 +17,41 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (e: 'click', item: ABSLibraryItem): void
+  (e: 'click', item: ABSLibraryItem): void,
+  (e: 'info-click', item: ABSLibraryItem): void
 }>();
 
 const imageReady = ref(false);
 const isDownloaded = ref(false);
+const isWishlisted = ref(false);
 const localCover = ref<string | null>(null);
-const triggerCompletionEffect = ref(false);
-const showTimeRemaining = ref(false);
-const accentColor = ref('#A855F7'); // Default Purple
+const accentColor = ref('#A855F7'); 
 const colorLoaded = ref(false);
 
 const progressData = computed(() => {
-  return props.item.userProgress || 
-         (props.item.media as any)?.userProgress || 
-         (props.item as any).userMediaProgress || 
-         null;
+  return props.item.userProgress || (props.item.media as any)?.userProgress || null;
 });
 
 const progressPercentage = computed(() => {
   const p = progressData.value;
   const media = props.item.media;
-
-  if (p?.isFinished || (p as any)?.isCompleted) return 100;
-
+  if (p?.isFinished) return 100;
   const totalDuration = media?.duration || p?.duration || 0;
   const currentTime = p?.currentTime || 0;
-
-  if (totalDuration > 0 && currentTime > 0) {
-    const calculatedPct = (currentTime / totalDuration) * 100;
-    return Math.min(100, Math.max(0, calculatedPct));
-  }
-
-  if (typeof p?.progress === 'number' && p.progress > 0) {
-    const serverPct = p.progress <= 1 ? p.progress * 100 : p.progress;
-    return Math.min(100, Math.max(0, serverPct));
-  }
-
+  if (totalDuration > 0 && currentTime > 0) return Math.min(100, (currentTime / totalDuration) * 100);
+  if (typeof p?.progress === 'number') return Math.min(100, p.progress * 100);
   return 0;
-});
-
-const remainingTimeText = computed(() => {
-  const p = progressData.value;
-  const media = props.item.media;
-  if (!p || !media) return '0m';
-  
-  const total = media.duration || p.duration || 0;
-  const current = p.currentTime || 0;
-  const left = Math.max(0, total - current);
-  
-  if (left <= 0) return '0m';
-
-  const h = Math.floor(left / 3600);
-  const m = Math.floor((left % 3600) / 60);
-
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
 });
 
 const isFinished = computed(() => {
   const p = progressData.value;
-  if (!p) return false;
-  if (p.isFinished || (p as any).isCompleted) return true;
-  return progressPercentage.value >= 99.5;
+  return p?.isFinished || progressPercentage.value >= 99.5;
 });
 
 const displaySequence = computed(() => {
-  if (props.fallbackSequence !== undefined && props.fallbackSequence !== null) {
-    if (typeof props.fallbackSequence === 'string' && props.fallbackSequence.trim() === '') return null;
-    return props.fallbackSequence;
-  }
-
+  if (props.fallbackSequence) return props.fallbackSequence;
   const meta = props.item.media?.metadata;
-  if (!meta) return null;
-  
-  if (meta.seriesSequence !== undefined && meta.seriesSequence !== null) return meta.seriesSequence;
-  if (meta.sequence !== undefined && meta.sequence !== null) return meta.sequence;
-
-  if (Array.isArray(meta.series) && meta.series.length > 0) {
-    const s = meta.series[0];
-    if (s.sequence !== undefined && s.sequence !== null) return s.sequence;
-  }
-
-  return null;
+  return meta?.seriesSequence || meta?.sequence || null;
 });
 
 const handleImageLoad = async () => {
@@ -113,24 +65,17 @@ const handleImageLoad = async () => {
   }
 };
 
-const toggleProgressDisplay = (e: Event) => {
-  e.stopPropagation();
-  showTimeRemaining.value = !showTimeRemaining.value;
-};
-
-watch(isFinished, (newVal) => {
-  if (newVal) {
-    triggerCompletionEffect.value = true;
-    setTimeout(() => { triggerCompletionEffect.value = false; }, 2000);
-  }
-});
-
-onMounted(async () => {
-  if (await OfflineManager.isDownloaded(props.item.id)) {
-    isDownloaded.value = true;
+const updateStates = async () => {
+  isDownloaded.value = await OfflineManager.isDownloaded(props.item.id);
+  isWishlisted.value = await OfflineManager.isWishlisted(props.item.id);
+  if (isDownloaded.value) {
     localCover.value = await OfflineManager.getCoverUrl(props.item.id);
   }
-});
+};
+
+onMounted(updateStates);
+
+watch(() => props.item.id, updateStates);
 </script>
 
 <template>
@@ -139,16 +84,10 @@ onMounted(async () => {
     class="flex flex-col text-left group transition-all outline-none w-full relative h-full"
     :style="{ '--card-accent': accentColor }"
   >
-    <!-- Cover Artifact Container -->
     <div 
       class="relative w-full aspect-[2/3] bg-neutral-950 rounded-xl overflow-hidden border transition-all duration-500 shadow-[0_10px_40px_-10px_var(--card-accent)] group-hover:scale-[1.04] shrink-0"
-      :class="triggerCompletionEffect ? 'ring-2 ring-purple-500/50 shadow-[0_0_30px_rgba(168,85,247,0.5)]' : ''"
       :style="{ borderColor: colorLoaded ? 'color-mix(in srgb, var(--card-accent) 40%, transparent)' : 'rgba(255,255,255,0.05)' }"
     >
-      <!-- Completion Flash Effect -->
-      <div v-if="triggerCompletionEffect" class="absolute inset-0 z-50 pointer-events-none bg-purple-500/20 mix-blend-overlay animate-pulse" />
-
-      <!-- Shimmer Placeholder -->
       <div v-if="!imageReady" class="absolute inset-0 z-10 animate-shimmer" />
 
       <img 
@@ -156,76 +95,53 @@ onMounted(async () => {
         @load="handleImageLoad"
         class="w-full h-full object-cover transition-opacity duration-700" 
         :class="{ 'opacity-0': !imageReady, 'opacity-100': imageReady }"
-        loading="lazy" 
       />
       
-      <!-- Book Sequence Badge -->
-      <div v-if="displaySequence !== null" class="absolute top-2 left-2 z-30">
-        <div class="px-2 py-1 bg-black/70 backdrop-blur-md border border-white/10 rounded-md shadow-lg">
-          <span class="text-[10px] font-black text-purple-400 tracking-tighter">
-            #{{ displaySequence }}
-          </span>
+      <!-- Info Badge (Top Right Action) - Persistent Shortcut -->
+      <button 
+        @click.stop="emit('info-click', item)"
+        class="absolute top-2 right-2 z-[60] p-2 bg-black/60 backdrop-blur-xl border border-white/10 rounded-full text-white/70 hover:text-white hover:bg-purple-600 transition-all active:scale-90 shadow-xl"
+        title="View Metadata"
+      >
+        <Info :size="14" />
+      </button>
+
+      <!-- Offline Badge -->
+      <div v-if="isDownloaded" class="absolute top-12 right-2 z-30 flex items-center gap-1.5 px-2 py-1 bg-black/80 backdrop-blur-md border border-emerald-500/30 rounded-full shadow-xl">
+        <Smartphone :size="10" class="text-emerald-500" />
+      </div>
+
+      <!-- Wishlist Heart (Top Left if not Sequence) -->
+      <div v-if="isWishlisted" class="absolute top-2 left-2 z-30 animate-tap-pop">
+        <div class="p-1.5 bg-purple-600 rounded-full shadow-[0_0_15px_rgba(168,85,247,0.6)] border border-purple-400/30">
+          <Heart :size="10" fill="white" class="text-white" />
         </div>
       </div>
-      
-      <!-- Offline Badge (New) -->
-      <div v-if="isDownloaded" class="absolute top-2 right-2 z-30 flex items-center gap-1.5 px-2 py-1 bg-black/80 backdrop-blur-md border border-emerald-500/30 rounded-full shadow-xl">
-        <Smartphone :size="10" class="text-emerald-500" />
-        <span class="text-[8px] font-black uppercase tracking-widest text-emerald-400">Offline</span>
+
+      <!-- Sequence Badge -->
+      <div v-if="displaySequence !== null" class="absolute z-30" :class="isWishlisted ? 'top-10 left-2' : 'top-2 left-2'">
+        <div class="px-2 py-1 bg-black/70 backdrop-blur-md border border-white/10 rounded-md shadow-lg">
+          <span class="text-[10px] font-black text-purple-400">#{{ displaySequence }}</span>
+        </div>
       </div>
 
-      <!-- Finished Indicator Overlay -->
-      <div v-if="isFinished" class="absolute inset-0 flex items-center justify-center z-40 bg-black/40 backdrop-grayscale-[0.5] pointer-events-none">
-         <div class="px-4 py-1.5 bg-purple-600/90 backdrop-blur-md border border-purple-400/30 rounded-full flex items-center justify-center shadow-xl transform -rotate-12">
-            <span class="text-[9px] font-black text-white uppercase tracking-[0.2em]">COMPLETE</span>
-         </div>
-      </div>
-
-      <!-- Play Overlay -->
+      <!-- Play Overlay (Only on Hover) -->
       <div v-if="!isFinished" class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex items-center justify-center pointer-events-none">
         <div class="w-14 h-14 rounded-full bg-purple-600 text-white flex items-center justify-center shadow-[0_0_30px_rgba(168,85,247,0.5)] transform scale-90 group-hover:scale-100 transition-transform">
           <Play :size="24" fill="currentColor" class="translate-x-0.5" />
         </div>
       </div>
 
-      <!-- Amethyst Glow Floating Progress -->
+      <!-- Progress Bar -->
       <div v-if="!hideProgress && !isFinished && progressPercentage > 0" class="absolute bottom-3 left-3 right-3 z-30 flex flex-col pointer-events-none">
-         <div class="relative w-full h-1.5 bg-purple-950/40 backdrop-blur-sm rounded-full">
-            <div 
-              class="h-full bg-purple-500 rounded-full shadow-[0_0_10px_rgba(168,85,247,0.4)] transition-all duration-300 relative" 
-              :style="{ width: progressPercentage + '%', backgroundColor: colorLoaded ? 'var(--card-accent)' : undefined, boxShadow: colorLoaded ? '0 0 10px var(--card-accent)' : undefined }"
-            />
-            <div 
-               class="absolute bottom-full mb-1 flex flex-col items-center transition-all duration-300 z-40 pointer-events-auto"
-               :style="{ left: progressPercentage + '%' }"
-               style="transform: translateX(-50%);"
-               @click.stop="toggleProgressDisplay"
-            >
-               <div 
-                 class="bg-purple-600 px-2 py-0.5 rounded-full text-[8px] font-black text-white tracking-widest shadow-lg relative min-w-[24px] text-center border transition-all duration-300 cursor-pointer hover:scale-110 active:scale-95 hover:bg-purple-500"
-                 :style="{ 
-                    backgroundColor: colorLoaded ? 'var(--card-accent)' : undefined,
-                    borderColor: colorLoaded ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.2)'
-                 }"
-               >
-                   {{ showTimeRemaining ? remainingTimeText : Math.round(progressPercentage) + '%' }}
-                   <div 
-                     class="absolute -bottom-[3px] left-1/2 -translate-x-1/2 w-0 h-0 border-l-[3px] border-l-transparent border-r-[3px] border-r-transparent border-t-[3px]"
-                     :style="{ borderTopColor: colorLoaded ? 'var(--card-accent)' : '#A855F7' }"
-                   ></div>
-               </div>
-            </div>
+         <div class="relative w-full h-1.5 bg-purple-950/40 backdrop-blur-sm rounded-full overflow-hidden">
+            <div class="h-full bg-purple-500 rounded-full shadow-[0_0_10px_rgba(168,85,247,0.4)] transition-all duration-300" :style="{ width: progressPercentage + '%', backgroundColor: accentColor }" />
          </div>
       </div>
     </div>
     
-    <!-- Permanent Metadata Display -->
     <div v-if="showMetadata" class="mt-3 px-1 flex flex-col gap-1 w-full min-h-[3.5em]">
-      <h3 
-        class="text-[11px] font-black text-white uppercase tracking-tight leading-[1.3] transition-colors line-clamp-4 w-full break-words" 
-        :title="item.media.metadata.title" 
-        :style="{ color: colorLoaded ? 'color-mix(in srgb, var(--card-accent) 80%, white)' : undefined }"
-      >
+      <h3 class="text-[11px] font-black text-white uppercase tracking-tight leading-[1.3] line-clamp-2 w-full break-words group-hover:text-purple-400 transition-colors">
         {{ item.media.metadata.title }}
       </h3>
       <p class="text-[9px] font-black text-neutral-500 uppercase tracking-widest truncate w-full">
@@ -234,12 +150,3 @@ onMounted(async () => {
     </div>
   </button>
 </template>
-
-<style scoped>
-.line-clamp-4 {
-  display: -webkit-box;
-  -webkit-line-clamp: 4;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-</style>
