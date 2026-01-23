@@ -5,7 +5,7 @@ import { ABSLibraryItem, ABSProgress } from '../types';
 import { OfflineManager, downloadQueue } from '../services/offlineManager';
 import { ABSService } from '../services/absService';
 import BookCard from '../components/BookCard.vue';
-import { Trash2, PackageOpen, Download, Heart, HardDrive } from 'lucide-vue-next';
+import { Trash2, PackageOpen, Download, Heart, HardDrive, X } from 'lucide-vue-next';
 
 const props = defineProps<{
   absService: ABSService,
@@ -62,6 +62,12 @@ const handleDelete = async (e: Event, item: ABSLibraryItem) => {
     await OfflineManager.deleteBook(item.id);
     await loadData();
   }
+};
+
+const handleRemoveWishlist = async (e: Event, item: ABSLibraryItem) => {
+  e.stopPropagation();
+  await OfflineManager.toggleWishlist(item); // Toggles off
+  await loadData();
 };
 
 const handleSelect = (item: ABSLibraryItem) => {
@@ -129,7 +135,7 @@ onActivated(loadData);
         </div>
 
         <div v-if="hydratedWishlist.length > 0" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
-           <div v-for="item in hydratedWishlist" :key="item.id" class="flex flex-col">
+           <div v-for="item in hydratedWishlist" :key="item.id" class="flex flex-col gap-3 group">
              <BookCard 
                :item="item" 
                :coverUrl="absService.getCoverUrl(item.id)" 
@@ -138,6 +144,15 @@ onActivated(loadData);
                @click="handleSelect"
                @click-info="handleInfo" 
              />
+             <!-- Remove Button -->
+             <button 
+                @click="(e) => handleRemoveWishlist(e, item)"
+                class="w-full py-2 flex items-center justify-center gap-2 bg-neutral-900 border border-white/10 rounded-lg text-neutral-400 hover:bg-white/5 hover:text-white transition-all group/btn"
+                title="Remove from Wishlist"
+             >
+                <X :size="12" class="group-hover/btn:scale-110 transition-transform" />
+                <span class="text-[9px] font-black uppercase tracking-widest">Remove</span>
+             </button>
            </div>
         </div>
 

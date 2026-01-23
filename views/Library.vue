@@ -13,7 +13,7 @@ import RequestPortal from '../components/RequestPortal.vue';
 import StatsView from './StatsView.vue';
 import BookCard from '../components/BookCard.vue';
 import SeriesCard from '../components/SeriesCard.vue';
-import { PackageOpen, Loader2, WifiOff, RotateCw, X, Heart, Play, Mic, Clock, Layers, Calendar } from 'lucide-vue-next';
+import { PackageOpen, Loader2, WifiOff, RotateCw, X, Heart, Play, Mic, Clock, Layers, Calendar, ArrowRight } from 'lucide-vue-next';
 
 defineOptions({
   name: 'Library'
@@ -344,6 +344,11 @@ const playFromModal = () => {
   }
 };
 
+const handleSeriesClickFromModal = async (seriesId: string) => {
+  closeInfoModal();
+  await handleJumpToSeries(seriesId);
+};
+
 const secondsToTimestamp = (s: number) => {
   if (isNaN(s) || s < 0) return "00:00";
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = Math.floor(s % 60);
@@ -366,9 +371,17 @@ const modalInfoRows = computed(() => {
     year = (m as any).publishedDate.substring(0, 4);
   }
 
+  const seriesId = m.seriesId || (Array.isArray((m as any).series) && (m as any).series.length > 0 ? (m as any).series[0].id : null);
+
   return [
     { label: 'Narrator', value: narrator || 'Unknown', icon: Mic },
-    { label: 'Series', value: m.seriesName || 'Standalone', icon: Layers },
+    { 
+      label: 'Series', 
+      value: m.seriesName || 'Standalone', 
+      icon: Layers,
+      isAction: !!seriesId,
+      actionId: seriesId
+    },
     { label: 'Duration', value: secondsToTimestamp(selectedInfoItem.value.media.duration), icon: Clock },
     { label: 'Year', value: year || 'Unknown', icon: Calendar }
   ];
@@ -611,30 +624,36 @@ const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && rec
 
               <!-- Enhanced Info Grid (Pills) -->
               <div class="grid grid-cols-2 gap-4">
-                <div 
+                <component 
+                  :is="row.isAction ? 'button' : 'div'"
                   v-for="(row, i) in modalInfoRows" 
                   :key="i" 
-                  class="bg-white/5 border border-white/5 p-4 rounded-2xl flex flex-col gap-1"
+                  class="bg-white/5 border border-white/5 p-4 rounded-2xl flex flex-col gap-1 text-left transition-all"
+                  :class="{ 'hover:bg-purple-600/10 hover:border-purple-500/30 cursor-pointer group active:scale-95': row.isAction }"
+                  @click="row.isAction ? handleSeriesClickFromModal(row.actionId) : null"
                 >
-                  <div class="flex items-center gap-2 text-neutral-500 mb-1">
+                  <div class="flex items-center gap-2 text-neutral-500 mb-1" :class="{ 'group-hover:text-purple-400': row.isAction }">
                     <component :is="row.icon" :size="12" />
                     <span class="text-[9px] font-black uppercase tracking-widest">{{ row.label }}</span>
                   </div>
-                  <span class="text-sm font-bold text-white truncate">{{ row.value }}</span>
-                </div>
+                  <div class="flex items-center justify-between w-full">
+                     <span class="text-sm font-bold text-white truncate w-full" :class="{ 'group-hover:text-purple-300': row.isAction }">{{ row.value }}</span>
+                     <ArrowRight v-if="row.isAction" :size="14" class="text-purple-500 opacity-0 group-hover:opacity-100 transition-opacity -ml-4 group-hover:ml-0" />
+                  </div>
+                </component>
               </div>
 
               <!-- Actions -->
               <div class="grid grid-cols-2 gap-4 pt-4">
                  <button 
                    @click="playFromModal"
-                   class="py-4 bg-purple-600 rounded-2xl font-black uppercase tracking-widest text-white shadow-[0_0_20px_rgba(168,85,247,0.4)] flex items-center justify-center gap-2"
+                   class="py-4 bg-purple-600 rounded-2xl font-black uppercase tracking-widest text-white shadow-[0_0_20px_rgba(168,85,247,0.4)] flex items-center justify-center gap-2 active:scale-95 transition-transform"
                  >
                     <Play :size="16" fill="currentColor" /> Play
                  </button>
                  <button 
                    @click="toggleWishlist"
-                   class="py-4 bg-neutral-900 border border-white/10 rounded-2xl font-black uppercase tracking-widest text-neutral-400 hover:text-pink-400 hover:border-pink-500/30 transition-all flex items-center justify-center gap-2"
+                   class="py-4 bg-neutral-900 border border-white/10 rounded-2xl font-black uppercase tracking-widest text-neutral-400 hover:text-pink-400 hover:border-pink-500/30 transition-all flex items-center justify-center gap-2 active:scale-95"
                    :class="{ 'text-pink-500 border-pink-500/50 bg-pink-500/10': isInfoItemWishlisted }"
                  >
                     <Heart :size="16" :fill="isInfoItemWishlisted ? 'currentColor' : 'none'" /> 
