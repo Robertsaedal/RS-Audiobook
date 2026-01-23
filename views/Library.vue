@@ -13,7 +13,7 @@ import RequestPortal from '../components/RequestPortal.vue';
 import StatsView from './StatsView.vue';
 import BookCard from '../components/BookCard.vue';
 import SeriesCard from '../components/SeriesCard.vue';
-import { PackageOpen, Loader2, WifiOff, RotateCw, X, Heart, Play, Mic, Clock, Layers, Calendar, ArrowRight } from 'lucide-vue-next';
+import { PackageOpen, Loader2, WifiOff, RotateCw, X, Heart, Play, Mic, Clock, Layers, Calendar, ChevronRight } from 'lucide-vue-next';
 
 defineOptions({
   name: 'Library'
@@ -344,9 +344,15 @@ const playFromModal = () => {
   }
 };
 
-const handleSeriesClickFromModal = async (seriesId: string) => {
+const handleSeriesClickFromModal = async (seriesId: string | null, seriesName?: string) => {
   closeInfoModal();
-  await handleJumpToSeries(seriesId);
+  if (seriesId) {
+    await handleJumpToSeries(seriesId);
+  } else if (seriesName) {
+    // Fallback: Search for the series name if no ID is attached
+    searchTerm.value = seriesName;
+    // We rely on the searchTerm watcher in LibraryLayout/Parent to trigger the search view
+  }
 };
 
 const secondsToTimestamp = (s: number) => {
@@ -385,24 +391,17 @@ const modalInfoRows = computed(() => {
     { label: 'Year', value: year || 'Unknown', icon: Calendar }
   ];
 
-  // Only add Series row if we have a Name (even if ID is missing we show text, though click might fail if no ID)
-  // We prioritize having an ID for the click action.
-  if (seriesId && seriesName) {
+  // Logic: If seriesName exists, we make it clickable (isAction: true).
+  // The handler will determine if we have an ID to jump to, or if we need to fallback to search.
+  if (seriesName) {
     rows.splice(1, 0, { 
       label: 'Series', 
       value: seriesName, 
       icon: Layers,
       isAction: true,
-      actionId: seriesId
+      actionId: seriesId || null, // Can be null, handler deals with it
+      actionName: seriesName
     } as any);
-  } else if (seriesName) {
-      // Fallback: Show Series Name even if we can't route (no ID found)
-       rows.splice(1, 0, { 
-        label: 'Series', 
-        value: seriesName, 
-        icon: Layers,
-        isAction: false 
-      } as any);
   }
 
   return rows;
@@ -652,10 +651,10 @@ const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && rec
                   class="p-4 rounded-2xl flex flex-col gap-1 text-left transition-all relative overflow-hidden"
                   :class="[
                     row.isAction 
-                      ? 'bg-purple-600 border border-purple-500/50 hover:bg-purple-500 cursor-pointer group active:scale-95 shadow-lg shadow-purple-900/20' 
+                      ? 'bg-purple-600 border border-purple-500/50 hover:bg-purple-500 cursor-pointer group active:scale-95 shadow-lg shadow-purple-900/20 hover:scale-[1.02]' 
                       : 'bg-white/5 border border-white/5'
                   ]"
-                  @click="row.isAction ? handleSeriesClickFromModal(row.actionId) : null"
+                  @click="row.isAction ? handleSeriesClickFromModal(row.actionId, row.actionName) : null"
                 >
                   <div class="flex items-center gap-2 mb-1" :class="row.isAction ? 'text-purple-200' : 'text-neutral-500'">
                     <component :is="row.icon" :size="12" />
@@ -663,7 +662,7 @@ const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && rec
                   </div>
                   <div class="flex items-center justify-between w-full">
                      <span class="text-sm font-bold truncate w-full" :class="row.isAction ? 'text-white' : 'text-white'">{{ row.value }}</span>
-                     <ArrowRight v-if="row.isAction" :size="16" class="text-white transition-transform group-hover:translate-x-1" />
+                     <ChevronRight v-if="row.isAction" :size="16" class="text-white transition-transform group-hover:translate-x-1" />
                   </div>
                 </component>
               </div>
