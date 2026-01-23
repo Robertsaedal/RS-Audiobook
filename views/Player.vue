@@ -194,7 +194,7 @@ const liveSleepCountdownText = computed(() => {
 });
 
 const cardSleepStatus = computed(() => {
-  if (state.sleepChapters > 0) return `${state.sleepChapters} CH`;
+  if (state.sleepChapters > 0) return `ACTIVE`; // Updated to simple status
   if (state.sleepEndTime) return 'TIMER ON';
   return 'OFF';
 });
@@ -264,10 +264,8 @@ const infoRows = computed(() => {
   }
 
   // SERIES LOGIC: Check root seriesId, or extract from series array
-  // Priority: 1. Root ID (simplest) 2. ID from array
   const seriesId = m.seriesId || (Array.isArray((m as any).series) && (m as any).series.length > 0 ? (m as any).series[0].id : null);
   
-  // Display Name logic: Prefer explicit name, then array name
   const seriesName = m.seriesName || (Array.isArray((m as any).series) && (m as any).series.length > 0 ? (m as any).series[0].name : null);
 
   const rows = [
@@ -300,10 +298,11 @@ const infoRows = computed(() => {
 <template>
   <div class="h-[100dvh] w-full bg-[#0d0d0d] text-white flex flex-col relative overflow-hidden font-sans select-none safe-top safe-bottom">
     
+    <!-- Dynamic Blurred Cover Background -->
     <div 
-      class="absolute inset-0 z-0 pointer-events-none transition-colors duration-1000 ease-in-out"
-      :style="{ backgroundColor: state.accentColor }"
-      style="opacity: 0.15; filter: blur(80px);"
+      class="absolute inset-0 z-0 pointer-events-none bg-cover bg-center transition-all duration-1000 ease-in-out"
+      :style="{ backgroundImage: `url(${coverUrl})` }"
+      style="opacity: 0.15; filter: blur(40px);"
     />
 
     <Transition name="fade">
@@ -315,10 +314,10 @@ const infoRows = computed(() => {
 
     <template v-if="!state.isLoading">
       <header class="px-6 py-4 md:py-6 flex justify-between items-center z-20 shrink-0">
-        <button @click="emit('back')" class="p-2 text-neutral-600 hover:text-white transition-colors">
+        <button @click="emit('back')" class="p-2 text-neutral-600 hover:text-white transition-colors tap-effect">
           <ChevronDown :size="24" />
         </button>
-        <button @click="openChapters" class="flex flex-col items-center gap-1 group">
+        <button @click="openChapters" class="flex flex-col items-center gap-1 group tap-effect">
           <span class="text-[7px] font-black uppercase tracking-[0.5em] text-neutral-700 group-hover:text-purple-500 transition-colors">CHAPTER INDEX</span>
           <div class="flex items-center gap-2 max-w-[200px]">
             <span class="text-[10px] font-black uppercase tracking-widest text-neutral-300 truncate">{{ currentChapter?.title || 'Segment 01' }}</span>
@@ -326,7 +325,7 @@ const infoRows = computed(() => {
           </div>
         </button>
         <div class="flex items-center gap-2">
-          <button @click="handleToggleDownload" class="p-2 relative transition-colors group" :class="isDownloaded ? 'text-purple-500' : 'text-neutral-600 hover:text-purple-400'">
+          <button @click="handleToggleDownload" class="p-2 relative transition-colors group tap-effect" :class="isDownloaded ? 'text-purple-500' : 'text-neutral-600 hover:text-purple-400'">
             <div v-if="isDownloading" class="absolute inset-0 flex items-center justify-center">
                <svg class="w-full h-full -rotate-90" viewBox="0 0 36 36">
                  <path class="text-neutral-800" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" stroke-width="4" />
@@ -336,13 +335,13 @@ const infoRows = computed(() => {
             <CheckCircle v-else-if="isDownloaded" :size="22" />
             <Download v-else :size="22" />
           </button>
-          <button @click="openInfoOverlay" class="p-2 text-neutral-600 hover:text-white transition-colors"><Info :size="22" /></button>
+          <button @click="openInfoOverlay" class="p-2 text-neutral-600 hover:text-white transition-colors tap-effect"><Info :size="22" /></button>
         </div>
       </header>
 
       <div class="flex-1 w-full flex flex-col lg:flex-row overflow-hidden relative z-10 gap-4 lg:gap-0 min-h-0">
         <div class="flex-1 lg:w-[40%] flex flex-col items-center justify-center px-6 relative z-10 min-h-0 lg:pb-0">
-          <div @click="openInfoOverlay" class="relative w-full max-w-[240px] md:max-w-[320px] aspect-[2/3] group cursor-pointer perspective-1000 shrink-0 mb-4 lg:mb-10 max-h-[40vh] md:max-h-[55vh] lg:max-h-[60vh]">
+          <div @click="openInfoOverlay" class="relative w-full max-w-[240px] md:max-w-[320px] aspect-[2/3] group cursor-pointer perspective-1000 shrink-0 mb-4 lg:mb-10 max-h-[40vh] md:max-h-[55vh] lg:max-h-[60vh] tap-effect">
             <div 
                class="absolute -inset-10 blur-[100px] rounded-full opacity-40 transition-colors duration-1000"
                :style="{ backgroundColor: state.accentColor }"
@@ -363,7 +362,7 @@ const infoRows = computed(() => {
             <button 
               v-if="metadata.seriesName" 
               @click="handleSeriesClick" 
-              class="group flex items-center justify-center gap-2 mx-auto px-4 py-1.5 rounded-full bg-purple-600 border border-purple-500/50 hover:bg-purple-500 transition-all active:scale-95 shadow-lg shadow-purple-900/20"
+              class="group flex items-center justify-center gap-2 mx-auto px-4 py-1.5 rounded-full bg-purple-600 border border-purple-500/50 hover:bg-purple-500 transition-all active:scale-95 shadow-lg shadow-purple-900/20 tap-effect"
             >
               <Layers :size="12" class="text-purple-200" />
               <span class="text-white font-bold text-[10px] md:text-xs">
@@ -379,7 +378,7 @@ const infoRows = computed(() => {
             <div class="flex justify-between items-end mb-1 h-5 relative">
                <div class="flex flex-col">
                  <span class="text-[8px] font-black text-neutral-600 uppercase tracking-widest">Elapsed</span>
-                 <span class="text-base md:text-lg font-black font-mono-timer tracking-tighter text-white">{{ secondsToTimestamp(state.currentTime - (currentChapter?.start || 0)) }}</span>
+                 <span class="text-base md:text-lg font-extrabold font-mono-timer tracking-tighter text-white">{{ secondsToTimestamp(state.currentTime - (currentChapter?.start || 0)) }}</span>
                </div>
                
                <div v-if="liveSleepCountdownText" class="absolute left-1/2 -translate-x-1/2 bottom-0 flex items-center justify-center">
@@ -388,10 +387,10 @@ const infoRows = computed(() => {
 
                <div class="flex flex-col items-end">
                  <span class="text-[8px] font-black text-neutral-600 uppercase tracking-widest">Remaining</span>
-                 <span class="text-base md:text-lg font-black font-mono-timer tracking-tighter text-neutral-400 shadow-none drop-shadow-none">-{{ secondsToTimestamp(chapterTimeRemaining) }}</span>
+                 <span class="text-base md:text-lg font-extrabold font-mono-timer tracking-tighter text-neutral-400 shadow-none drop-shadow-none">-{{ secondsToTimestamp(chapterTimeRemaining) }}</span>
                </div>
             </div>
-            <div class="h-3 w-full bg-neutral-900 rounded-full relative overflow-hidden shadow-inner border border-white/5 cursor-pointer" @click="handleChapterProgressClick">
+            <div class="h-3 w-full bg-neutral-900 rounded-full relative overflow-hidden shadow-inner border border-white/5 cursor-pointer tap-effect" @click="handleChapterProgressClick">
               <div class="h-full bg-[var(--player-accent)] shadow-[0_0_20px_var(--player-accent)] transition-all duration-300 rounded-r-full" :style="{ width: chapterProgressPercent + '%', '--player-accent': state.accentColor }" />
             </div>
             <div class="h-1 w-full bg-neutral-900/40 rounded-full relative overflow-hidden border border-white/5">
@@ -400,43 +399,48 @@ const infoRows = computed(() => {
           </div>
 
           <div class="flex items-center justify-center gap-4 md:gap-8">
-            <button @click="skipToPrevChapter" class="p-3 text-neutral-700 hover:text-purple-400"><SkipBack :size="20" /></button>
-            <button @click="seek(state.currentTime - 10)" class="p-3 text-neutral-700 hover:text-white"><RotateCcw :size="24" /></button>
+            <button @click="skipToPrevChapter" class="p-3 text-neutral-700 hover:text-purple-400 tap-effect"><SkipBack :size="20" /></button>
+            <button @click="seek(state.currentTime - 10)" class="p-3 text-neutral-700 hover:text-white tap-effect"><RotateCcw :size="24" /></button>
             <button 
               @click="togglePlay" 
-              class="w-16 h-16 md:w-20 md:h-20 rounded-full bg-purple-600/10 flex items-center justify-center border border-purple-500/30 shadow-[0_0_50px_rgba(168,85,247,0.2)] active:scale-95 transition-all group relative"
+              class="w-16 h-16 md:w-20 md:h-20 rounded-full bg-purple-600/10 flex items-center justify-center border border-purple-500/30 shadow-[0_0_50px_rgba(168,85,247,0.2)] active:scale-95 transition-all group relative tap-effect"
             >
+              <!-- Play Glow Animation -->
+              <div v-if="state.isLoading" class="absolute inset-0 bg-purple-500/20 rounded-full animate-ping" />
               <Pause v-if="state.isPlaying" :size="28" class="text-purple-500 fill-current" />
               <Play v-else :size="28" class="text-purple-500 fill-current translate-x-1" />
             </button>
-            <button @click="seek(state.currentTime + 30)" class="p-3 text-neutral-700 hover:text-white"><RotateCw :size="24" /></button>
-            <button @click="skipToNextChapter" class="p-3 text-neutral-700 hover:text-purple-400"><SkipForward :size="20" /></button>
+            <button @click="seek(state.currentTime + 30)" class="p-3 text-neutral-700 hover:text-white tap-effect"><RotateCw :size="24" /></button>
+            <button @click="skipToNextChapter" class="p-3 text-neutral-700 hover:text-purple-400 tap-effect"><SkipForward :size="20" /></button>
           </div>
 
           <div class="grid grid-cols-2 gap-3 md:gap-4 w-full h-32 md:h-36">
-            <div class="bg-neutral-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-3 md:p-4 flex flex-col justify-between gap-2 relative overflow-hidden">
+            <div class="bg-neutral-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-5 md:p-6 flex flex-col justify-between gap-2 relative overflow-hidden">
                <div class="flex items-center justify-center w-full relative">
                    <div class="flex items-center gap-2 text-neutral-500"><Clock :size="14" /><span class="text-[9px] font-black uppercase tracking-[0.2em]">Speed</span></div>
                </div>
                <div class="flex-1 flex flex-col items-center justify-center"><span class="text-2xl md:text-3xl font-black font-mono tracking-tighter text-white">{{ state.playbackRate.toFixed(1) }}x</span></div>
                <div class="flex items-center gap-4 w-full justify-center">
-                 <button @click="setPlaybackRate(Math.max(0.5, state.playbackRate - 0.1))" class="p-2 bg-white/5 rounded-full text-neutral-400 transition-colors hover:text-white"><Minus :size="16" /></button>
-                 <button @click="setPlaybackRate(Math.min(3.0, state.playbackRate + 0.1))" class="p-2 bg-white/5 rounded-full text-neutral-400 transition-colors hover:text-white"><Plus :size="16" /></button>
+                 <button @click="setPlaybackRate(Math.max(0.5, state.playbackRate - 0.1))" class="p-2 bg-white/5 rounded-full text-neutral-400 transition-colors hover:text-white tap-effect"><Minus :size="16" /></button>
+                 <button @click="setPlaybackRate(Math.min(3.0, state.playbackRate + 0.1))" class="p-2 bg-white/5 rounded-full text-neutral-400 transition-colors hover:text-white tap-effect"><Plus :size="16" /></button>
                </div>
             </div>
 
-            <div class="bg-neutral-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-3 md:p-4 flex flex-col justify-between gap-2 relative overflow-hidden group">
-               <div class="flex justify-between items-center px-1">
+            <div class="bg-neutral-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-5 md:p-6 flex flex-col justify-between gap-2 relative overflow-hidden group">
+               <!-- Centered Header -->
+               <div class="flex justify-center items-center px-1 mb-1 relative">
                  <div class="flex items-center gap-2 text-neutral-500"><Moon :size="14" /><span class="text-[9px] font-black uppercase tracking-[0.2em]">SLEEP</span></div>
-                 <span class="text-[10px] font-black font-mono truncate max-w-[100px] text-right" :class="isSleepActive ? 'text-purple-400' : 'text-neutral-600'">{{ cardSleepStatus }}</span>
+                 <!-- Updated Status Pill: Removed '2 CH' text -->
+                 <span class="absolute right-0 text-[9px] font-black font-mono truncate max-w-[60px] text-right" :class="isSleepActive ? 'text-purple-400' : 'text-neutral-600'">{{ cardSleepStatus }}</span>
                </div>
+               
                <div class="flex-1 flex flex-col justify-end gap-2">
                  <div class="flex items-center justify-between bg-white/5 rounded-lg h-8 md:h-9 px-2">
                     <span class="text-[8px] font-bold uppercase text-neutral-500 tracking-widest">Mins</span>
                     <div class="flex items-center gap-2 h-full">
-                       <button @click="adjustSleepTime(-900)" class="w-6 h-6 flex items-center justify-center bg-white/5 rounded text-neutral-400 hover:text-white transition-colors"><Minus :size="12" /></button>
+                       <button @click="adjustSleepTime(-900)" class="w-6 h-6 flex items-center justify-center bg-white/5 rounded text-neutral-400 hover:text-white transition-colors tap-effect"><Minus :size="12" /></button>
                        <span class="text-[10px] font-black w-6 text-center text-neutral-200">15</span>
-                       <button @click="adjustSleepTime(900)" class="w-6 h-6 flex items-center justify-center bg-white/5 rounded text-neutral-400 hover:text-white transition-colors"><Plus :size="12" /></button>
+                       <button @click="adjustSleepTime(900)" class="w-6 h-6 flex items-center justify-center bg-white/5 rounded text-neutral-400 hover:text-white transition-colors tap-effect"><Plus :size="12" /></button>
                     </div>
                  </div>
                  <div class="flex items-center justify-between bg-white/5 rounded-lg h-8 md:h-9 px-2">
@@ -444,9 +448,9 @@ const infoRows = computed(() => {
                       <span class="text-[8px] font-bold uppercase text-neutral-500 tracking-widest">CH</span>
                     </div>
                     <div class="flex items-center gap-2 h-full">
-                       <button @click="adjustSleepChapters(-1)" class="w-6 h-6 flex items-center justify-center bg-white/5 rounded text-neutral-400 hover:text-white transition-colors"><Minus :size="12" /></button>
+                       <button @click="adjustSleepChapters(-1)" class="w-6 h-6 flex items-center justify-center bg-white/5 rounded text-neutral-400 hover:text-white transition-colors tap-effect"><Minus :size="12" /></button>
                        <span class="text-[10px] font-black w-6 text-center text-neutral-200">{{ state.sleepChapters > 0 ? state.sleepChapters : '-' }}</span>
-                       <button @click="adjustSleepChapters(1)" class="w-6 h-6 flex items-center justify-center bg-white/5 rounded text-neutral-400 hover:text-white transition-colors"><Plus :size="12" /></button>
+                       <button @click="adjustSleepChapters(1)" class="w-6 h-6 flex items-center justify-center bg-white/5 rounded text-neutral-400 hover:text-white transition-colors tap-effect"><Plus :size="12" /></button>
                     </div>
                  </div>
                </div>
@@ -457,10 +461,10 @@ const infoRows = computed(() => {
     </template>
     
     <Transition name="fade">
-      <div v-if="showInfo" class="fixed inset-0 z-[200] bg-black/95 backdrop-blur-3xl flex flex-col p-8 overflow-hidden">
+      <div v-if="showInfo" class="fixed inset-0 z-[200] bg-black/80 backdrop-blur-xl flex flex-col p-8 overflow-hidden border border-white/5">
         <div class="flex justify-between items-center mb-8 shrink-0">
           <h2 class="text-2xl font-black uppercase tracking-tighter text-white">Artifact Data</h2>
-          <button @click="closeInfoOverlay" class="p-3 bg-neutral-900 rounded-full text-neutral-500 hover:text-white transition-colors border border-white/5">
+          <button @click="closeInfoOverlay" class="p-3 bg-neutral-900 rounded-full text-neutral-500 hover:text-white transition-colors border border-white/5 tap-effect">
             <X :size="20" />
           </button>
         </div>
@@ -476,7 +480,7 @@ const infoRows = computed(() => {
               </div>
             </div>
             <div class="flex justify-center">
-              <button @click="handleToggleWishlist" class="px-6 py-3 bg-neutral-900 border border-white/10 rounded-full font-black uppercase tracking-widest text-xs hover:text-pink-400 hover:border-pink-500/30 transition-all flex items-center gap-2 active:scale-95" :class="{ 'text-pink-500 border-pink-500/50 bg-pink-500/10': isWishlisted, 'text-neutral-400': !isWishlisted }">
+              <button @click="handleToggleWishlist" class="px-6 py-3 bg-neutral-900 border border-white/10 rounded-full font-black uppercase tracking-widest text-xs hover:text-pink-400 hover:border-pink-500/30 transition-all flex items-center gap-2 active:scale-95 tap-effect" :class="{ 'text-pink-500 border-pink-500/50 bg-pink-500/10': isWishlisted, 'text-neutral-400': !isWishlisted }">
                  <Heart :size="14" :fill="isWishlisted ? 'currentColor' : 'none'" /> 
                  {{ isWishlisted ? 'Wishlisted' : 'Want to Listen' }}
               </button>
@@ -490,7 +494,7 @@ const infoRows = computed(() => {
                   :is="row.isClickable ? 'button' : 'div'"
                   v-for="(row, i) in infoRows" 
                   :key="i" 
-                  class="p-4 rounded-2xl flex flex-col gap-1 text-left transition-all relative overflow-hidden"
+                  class="p-4 rounded-2xl flex flex-col gap-1 text-left transition-all relative overflow-hidden tap-effect"
                   :class="[
                     row.isClickable 
                       ? 'bg-purple-600 border border-purple-500/50 hover:bg-purple-500 cursor-pointer group active:scale-95 shadow-lg shadow-purple-900/20' 
@@ -515,9 +519,3 @@ const infoRows = computed(() => {
     <ChapterEditor v-if="showChapters" :item="activeItem" :currentTime="state.currentTime" :isPlaying="state.isPlaying" @close="closeChapters" @seek="handleChapterSeek" />
   </div>
 </template>
-
-<style scoped>
-.line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.book-spine { box-shadow: -5px 0 15px rgba(0,0,0,0.5), 20px 20px 60px -15px rgba(0,0,0,0.8); }
-.shadow-aether-glow { text-shadow: 0 0 10px rgba(168,85,247,0.5); }
-</style>

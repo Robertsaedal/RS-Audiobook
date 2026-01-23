@@ -83,6 +83,11 @@
   .gradient-aether {
     background: linear-gradient(135deg, #a855f7 0%, #7e22ce 100%);
   }
+
+  /* Global Tap Feedback Effect */
+  .tap-effect {
+    @apply transition-transform active:scale-95 duration-150;
+  }
 }
 
 @keyframes shimmer {

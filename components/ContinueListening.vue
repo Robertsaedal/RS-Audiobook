@@ -1,3 +1,4 @@
+
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { ABSLibraryItem, ABSProgress } from '../types';
@@ -33,7 +34,7 @@ const getProgress = (item: ABSLibraryItem) => {
       <div 
         v-for="item in items" 
         :key="item.id" 
-        class="flex-shrink-0 w-32 md:w-40 group cursor-pointer"
+        class="flex-shrink-0 w-32 md:w-40 group cursor-pointer tap-effect"
         @click="emit('resume-book', item)"
       >
         <!-- Artifact Card -->
@@ -65,10 +66,11 @@ const getProgress = (item: ABSLibraryItem) => {
           <h3 class="text-[10px] font-bold text-white truncate uppercase tracking-tight leading-none group-hover:text-purple-400 transition-colors">
             {{ item.media.metadata.title }}
           </h3>
-          <p v-if="item.media.metadata.seriesName" class="text-[8px] font-black text-purple-600/80 uppercase tracking-widest truncate">
+          <p v-if="item.media.metadata.seriesName" class="text-[8px] font-black text-purple-400 uppercase tracking-widest truncate">
             {{ item.media.metadata.seriesName }} {{ item.media.metadata.sequence ? `#${item.media.metadata.sequence}` : '' }}
           </p>
-          <p v-else class="text-[8px] font-black text-neutral-500 uppercase tracking-widest truncate">
+          <!-- Brightened Author Text -->
+          <p v-else class="text-[8px] font-black text-neutral-400 uppercase tracking-widest truncate">
             {{ item.media.metadata.authorName }}
           </p>
         </div>

@@ -180,11 +180,11 @@ onMounted(() => {
         </div>
         
         <div class="flex items-center gap-4 bg-neutral-900/50 rounded-full px-4 py-2 border border-white/5">
-          <button @click="changeYear(-1)" class="p-1 hover:text-purple-400 transition-colors"><ChevronLeft :size="16" /></button>
+          <button @click="changeYear(-1)" class="p-1 hover:text-purple-400 transition-colors tap-effect"><ChevronLeft :size="16" /></button>
           <span class="text-sm font-black font-mono text-white">{{ selectedYear }}</span>
           <button 
             @click="changeYear(1)" 
-            class="p-1 hover:text-purple-400 transition-colors disabled:opacity-30 disabled:hover:text-white"
+            class="p-1 hover:text-purple-400 transition-colors disabled:opacity-30 disabled:hover:text-white tap-effect"
             :disabled="selectedYear >= currentYear"
           >
             <ChevronRight :size="16" />
@@ -205,16 +205,16 @@ onMounted(() => {
         <button @click="fetchStats" class="text-[10px] font-black uppercase tracking-widest text-neutral-400 hover:text-white underline">Retry Fetch</button>
       </div>
 
-      <!-- Stats Content -->
-      <div v-else-if="stats" class="space-y-8">
+      <!-- Stats Content: Bento Grid -->
+      <div v-else-if="stats" class="space-y-4">
         
-        <!-- Metrics Cards -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <!-- Metrics Cards Row -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div class="bg-neutral-900/40 border border-white/5 rounded-3xl p-6 flex flex-col gap-4 relative overflow-hidden group">
              <div class="absolute inset-0 bg-gradient-to-br from-purple-500/10 to-transparent opacity-50" />
-             <div class="relative z-10 flex items-center gap-3 text-purple-400">
+             <div class="relative z-10 flex items-center gap-3 text-purple-500">
                <Trophy :size="20" />
-               <span class="text-[9px] font-black uppercase tracking-[0.3em]">Books Finished</span>
+               <span class="text-[9px] font-black uppercase tracking-[0.3em] text-white/70">Books Finished</span>
              </div>
              <div class="relative z-10 flex items-baseline gap-2 mt-2">
                 <span class="text-5xl font-black text-white tracking-tighter">{{ totalBooksFinished }}</span>
@@ -223,10 +223,10 @@ onMounted(() => {
           </div>
 
           <div class="bg-neutral-900/40 border border-white/5 rounded-3xl p-6 flex flex-col gap-4 relative overflow-hidden group">
-             <div class="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-transparent opacity-50" />
-             <div class="relative z-10 flex items-center gap-3 text-blue-400">
+             <div class="absolute inset-0 bg-gradient-to-br from-purple-500/10 to-transparent opacity-50" />
+             <div class="relative z-10 flex items-center gap-3 text-purple-500">
                <Clock :size="20" />
-               <span class="text-[9px] font-black uppercase tracking-[0.3em]">Total Listen</span>
+               <span class="text-[9px] font-black uppercase tracking-[0.3em] text-white/70">Total Listen</span>
              </div>
              <div class="relative z-10 flex items-baseline gap-2 mt-2">
                 <div class="flex items-baseline">
@@ -239,10 +239,10 @@ onMounted(() => {
           </div>
 
           <div class="bg-neutral-900/40 border border-white/5 rounded-3xl p-6 flex flex-col gap-4 relative overflow-hidden group">
-             <div class="absolute inset-0 bg-gradient-to-br from-green-500/10 to-transparent opacity-50" />
-             <div class="relative z-10 flex items-center gap-3 text-green-400">
+             <div class="absolute inset-0 bg-gradient-to-br from-purple-500/10 to-transparent opacity-50" />
+             <div class="relative z-10 flex items-center gap-3 text-purple-500">
                <Calendar :size="20" />
-               <span class="text-[9px] font-black uppercase tracking-[0.3em]">Active Days</span>
+               <span class="text-[9px] font-black uppercase tracking-[0.3em] text-white/70">Active Days</span>
              </div>
              <div class="relative z-10 flex items-baseline gap-2 mt-2">
                 <span class="text-5xl font-black text-white tracking-tighter">{{ activeDaysCount }}</span>
@@ -252,10 +252,10 @@ onMounted(() => {
         </div>
 
         <!-- Volume Chart -->
-        <div class="bg-neutral-900/40 border border-white/5 rounded-3xl p-6 md:p-8">
+        <div class="bg-neutral-900/40 border border-white/5 rounded-3xl p-6 md:p-8 mt-4">
            <div class="flex items-center gap-3 text-neutral-500 mb-8">
-              <BarChart2 :size="18" />
-              <span class="text-[9px] font-black uppercase tracking-[0.3em]">Volume by Month</span>
+              <BarChart2 :size="18" class="text-purple-500" />
+              <span class="text-[9px] font-black uppercase tracking-[0.3em] text-white">Volume by Month</span>
            </div>
            
            <div class="h-48 md:h-64 flex items-end justify-between gap-2 md:gap-4 relative">
@@ -295,13 +295,13 @@ onMounted(() => {
         </div>
 
         <!-- Activity History -->
-        <div class="space-y-6">
-            <div class="flex items-center gap-3 text-neutral-500 px-2 border-b border-white/5 pb-4">
-                <PlayCircle :size="18" />
-                <span class="text-[9px] font-black uppercase tracking-[0.3em]">Recent Activity</span>
+        <div class="space-y-4 mt-8">
+            <div class="flex items-center gap-3 text-neutral-500 px-2 pb-2">
+                <PlayCircle :size="18" class="text-purple-500" />
+                <span class="text-[9px] font-black uppercase tracking-[0.3em] text-white">Recent Activity</span>
             </div>
             
-            <div v-if="displaySessions.length > 0" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div v-if="displaySessions.length > 0" class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div v-for="(session, index) in displaySessions.slice(0, 10)" :key="index" class="bg-neutral-900/30 border border-white/5 rounded-2xl p-4 flex items-center justify-between hover:border-white/10 transition-colors">
                     <div class="flex items-center gap-4 truncate">
                         <div class="w-10 h-10 rounded-full bg-neutral-800 flex items-center justify-center text-[10px] font-mono font-bold text-neutral-500 shrink-0">
@@ -327,11 +327,3 @@ onMounted(() => {
     </div>
   </div>
 </template>
-
-<style scoped>
-.animate-fade-in { animation: fade-in 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; }
-@keyframes fade-in {
-  from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-</style>

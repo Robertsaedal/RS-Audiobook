@@ -40,11 +40,10 @@ const handleImageLoad = async () => {
 <template>
   <button 
     @click="emit('click')" 
-    class="relative group w-full flex flex-col items-center outline-none"
+    class="relative group w-full flex flex-col items-center outline-none tap-effect"
     :style="{ '--series-accent': accentColor }"
   >
     <!-- Card Visuals Container -->
-    <!-- Added top margin to account for the upward stack offset -->
     <div class="relative w-full aspect-[2/3] mb-4 mt-3 z-10">
       
       <!-- Ambient Glow (Background) -->
@@ -53,23 +52,23 @@ const handleImageLoad = async () => {
         :style="{ backgroundColor: accentColor }"
       />
 
-      <!-- Dynamic Stack Container -->
+      <!-- Dynamic Stack Container (Tightened) -->
       <div class="relative w-full h-full">
         
         <!-- Bottom Layer (3rd Book) -->
-        <!-- Offset: Right 12px, Top -12px -->
+        <!-- Offset reduced to ~9px (translate-x-2 approx) -->
         <div 
           v-if="stackImages[2]"
-          class="absolute inset-0 rounded-md bg-neutral-900 shadow-sm transition-transform duration-300 ease-out z-0 border border-white/5 overflow-hidden brightness-75 translate-x-3 -translate-y-3"
+          class="absolute inset-0 rounded-md bg-neutral-900 shadow-sm transition-transform duration-300 ease-out z-0 border border-white/5 overflow-hidden brightness-75 translate-x-2 -translate-y-2"
         >
           <img :src="stackImages[2]" class="w-full h-full object-cover" loading="lazy" />
         </div>
 
         <!-- Middle Layer (2nd Book) -->
-        <!-- Offset: Right 6px, Top -6px -->
+        <!-- Offset reduced to ~4.5px (translate-x-1 approx) -->
         <div 
           v-if="stackImages[1]"
-          class="absolute inset-0 rounded-md bg-neutral-900 shadow-md transition-transform duration-300 ease-out z-10 border border-white/10 overflow-hidden brightness-90 translate-x-1.5 -translate-y-1.5"
+          class="absolute inset-0 rounded-md bg-neutral-900 shadow-md transition-transform duration-300 ease-out z-10 border border-white/10 overflow-hidden brightness-90 translate-x-1 -translate-y-1"
         >
           <img :src="stackImages[1]" class="w-full h-full object-cover" loading="lazy" />
         </div>
@@ -111,7 +110,8 @@ const handleImageLoad = async () => {
       <h3 class="text-sm font-bold text-white uppercase tracking-tight leading-tight line-clamp-2 group-hover:text-purple-400 transition-colors w-full">
         {{ series.name }}
       </h3>
-      <span class="text-[10px] font-bold text-neutral-500 uppercase tracking-widest w-full">
+      <!-- Brightened Subtext -->
+      <span class="text-[10px] font-bold text-neutral-400 uppercase tracking-widest w-full">
         {{ bookCount }} {{ bookCount === 1 ? 'Book' : 'Books' }}
       </span>
     </div>

@@ -27,7 +27,7 @@ const emit = defineEmits<{
   (e: 'update:search', val: string): void;
 }>();
 
-const version = "5.9.0";
+const version = "5.9.5";
 const showMobileSearch = ref(false);
 const mobileInputRef = ref<HTMLInputElement | null>(null);
 
@@ -106,7 +106,7 @@ const closeMobileSearch = () => {
         </div>
 
         <div class="flex md:hidden items-center justify-end flex-1 px-2">
-          <button @click="openMobileSearch" class="p-2 text-neutral-400 hover:text-white transition-colors">
+          <button @click="openMobileSearch" class="p-2 text-neutral-400 hover:text-white transition-colors tap-effect">
             <Search :size="20" />
           </button>
         </div>
@@ -114,14 +114,14 @@ const closeMobileSearch = () => {
         <div class="flex items-center gap-2 md:gap-4 shrink-0">
           <button 
             @click="handleRequestClick"
-            class="flex items-center gap-2 p-2 sm:px-4 sm:py-2 bg-transparent border border-purple-500/30 rounded-full text-[10px] font-black uppercase tracking-widest text-purple-400 hover:bg-purple-500/10 transition-all shrink-0 active:scale-95"
+            class="flex items-center gap-2 p-2 sm:px-4 sm:py-2 bg-transparent border border-purple-500/30 rounded-full text-[10px] font-black uppercase tracking-widest text-purple-400 hover:bg-purple-500/10 transition-all shrink-0 active:scale-95 tap-effect"
             title="Request Artifact"
           >
             <PlusSquare :size="18" />
             <span class="hidden sm:inline">Request</span>
           </button>
 
-          <div @click="emit('logout')" class="flex items-center gap-3 bg-white/5 border border-white/10 rounded-full pl-4 pr-1 py-1 cursor-pointer hover:bg-red-500/10 hover:border-red-500/30 transition-all group/logout">
+          <div @click="emit('logout')" class="flex items-center gap-3 bg-white/5 border border-white/10 rounded-full pl-4 pr-1 py-1 cursor-pointer hover:bg-red-500/10 hover:border-red-500/30 transition-all group/logout tap-effect">
             <span class="text-[10px] font-black hidden md:block uppercase tracking-widest text-neutral-400 group-hover/logout:text-red-500">Log Off</span>
             <div class="w-8 h-8 rounded-full bg-neutral-900 flex items-center justify-center text-neutral-300 border border-white/10 group-hover/logout:border-red-500/30">
               <LogOut :size="14" class="group-hover/logout:text-red-500" />
@@ -132,7 +132,7 @@ const closeMobileSearch = () => {
         <Transition name="slide-down">
           <div v-if="showMobileSearch" class="absolute inset-0 bg-[#111111] z-[70] flex items-center px-4 gap-3 border-b border-white/10 safe-top">
             <div class="h-16 w-full flex items-center gap-3">
-              <button @click="closeMobileSearch" class="p-2 -ml-2 text-neutral-400 hover:text-white">
+              <button @click="closeMobileSearch" class="p-2 -ml-2 text-neutral-400 hover:text-white tap-effect">
                 <ArrowLeft :size="20" />
               </button>
               <div class="flex-1 relative">
@@ -184,16 +184,19 @@ const closeMobileSearch = () => {
       </main>
     </div>
 
-    <!-- Mobile Navigation Bar - Safe Bottom -->
-    <nav class="md:hidden fixed bottom-0 left-0 right-0 bg-[#111111]/90 backdrop-blur-xl border-t border-white/5 z-[60] safe-bottom">
-      <div class="h-16 flex justify-around items-center px-4">
+    <!-- Mobile Navigation Bar - Safe Bottom (Glassmorphism & Anchoring) -->
+    <nav class="md:hidden fixed bottom-0 left-0 right-0 bg-black/80 backdrop-blur-xl border-t border-white/5 z-[60] safe-bottom">
+      <div class="h-16 flex justify-around items-stretch px-2">
         <button 
           v-for="item in navItems" 
           :key="item.id"
           @click="emit('tab-change', item.id)"
-          class="flex flex-col items-center gap-1"
+          class="flex flex-1 flex-col items-center justify-center gap-1 tap-effect transition-all duration-300 relative"
           :class="activeTab === item.id ? 'text-purple-400' : 'text-neutral-500'"
         >
+          <!-- Active Border Anchor -->
+          <div v-if="activeTab === item.id" class="absolute top-0 left-4 right-4 h-0.5 bg-purple-500 shadow-[0_2px_8px_rgba(168,85,247,0.5)]"></div>
+          
           <component :is="item.icon" :size="20" />
           <span class="text-[9px] font-bold uppercase tracking-wider">{{ item.label }}</span>
         </button>

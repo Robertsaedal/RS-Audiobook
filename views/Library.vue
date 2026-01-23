@@ -1,3 +1,4 @@
+
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, onActivated, watch, computed, nextTick, reactive, shallowRef } from 'vue';
 import { AuthState, ABSLibraryItem, ABSSeries, ABSProgress } from '../types';
@@ -554,7 +555,7 @@ const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && rec
               <section v-if="hydratedCurrentlyReading.length > 0 && absService" class="shelf-row py-8">
                 <div class="shelf-tag gap-3 pr-2">
                   <span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Continue Listening</span>
-                  <button @click="forceSyncProgress" class="p-1 text-purple-500 hover:text-purple-400 transition-colors rounded-full hover:bg-white/10 flex items-center gap-2" :disabled="isSyncing">
+                  <button @click="forceSyncProgress" class="p-1 text-purple-500 hover:text-purple-400 transition-colors rounded-full hover:bg-white/10 flex items-center gap-2 tap-effect" :disabled="isSyncing">
                     <RotateCw :size="12" :class="{ 'animate-spin': isSyncing }" />
                     <span v-if="syncFeedback" class="text-[8px] font-black uppercase tracking-widest text-white">{{ syncFeedback }}</span>
                   </button>
@@ -624,13 +625,13 @@ const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && rec
       </template>
     </div>
 
-    <!-- Info Modal -->
+    <!-- Info Modal (Glassmorphism & Tap Effects) -->
     <Teleport to="body">
       <Transition name="fade">
-        <div v-if="selectedInfoItem && absService" class="fixed inset-0 z-[201] bg-black/95 backdrop-blur-3xl flex flex-col p-4 md:p-8 overflow-hidden safe-top safe-bottom">
+        <div v-if="selectedInfoItem && absService" class="fixed inset-0 z-[201] bg-black/80 backdrop-blur-xl flex flex-col p-4 md:p-8 overflow-hidden safe-top safe-bottom border border-white/5">
           <div class="flex justify-between items-center mb-4 shrink-0">
             <h2 class="text-xl md:text-2xl font-black uppercase tracking-tighter text-white">Artifact Data</h2>
-            <button @click="closeInfoModal" class="p-3 bg-neutral-900 rounded-full text-neutral-500 hover:text-white transition-colors border border-white/5 shadow-xl hover:bg-neutral-800">
+            <button @click="closeInfoModal" class="p-3 bg-neutral-900 rounded-full text-neutral-500 hover:text-white transition-colors border border-white/5 shadow-xl hover:bg-neutral-800 tap-effect">
               <X :size="20" />
             </button>
           </div>
@@ -658,7 +659,7 @@ const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && rec
                   :is="row.isAction ? 'button' : 'div'"
                   v-for="(row, i) in modalInfoRows" 
                   :key="i" 
-                  class="p-4 rounded-2xl flex flex-col gap-1 text-left transition-all relative overflow-hidden"
+                  class="p-4 rounded-2xl flex flex-col gap-1 text-left transition-all relative overflow-hidden tap-effect"
                   :class="[
                     row.isAction 
                       ? 'bg-purple-600 border border-purple-500/50 hover:bg-purple-500 cursor-pointer group active:scale-95 shadow-lg shadow-purple-900/20 hover:scale-105' 
@@ -681,13 +682,13 @@ const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && rec
               <div class="grid grid-cols-2 gap-4 pt-4">
                  <button 
                    @click="playFromModal"
-                   class="py-4 bg-purple-600 rounded-2xl font-black uppercase tracking-widest text-white shadow-[0_0_20px_rgba(168,85,247,0.4)] flex items-center justify-center gap-2 active:scale-95 transition-transform"
+                   class="py-4 bg-purple-600 rounded-2xl font-black uppercase tracking-widest text-white shadow-[0_0_20px_rgba(168,85,247,0.4)] flex items-center justify-center gap-2 active:scale-95 transition-transform tap-effect"
                  >
                     <Play :size="16" fill="currentColor" /> Play
                  </button>
                  <button 
                    @click="toggleWishlist"
-                   class="py-4 bg-neutral-900 border border-white/10 rounded-2xl font-black uppercase tracking-widest text-neutral-400 hover:text-pink-400 hover:border-pink-500/30 transition-all flex items-center justify-center gap-2 active:scale-95"
+                   class="py-4 bg-neutral-900 border border-white/10 rounded-2xl font-black uppercase tracking-widest text-neutral-400 hover:text-pink-400 hover:border-pink-500/30 transition-all flex items-center justify-center gap-2 active:scale-95 tap-effect"
                    :class="{ 'text-pink-500 border-pink-500/50 bg-pink-500/10': isInfoItemWishlisted }"
                  >
                     <Heart :size="16" :fill="isInfoItemWishlisted ? 'currentColor' : 'none'" /> 
