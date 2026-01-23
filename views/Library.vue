@@ -359,19 +359,25 @@ const modalInfoRows = computed(() => {
   if (!selectedInfoItem.value) return [];
   const m = selectedInfoItem.value.media.metadata;
   
-  // Handle different narrator formats (string or array of strings)
+  // NARRATOR LOGIC: Check Name -> Narrators Array -> Fallback
   let narrator = m.narratorName;
-  if (!narrator && (m as any).narrators && Array.isArray((m as any).narrators)) {
+  if (!narrator && (m as any).narrators && Array.isArray((m as any).narrators) && (m as any).narrators.length > 0) {
     narrator = (m as any).narrators.join(', ');
   }
+  if (!narrator) narrator = 'Multi-cast'; // Fallback if still empty
 
-  // Handle Year
-  let year = m.publishedYear;
+  // YEAR LOGIC: Check publishedYear -> publishedDate
+  let year = m.publishedYear ? String(m.publishedYear) : null;
   if (!year && (m as any).publishedDate) {
-    year = (m as any).publishedDate.substring(0, 4);
+    year = String((m as any).publishedDate).substring(0, 4);
   }
 
+  // SERIES LOGIC: Check root seriesId, or extract from series array
+  // Priority: 1. Root ID (simplest) 2. ID from array 3. Match from Series Name if possible
   const seriesId = m.seriesId || (Array.isArray((m as any).series) && (m as any).series.length > 0 ? (m as any).series[0].id : null);
+  
+  // Display Name logic: Prefer explicit name, then array name
+  const seriesName = m.seriesName || (Array.isArray((m as any).series) && (m as any).series.length > 0 ? (m as any).series[0].name : null);
 
   const rows = [
     { label: 'Narrator', value: narrator || 'Unknown', icon: Mic },
@@ -379,15 +385,24 @@ const modalInfoRows = computed(() => {
     { label: 'Year', value: year || 'Unknown', icon: Calendar }
   ];
 
-  // Only add Series row if it exists
-  if (seriesId) {
+  // Only add Series row if we have a Name (even if ID is missing we show text, though click might fail if no ID)
+  // We prioritize having an ID for the click action.
+  if (seriesId && seriesName) {
     rows.splice(1, 0, { 
       label: 'Series', 
-      value: m.seriesName || 'Series', 
+      value: seriesName, 
       icon: Layers,
       isAction: true,
       actionId: seriesId
     } as any);
+  } else if (seriesName) {
+      // Fallback: Show Series Name even if we can't route (no ID found)
+       rows.splice(1, 0, { 
+        label: 'Series', 
+        value: seriesName, 
+        icon: Layers,
+        isAction: false 
+      } as any);
   }
 
   return rows;
@@ -603,10 +618,10 @@ const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && rec
     <!-- Info Modal -->
     <Teleport to="body">
       <Transition name="fade">
-        <div v-if="selectedInfoItem && absService" class="fixed inset-0 z-[200] bg-black/95 backdrop-blur-3xl flex flex-col p-4 md:p-8 overflow-hidden safe-top safe-bottom">
+        <div v-if="selectedInfoItem && absService" class="fixed inset-0 z-[201] bg-black/95 backdrop-blur-3xl flex flex-col p-4 md:p-8 overflow-hidden safe-top safe-bottom">
           <div class="flex justify-between items-center mb-4 shrink-0">
             <h2 class="text-xl md:text-2xl font-black uppercase tracking-tighter text-white">Artifact Data</h2>
-            <button @click="closeInfoModal" class="p-3 bg-neutral-900 rounded-full text-neutral-500 hover:text-white transition-colors border border-white/5 z-50 shadow-xl">
+            <button @click="closeInfoModal" class="p-3 bg-neutral-900 rounded-full text-neutral-500 hover:text-white transition-colors border border-white/5 shadow-xl hover:bg-neutral-800">
               <X :size="20" />
             </button>
           </div>

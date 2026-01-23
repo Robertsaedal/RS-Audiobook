@@ -249,14 +249,26 @@ const handleToggleWishlist = async () => {
 
 const infoRows = computed(() => {
   const m = metadata.value;
+  
+  // NARRATOR LOGIC: Check Name -> Narrators Array -> Fallback
   let narrator = m.narratorName;
-  if (!narrator && (m as any).narrators && Array.isArray((m as any).narrators)) {
+  if (!narrator && (m as any).narrators && Array.isArray((m as any).narrators) && (m as any).narrators.length > 0) {
     narrator = (m as any).narrators.join(', ');
   }
-  let year = m.publishedYear;
+  if (!narrator) narrator = 'Multi-cast'; // Fallback if still empty
+
+  // YEAR LOGIC: Check publishedYear -> publishedDate
+  let year = m.publishedYear ? String(m.publishedYear) : null;
   if (!year && (m as any).publishedDate) {
-    year = (m as any).publishedDate.substring(0, 4);
+    year = String((m as any).publishedDate).substring(0, 4);
   }
+
+  // SERIES LOGIC: Check root seriesId, or extract from series array
+  // Priority: 1. Root ID (simplest) 2. ID from array
+  const seriesId = m.seriesId || (Array.isArray((m as any).series) && (m as any).series.length > 0 ? (m as any).series[0].id : null);
+  
+  // Display Name logic: Prefer explicit name, then array name
+  const seriesName = m.seriesName || (Array.isArray((m as any).series) && (m as any).series.length > 0 ? (m as any).series[0].name : null);
 
   const rows = [
     { label: 'Narrator', value: narrator || 'Unknown', icon: Mic },
@@ -264,13 +276,20 @@ const infoRows = computed(() => {
     { label: 'Year', value: year || 'Unknown', icon: Calendar }
   ];
 
-  if (derivedSeriesId.value) {
+  if (seriesId && seriesName) {
     rows.splice(1, 0, { 
       label: 'Series', 
-      value: m.seriesName || 'Series', 
+      value: seriesName, 
       icon: Layers, 
       isClickable: true,
-      actionId: derivedSeriesId.value
+      actionId: seriesId
+    } as any);
+  } else if (seriesName) {
+      rows.splice(1, 0, { 
+      label: 'Series', 
+      value: seriesName, 
+      icon: Layers, 
+      isClickable: false
     } as any);
   }
 
