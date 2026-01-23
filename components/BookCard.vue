@@ -247,7 +247,7 @@ onMounted(async () => {
       </p>
     </div>
   </button>
-</script>
+</template>
 
 <style scoped>
 .line-clamp-4 {
