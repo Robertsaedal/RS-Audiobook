@@ -190,7 +190,7 @@ const liveSleepCountdownText = computed(() => {
     return null;
   }
   
-  return `${timeText}${chapterText} REMAINING`;
+  return `${timeText}${chapterText}`;
 });
 
 const cardSleepStatus = computed(() => {
@@ -309,13 +309,13 @@ const infoRows = computed(() => [
         <!-- Visuals (Upper Section) -->
         <div class="flex-1 lg:w-[40%] flex flex-col items-center justify-center px-6 relative z-10 min-h-0 lg:pb-0">
           <!-- Cover -->
-          <div @click="showInfo = true" class="relative w-full max-w-[200px] md:max-w-[280px] aspect-[2/3] group cursor-pointer perspective-1000 shrink-0 mb-4 lg:mb-10 max-h-[30vh] md:max-h-[40vh] lg:max-h-[50vh]">
+          <div @click="showInfo = true" class="relative w-full max-w-[240px] md:max-w-[320px] aspect-[2/3] group cursor-pointer perspective-1000 shrink-0 mb-4 lg:mb-10 max-h-[40vh] md:max-h-[55vh] lg:max-h-[60vh]">
             <div 
                class="absolute -inset-10 blur-[100px] rounded-full opacity-40 transition-colors duration-1000"
                :style="{ backgroundColor: state.accentColor }"
             />
             <div class="relative z-10 w-full h-full rounded-r-2xl rounded-l-sm overflow-hidden border border-white/10 shadow-[20px_20px_60px_-15px_rgba(0,0,0,0.8)] book-spine">
-               <img :src="coverUrl" class="w-full h-full object-contain bg-black" />
+               <img :src="coverUrl" class="w-full h-full object-cover bg-black" />
             </div>
           </div>
 
@@ -353,9 +353,9 @@ const infoRows = computed(() => [
                  <span class="text-base md:text-lg font-black font-mono-timer tracking-tighter text-white">{{ secondsToTimestamp(state.currentTime - (currentChapter?.start || 0)) }}</span>
                </div>
                
-               <!-- CENTRAL SLEEP TIMER -->
-               <div v-if="liveSleepCountdownText" class="absolute left-1/2 -translate-x-1/2 bottom-0.5 flex items-center justify-center">
-                 <span class="text-[9px] font-black uppercase tracking-wider text-purple-400 whitespace-nowrap">{{ liveSleepCountdownText }}</span>
+               <!-- CENTRAL SLEEP TIMER (Typography Matched) -->
+               <div v-if="liveSleepCountdownText" class="absolute left-1/2 -translate-x-1/2 bottom-0 flex items-center justify-center">
+                 <span class="text-base md:text-lg font-black font-mono-timer tracking-tighter text-purple-400 whitespace-nowrap shadow-aether-glow">{{ liveSleepCountdownText }}</span>
                </div>
 
                <div class="flex flex-col items-end">
@@ -515,5 +515,8 @@ const infoRows = computed(() => [
   box-shadow: 
     -5px 0 15px rgba(0,0,0,0.5),
     20px 20px 60px -15px rgba(0,0,0,0.8);
+}
+.shadow-aether-glow {
+  text-shadow: 0 0 10px rgba(168,85,247,0.5);
 }
 </style>

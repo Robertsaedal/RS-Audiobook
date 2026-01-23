@@ -13,7 +13,7 @@ import RequestPortal from '../components/RequestPortal.vue';
 import StatsView from './StatsView.vue';
 import BookCard from '../components/BookCard.vue';
 import SeriesCard from '../components/SeriesCard.vue';
-import { PackageOpen, Loader2, WifiOff, RotateCw, X, Heart, Play } from 'lucide-vue-next';
+import { PackageOpen, Loader2, WifiOff, RotateCw, X, Heart, Play, Mic, Clock, Layers, Calendar } from 'lucide-vue-next';
 
 defineOptions({
   name: 'Library'
@@ -50,16 +50,13 @@ const currentlyReadingRaw = ref<ABSLibraryItem[]>([]);
 const continueSeriesRaw = ref<ABSLibraryItem[]>([]);
 const recentlyAddedRaw = ref<ABSLibraryItem[]>([]);
 const recentSeries = ref<ABSSeries[]>([]);
-const wishlistRaw = ref<ABSLibraryItem[]>([]); // New Shelf
+const wishlistRaw = ref<ABSLibraryItem[]>([]); 
 
 // Info Modal State
 const selectedInfoItem = ref<ABSLibraryItem | null>(null);
 const isInfoItemWishlisted = ref(false);
 
-// Local fallback map if props are not used (for standalone testing)
 const localProgressMap = reactive(new Map<string, ABSProgress>());
-
-// Use global map if provided, otherwise local
 const activeProgressMap = computed(() => props.progressMap || localProgressMap);
 
 const searchResults = ref<{ books: ABSLibraryItem[], series: ABSSeries[] }>({ books: [], series: [] });
@@ -236,7 +233,6 @@ const hydratedRecentlyAdded = computed(() => hydrateList(recentlyAddedRaw.value)
 const hydratedWishlist = computed(() => hydrateList(wishlistRaw.value));
 
 const fetchDashboardData = async () => {
-  // Always fetch local wishlist first
   wishlistRaw.value = await OfflineManager.getWishlistBooks();
 
   if (!navigator.onLine) {
@@ -313,7 +309,6 @@ const toggleWishlist = async () => {
   if (!selectedInfoItem.value) return;
   const newState = await OfflineManager.toggleWishlist(selectedInfoItem.value);
   isInfoItemWishlisted.value = newState;
-  // Refresh dashboard to update shelf
   await fetchDashboardData();
 };
 
@@ -323,6 +318,23 @@ const playFromModal = () => {
     closeInfoModal();
   }
 };
+
+const secondsToTimestamp = (s: number) => {
+  if (isNaN(s) || s < 0) return "00:00";
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = Math.floor(s % 60);
+  return `${h > 0 ? h + ':' : ''}${m.toString().padStart(h > 0 ? 2 : 1, '0')}:${sec.toString().padStart(2, '0')}`;
+};
+
+const modalInfoRows = computed(() => {
+  if (!selectedInfoItem.value) return [];
+  const m = selectedInfoItem.value.media.metadata;
+  return [
+    { label: 'Narrator', value: m.narratorName || 'Unknown', icon: Mic },
+    { label: 'Series', value: m.seriesName || 'Standalone', icon: Layers },
+    { label: 'Duration', value: secondsToTimestamp(selectedInfoItem.value.media.duration), icon: Clock },
+    { label: 'Year', value: m.publishedYear || 'Unknown', icon: Calendar }
+  ];
+});
 
 onMounted(async () => {
   await initService();
@@ -334,7 +346,6 @@ onMounted(async () => {
 });
 
 onActivated(async () => {
-  // Refresh wishlist when returning to library
   wishlistRaw.value = await OfflineManager.getWishlistBooks();
   if (props.initialSeriesId) await nextTick(() => handleJumpToSeries(props.initialSeriesId!));
 });
@@ -506,7 +517,7 @@ const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && rec
       <div v-if="selectedInfoItem && absService" class="fixed inset-0 z-[150] bg-black/95 backdrop-blur-3xl flex flex-col p-8 overflow-hidden">
         <div class="flex justify-between items-center mb-8 shrink-0">
           <h2 class="text-2xl font-black uppercase tracking-tighter text-white">Artifact Data</h2>
-          <button @click="closeInfoModal" class="p-3 bg-neutral-900 rounded-full text-neutral-500 hover:text-white transition-colors border border-white/5">
+          <button @click="closeInfoModal" class="p-3 bg-neutral-900 rounded-full text-neutral-500 hover:text-white transition-colors border border-white/5 z-50 shadow-xl">
             <X :size="20" />
           </button>
         </div>
@@ -528,8 +539,23 @@ const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && rec
               <div class="text-neutral-300 text-sm leading-relaxed whitespace-pre-line" v-html="selectedInfoItem.media.metadata.description"></div>
             </div>
 
-            <!-- Actions -->
+            <!-- Enhanced Info Grid (Pills) -->
             <div class="grid grid-cols-2 gap-4">
+              <div 
+                v-for="(row, i) in modalInfoRows" 
+                :key="i" 
+                class="bg-white/5 border border-white/5 p-4 rounded-2xl flex flex-col gap-1"
+              >
+                <div class="flex items-center gap-2 text-neutral-500 mb-1">
+                  <component :is="row.icon" :size="12" />
+                  <span class="text-[9px] font-black uppercase tracking-widest">{{ row.label }}</span>
+                </div>
+                <span class="text-sm font-bold text-white truncate">{{ row.value }}</span>
+              </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="grid grid-cols-2 gap-4 pt-4">
                <button 
                  @click="playFromModal"
                  class="py-4 bg-purple-600 rounded-2xl font-black uppercase tracking-widest text-white shadow-[0_0_20px_rgba(168,85,247,0.4)] flex items-center justify-center gap-2"
