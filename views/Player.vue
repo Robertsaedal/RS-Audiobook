@@ -257,12 +257,24 @@ const infoRows = computed(() => {
   if (!year && (m as any).publishedDate) {
     year = (m as any).publishedDate.substring(0, 4);
   }
-  return [
+
+  const rows = [
     { label: 'Narrator', value: narrator || 'Unknown', icon: Mic },
-    { label: 'Series', value: m.seriesName || 'Standalone', icon: Layers, isClickable: !!derivedSeriesId.value },
     { label: 'Duration', value: secondsToTimestamp(state.duration), icon: Clock },
     { label: 'Year', value: year || 'Unknown', icon: Calendar }
   ];
+
+  if (derivedSeriesId.value) {
+    rows.splice(1, 0, { 
+      label: 'Series', 
+      value: m.seriesName || 'Series', 
+      icon: Layers, 
+      isClickable: true,
+      actionId: derivedSeriesId.value
+    } as any);
+  }
+
+  return rows;
 });
 </script>
 
@@ -332,13 +344,13 @@ const infoRows = computed(() => {
             <button 
               v-if="metadata.seriesName" 
               @click="handleSeriesClick" 
-              class="group flex items-center justify-center gap-2 mx-auto px-4 py-1.5 rounded-full bg-purple-500/10 border border-purple-500/20 hover:bg-purple-500/20 hover:border-purple-500/40 transition-all active:scale-95"
+              class="group flex items-center justify-center gap-2 mx-auto px-4 py-1.5 rounded-full bg-purple-600 border border-purple-500/50 hover:bg-purple-500 transition-all active:scale-95 shadow-lg shadow-purple-900/20"
             >
-              <Layers :size="12" class="text-purple-500" />
-              <span class="text-purple-400 font-bold text-[10px] md:text-xs">
+              <Layers :size="12" class="text-purple-200" />
+              <span class="text-white font-bold text-[10px] md:text-xs">
                 {{ metadata.seriesName }} {{ metadata.seriesSequence ? `#${metadata.seriesSequence}` : '' }}
               </span>
-              <ArrowRight :size="12" class="text-purple-500/50 group-hover:text-purple-500 transition-colors group-hover:translate-x-1" />
+              <ArrowRight :size="12" class="text-white/70 group-hover:text-white transition-colors group-hover:translate-x-1" />
             </button>
           </div>
         </div>
@@ -455,13 +467,27 @@ const infoRows = computed(() => {
               <div class="text-neutral-300 text-sm leading-relaxed whitespace-pre-line" v-html="metadata.description"></div>
             </div>
             <div class="grid grid-cols-2 gap-4">
-              <div v-for="(row, i) in infoRows" :key="i" class="bg-white/5 border border-white/5 p-4 rounded-2xl flex flex-col gap-1" :class="row.isClickable ? 'cursor-pointer hover:bg-purple-600/10 hover:border-purple-500/30' : ''" @click="row.isClickable ? handleSeriesClick($event) : null">
-                <div class="flex items-center gap-2 text-neutral-500 mb-1">
+              <component 
+                  :is="row.isClickable ? 'button' : 'div'"
+                  v-for="(row, i) in infoRows" 
+                  :key="i" 
+                  class="p-4 rounded-2xl flex flex-col gap-1 text-left transition-all relative overflow-hidden"
+                  :class="[
+                    row.isClickable 
+                      ? 'bg-purple-600 border border-purple-500/50 hover:bg-purple-500 cursor-pointer group active:scale-95 shadow-lg shadow-purple-900/20' 
+                      : 'bg-white/5 border border-white/5'
+                  ]"
+                  @click="row.isClickable ? handleSeriesClick($event) : null"
+                >
+                <div class="flex items-center gap-2 mb-1" :class="row.isClickable ? 'text-purple-200' : 'text-neutral-500'">
                   <component :is="row.icon" :size="12" />
                   <span class="text-[9px] font-black uppercase tracking-widest">{{ row.label }}</span>
                 </div>
-                <span class="text-sm font-bold text-white truncate" :class="row.isClickable ? 'text-purple-400' : ''">{{ row.value }}</span>
-              </div>
+                <div class="flex items-center justify-between w-full">
+                  <span class="text-sm font-bold truncate w-full" :class="row.isClickable ? 'text-white' : 'text-white'">{{ row.value }}</span>
+                  <ArrowRight v-if="row.isClickable" :size="16" class="text-white transition-transform group-hover:translate-x-1" />
+                </div>
+              </component>
             </div>
           </div>
         </div>

@@ -46,7 +46,6 @@ export class ABSService {
     });
 
     // CRITICAL: The server expects an explicit 'auth' event after connection.
-    // Handshake auth alone is often insufficient for the custom socket handler.
     this.socket.on('connect', () => {
       console.log('[ABSService] Socket connected, authenticating...');
       this.emitAuth();
@@ -181,7 +180,9 @@ export class ABSService {
     if (params.filter) query.append('filter', params.filter);
     if (params.search) query.append('search', params.search);
     
+    // Explicitly including 'series' and setting 'expanded' to ensure sequence data is returned
     query.append('include', 'progress,userProgress,metadata,series,media');
+    query.append('expanded', '1');
     query.append('_cb', Date.now().toString());
 
     const data = await this.fetchApi(`/libraries/${this.libraryId}/items?${query.toString()}`);
@@ -197,7 +198,9 @@ export class ABSService {
     const query = new URLSearchParams();
     if (params?.limit) query.append('limit', params.limit.toString());
     
+    // Explicitly including 'series' and 'expanded' for shelves as well
     query.append('include', 'progress,userProgress,metadata,series,media');
+    query.append('expanded', '1');
     query.append('_cb', Date.now().toString());
 
     const url = `/libraries/${this.libraryId}/personalized?${query.toString()}`;
@@ -219,7 +222,7 @@ export class ABSService {
   }
 
   async getItemsInProgress(): Promise<ABSLibraryItem[]> {
-    const data = await this.fetchApi(`/me/items-in-progress?include=progress,userProgress,metadata,series,media&_cb=${Date.now()}`);
+    const data = await this.fetchApi(`/me/items-in-progress?include=progress,userProgress,metadata,series,media&expanded=1&_cb=${Date.now()}`);
     return Array.isArray(data) ? data : (data?.results || []);
   }
 
@@ -263,6 +266,9 @@ export class ABSService {
     const q = new URLSearchParams();
     q.append('q', query);
     q.append('limit', '10');
+    // Ensure expanded metadata for search results
+    q.append('include', 'metadata,series,media,userProgress');
+    q.append('expanded', '1');
     const data = await this.fetchApi(`/libraries/${this.libraryId}/search?${q.toString()}`);
     
     const books = (data?.book || []).map((b: any) => b.libraryItem);
@@ -280,7 +286,7 @@ export class ABSService {
     recentSessions: any[];
   } | null> {
     const data = await this.fetchApi(`/me/listening-stats?_cb=${Date.now()}`);
-    if (!data) return { totalTime: 0, days: {}, recentSessions: [] }; // Fallback to avoid null checks failing
+    if (!data) return { totalTime: 0, days: {}, recentSessions: [] }; 
     return data;
   }
 
@@ -432,7 +438,6 @@ export class ABSService {
 
   onUserOnline(callback: (data: any) => void) {
     this.socket?.on('user_online', (payload: any) => {
-      // payload structure: { id, username, session: { libraryItemId, currentTime, ... } }
       if (payload && payload.session && payload.session.libraryItemId) {
          callback({
              itemId: payload.session.libraryItemId,
@@ -448,10 +453,6 @@ export class ABSService {
 
   onProgressUpdate(callback: (progress: ABSProgress) => void) {
     this.socket?.on('user_item_progress_updated', (payload: any) => {
-      // payload structure: { id, sessionId, deviceDescription, data: { ... } }
-      // data: { libraryItemId, currentTime, duration, progress, isFinished, ... }
-      
-      // Unwrap if wrapped in payload.data, otherwise assume direct
       const data = payload.data || payload; 
       const itemId = data.libraryItemId || data.itemId;
 

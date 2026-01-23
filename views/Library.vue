@@ -373,18 +373,24 @@ const modalInfoRows = computed(() => {
 
   const seriesId = m.seriesId || (Array.isArray((m as any).series) && (m as any).series.length > 0 ? (m as any).series[0].id : null);
 
-  return [
+  const rows = [
     { label: 'Narrator', value: narrator || 'Unknown', icon: Mic },
-    { 
-      label: 'Series', 
-      value: m.seriesName || 'Standalone', 
-      icon: Layers,
-      isAction: !!seriesId,
-      actionId: seriesId
-    },
     { label: 'Duration', value: secondsToTimestamp(selectedInfoItem.value.media.duration), icon: Clock },
     { label: 'Year', value: year || 'Unknown', icon: Calendar }
   ];
+
+  // Only add Series row if it exists
+  if (seriesId) {
+    rows.splice(1, 0, { 
+      label: 'Series', 
+      value: m.seriesName || 'Series', 
+      icon: Layers,
+      isAction: true,
+      actionId: seriesId
+    } as any);
+  }
+
+  return rows;
 });
 
 onMounted(async () => {
@@ -628,17 +634,21 @@ const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && rec
                   :is="row.isAction ? 'button' : 'div'"
                   v-for="(row, i) in modalInfoRows" 
                   :key="i" 
-                  class="bg-white/5 border border-white/5 p-4 rounded-2xl flex flex-col gap-1 text-left transition-all"
-                  :class="{ 'hover:bg-purple-600/10 hover:border-purple-500/30 cursor-pointer group active:scale-95': row.isAction }"
+                  class="p-4 rounded-2xl flex flex-col gap-1 text-left transition-all relative overflow-hidden"
+                  :class="[
+                    row.isAction 
+                      ? 'bg-purple-600 border border-purple-500/50 hover:bg-purple-500 cursor-pointer group active:scale-95 shadow-lg shadow-purple-900/20' 
+                      : 'bg-white/5 border border-white/5'
+                  ]"
                   @click="row.isAction ? handleSeriesClickFromModal(row.actionId) : null"
                 >
-                  <div class="flex items-center gap-2 text-neutral-500 mb-1" :class="{ 'group-hover:text-purple-400': row.isAction }">
+                  <div class="flex items-center gap-2 mb-1" :class="row.isAction ? 'text-purple-200' : 'text-neutral-500'">
                     <component :is="row.icon" :size="12" />
                     <span class="text-[9px] font-black uppercase tracking-widest">{{ row.label }}</span>
                   </div>
                   <div class="flex items-center justify-between w-full">
-                     <span class="text-sm font-bold text-white truncate w-full" :class="{ 'group-hover:text-purple-300': row.isAction }">{{ row.value }}</span>
-                     <ArrowRight v-if="row.isAction" :size="14" class="text-purple-500 opacity-0 group-hover:opacity-100 transition-opacity -ml-4 group-hover:ml-0" />
+                     <span class="text-sm font-bold truncate w-full" :class="row.isAction ? 'text-white' : 'text-white'">{{ row.value }}</span>
+                     <ArrowRight v-if="row.isAction" :size="16" class="text-white transition-transform group-hover:translate-x-1" />
                   </div>
                 </component>
               </div>

@@ -86,14 +86,18 @@ const isFinished = computed(() => {
 });
 
 const displaySequence = computed(() => {
+  // 1. Check direct override prop (often passed from SeriesView)
   if (props.fallbackSequence !== undefined && props.fallbackSequence !== null) {
     if (typeof props.fallbackSequence === 'string' && props.fallbackSequence.trim() === '') return null;
     return props.fallbackSequence;
   }
   const meta = props.item.media?.metadata;
   if (!meta) return null;
+  // 2. Check seriesSequence explicitly
   if (meta.seriesSequence !== undefined && meta.seriesSequence !== null) return meta.seriesSequence;
+  // 3. Check generic sequence
   if (meta.sequence !== undefined && meta.sequence !== null) return meta.sequence;
+  // 4. Check array of series objects
   if (Array.isArray(meta.series) && meta.series.length > 0) {
     const s = meta.series[0];
     if (s.sequence !== undefined && s.sequence !== null) return s.sequence;
@@ -130,6 +134,9 @@ watch(isFinished, (newVal) => {
 });
 
 onMounted(async () => {
+  // Debug log requested by user
+  console.log('Book:', props.item.media.metadata.title, 'Sequence:', displaySequence.value, 'Full Meta:', props.item.media.metadata);
+
   if (await OfflineManager.isDownloaded(props.item.id)) {
     isDownloaded.value = true;
     localCover.value = await OfflineManager.getCoverUrl(props.item.id);
@@ -240,7 +247,7 @@ onMounted(async () => {
       </p>
     </div>
   </button>
-</template>
+</script>
 
 <style scoped>
 .line-clamp-4 {
