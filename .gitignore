@@ -1,36 +1,8 @@
-
-# Dependencies
-node_modules/
-.npm
-.eslintcache
-
-# Build & Production
-dist/
-dist-ssr/
-build/
-bin/
-obj/
-
-# Environment / Secrets
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+node_modules
+.DS_Store
+dist
+dist-ssr
 *.local
 
-# System Files
-.DS_Store
-Thumbs.db
-desktop.ini
-*.swp
-*.swo
-
-# IDE / Editors
-.vscode/
-.idea/
-*.sublime-project
-*.sublime-workspace
-
-# Design Assets (Build Artifacts)
+# Design Assets
 

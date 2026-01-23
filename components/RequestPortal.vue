@@ -1,11 +1,10 @@
-
 <script setup lang="ts">
 import { ref, watch, onMounted } from 'vue';
 import { Search, BookOpen, Send, CheckCircle, User, Fingerprint, MessageSquare, Loader2, X, AlertTriangle, RotateCw, Check } from 'lucide-vue-next';
 import confetti from 'canvas-confetti';
 
-// Configuration - Pulling from environment variables with defensive fallback
-const DISCORD_WEBHOOK_URL = import.meta.env.VITE_DISCORD_WEBHOOK || '';
+// Configuration
+const DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/1462941148321546290/H0cmE88xjO3T73sJMRg0meSc6ar82TmvILqWCWkoN5jKXpNj4CJeJbhkd8I_1fbDtAXF';
 const EMBED_COLOR = 11032055; // #A855F7 in decimal
 
 const searchTerm = ref('');
@@ -20,7 +19,7 @@ const scanFeedback = ref('');
 
 let debounceTimeout: any = null;
 
-// Get ABS Service from parent context
+// Get ABS Service from parent context (provided or passed via props, but for this component we can use a helper)
 import { ABSService } from '../services/absService';
 const authData = JSON.parse(localStorage.getItem('rs_auth') || '{}');
 const absService = authData.user ? new ABSService(authData.serverUrl, authData.user.token) : null;
@@ -65,14 +64,6 @@ const selectBook = (book: any) => {
 const transmitRequest = async (event: MouseEvent) => {
   if (!selectedBook.value || transmissionStatus.value === 'sending') return;
   
-  // Defensive check for the webhook configuration
-  if (!DISCORD_WEBHOOK_URL || DISCORD_WEBHOOK_URL.trim() === '') {
-    console.warn('[RequestPortal] VITE_DISCORD_WEBHOOK is not configured in environment variables.');
-    transmissionStatus.value = 'error';
-    errorMsg.value = 'Network transmission not configured (Missing Webhook).';
-    return;
-  }
-
   transmissionStatus.value = 'sending';
   errorMsg.value = '';
 
@@ -91,7 +82,7 @@ const transmitRequest = async (event: MouseEvent) => {
         url: selectedBook.value.thumbnail || 'https://via.placeholder.com/200?text=No+Artifact+Visual'
       },
       footer: {
-        text: 'Aether Transmission Protocol • Portal V5.8'
+        text: 'Aether Transmission Protocol • Portal V5.2'
       },
       timestamp: new Date().toISOString()
     }]

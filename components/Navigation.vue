@@ -1,9 +1,9 @@
 
 <script setup lang="ts">
-import { Home, Layers, LogOut, Activity, PlusSquare, Bookmark, Library } from 'lucide-vue-next';
+import { Home, Layers, LogOut, Activity, PlusSquare } from 'lucide-vue-next';
 import AppLogo from './AppLogo.vue';
 
-export type NavTab = 'HOME' | 'SERIES' | 'SAVED' | 'REQUEST';
+export type NavTab = 'HOME' | 'SERIES' | 'REQUEST';
 
 const props = defineProps<{
   activeTab: NavTab
@@ -17,7 +17,6 @@ const emit = defineEmits<{
 const navItems = [
   { id: 'HOME' as NavTab, icon: Home, label: 'Home' },
   { id: 'SERIES' as NavTab, icon: Layers, label: 'Series' },
-  { id: 'SAVED' as NavTab, icon: Library, label: 'Saved' },
   { id: 'REQUEST' as NavTab, icon: PlusSquare, label: 'Request' },
 ];
 </script>
@@ -33,7 +32,7 @@ const navItems = [
             <h2 class="text-sm font-black tracking-tight text-white leading-tight">R.S AUDIOBOOK</h2>
             <div class="flex items-center gap-2">
               <Activity :size="8" class="text-purple-500" />
-              <p class="text-[7px] uppercase tracking-[0.4em] text-neutral-500 font-black">PORTAL V5.7</p>
+              <p class="text-[7px] uppercase tracking-[0.4em] text-neutral-500 font-black">PLAYER V5.2</p>
             </div>
           </div>
         </div>
@@ -74,6 +73,12 @@ const navItems = [
           <component :is="item.icon" :size="22" />
         </div>
         <span class="text-[8px] font-black uppercase tracking-tighter">{{ item.label }}</span>
+      </button>
+      <button @click="emit('logout')" class="flex flex-col items-center gap-1 text-neutral-600">
+        <div class="p-2">
+          <LogOut :size="22" />
+        </div>
+        <span class="text-[8px] font-black uppercase tracking-tighter">Exit</span>
       </button>
     </nav>
   </div>

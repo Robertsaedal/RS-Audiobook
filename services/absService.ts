@@ -18,17 +18,13 @@ export class ABSService {
   public libraryId: string | null = null;
   private socket: Socket | null = null;
 
-  constructor(serverUrl?: string, token?: string, userId?: string, libraryId?: string) {
-    // Fallback to env variable if serverUrl is not provided
-    const rawUrl = serverUrl || (import.meta as any).env.VITE_ABS_SERVER_URL || '';
-    this.serverUrl = rawUrl.replace(/\/$/, '');
+  constructor(serverUrl: string, token: string, userId?: string, libraryId?: string) {
+    // Ensure URL doesn't have trailing slash
+    this.serverUrl = serverUrl.replace(/\/$/, '');
     this.token = typeof token === 'string' ? token.replace(/^Bearer\s+/i, '').trim() : '';
     this.userId = userId || null;
     this.libraryId = libraryId || null;
-    
-    if (this.token) {
-      this.initSocket();
-    }
+    this.initSocket();
   }
 
   static normalizeUrl(url: string): string {
@@ -40,10 +36,6 @@ export class ABSService {
   }
 
   private initSocket() {
-    if (this.socket) {
-      this.socket.disconnect();
-    }
-
     this.socket = io(this.serverUrl, {
       auth: { token: this.token },
       path: '/socket.io',
@@ -53,13 +45,10 @@ export class ABSService {
       timeout: 10000,
     });
 
+    // CRITICAL: The server expects an explicit 'auth' event after connection.
+    // Handshake auth alone is often insufficient for the custom socket handler.
     this.socket.on('connect', () => {
       console.log('[ABSService] Socket connected, authenticating...');
-      this.emitAuth();
-    });
-
-    this.socket.on('reconnect', () => {
-      console.log('[ABSService] Socket reconnected, re-authenticating...');
       this.emitAuth();
     });
 
@@ -70,11 +59,12 @@ export class ABSService {
 
   public reconnect() {
     if (this.socket && this.socket.connected) return;
+    this.disconnect();
     this.initSocket();
   }
 
   public emitAuth() {
-    if (this.socket && this.token) {
+    if (this.socket) {
       this.socket.emit('auth', this.token);
     }
   }
@@ -162,20 +152,11 @@ export class ABSService {
 
   async getLibraries(): Promise<any[]> {
     const data = await this.fetchApi('/libraries');
-    const libraries = Array.isArray(data) ? data : (data?.libraries || []);
-    // If we have a library and none selected, auto-select the first audiobooks library
-    if (libraries.length > 0 && !this.libraryId) {
-      const audiobooksLibrary = libraries.find((l: any) => l.mediaType === 'audiobook') || libraries[0];
-      this.libraryId = audiobooksLibrary.id;
-    }
-    return libraries;
+    return Array.isArray(data) ? data : (data?.libraries || []);
   }
 
   async getLibraryItemsPaged(params: LibraryQueryParams): Promise<{ results: ABSLibraryItem[], total: number }> {
-    if (!this.libraryId) {
-      await this.getLibraries();
-      if (!this.libraryId) return { results: [], total: 0 };
-    }
+    if (!this.libraryId) return { results: [], total: 0 };
 
     const query = new URLSearchParams();
     const limit = params.limit || 60;
@@ -211,10 +192,7 @@ export class ABSService {
   }
 
   async getPersonalizedShelves(params?: { limit?: number }): Promise<any> {
-    if (!this.libraryId) {
-      await this.getLibraries();
-      if (!this.libraryId) return [];
-    }
+    if (!this.libraryId) return [];
 
     const query = new URLSearchParams();
     if (params?.limit) query.append('limit', params.limit.toString());
@@ -251,10 +229,7 @@ export class ABSService {
   }
 
   async getLibrarySeriesPaged(params: LibraryQueryParams): Promise<{ results: ABSSeries[], total: number }> {
-    if (!this.libraryId) {
-      await this.getLibraries();
-      if (!this.libraryId) return { results: [], total: 0 };
-    }
+    if (!this.libraryId) return { results: [], total: 0 };
 
     const query = new URLSearchParams();
     const limit = params.limit || 20;

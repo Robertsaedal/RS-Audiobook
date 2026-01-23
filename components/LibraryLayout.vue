@@ -3,12 +3,12 @@
 import { computed, ref, nextTick } from 'vue';
 import { 
   Home, BookOpen, Layers, User,
-  X, RotateCw, PlusSquare, Search, BarChart2, ArrowLeft, Bookmark, LogOut
+  X, RotateCw, PlusSquare, Search, BarChart2, ArrowLeft
 } from 'lucide-vue-next';
 import confetti from 'canvas-confetti';
 import AppLogo from './AppLogo.vue';
 
-export type LibraryTab = 'HOME' | 'LIBRARY' | 'SERIES' | 'REQUEST' | 'STATS' | 'SAVED';
+export type LibraryTab = 'HOME' | 'LIBRARY' | 'SERIES' | 'REQUEST' | 'STATS';
 
 const props = defineProps<{
   activeTab: LibraryTab;
@@ -27,7 +27,7 @@ const emit = defineEmits<{
   (e: 'update:search', val: string): void;
 }>();
 
-const version = "5.8.0";
+const version = "5.6.0";
 const showMobileSearch = ref(false);
 const mobileInputRef = ref<HTMLInputElement | null>(null);
 
@@ -35,7 +35,6 @@ const navItems = [
   { id: 'HOME' as LibraryTab, icon: Home, label: 'Home' },
   { id: 'LIBRARY' as LibraryTab, icon: BookOpen, label: 'Library' },
   { id: 'SERIES' as LibraryTab, icon: Layers, label: 'Series' },
-  { id: 'SAVED' as LibraryTab, icon: Bookmark, label: 'Saved' },
   { id: 'STATS' as LibraryTab, icon: BarChart2, label: 'Stats' },
 ];
 
@@ -81,7 +80,7 @@ const closeMobileSearch = () => {
     <!-- Ambient Glow Background -->
     <div class="absolute inset-0 z-0 pointer-events-none bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-purple-900/20 via-[#0d0d0d] to-[#0d0d0d]"></div>
     
-    <!-- Top Appbar -->
+    <!-- Top Appbar - Fixed Safe Top -->
     <header class="w-full fixed top-0 left-0 right-0 bg-[#0d0d0d]/80 backdrop-blur-xl z-[60] border-b border-white/5 safe-top">
       <div class="h-16 px-4 md:px-6 flex items-center justify-between">
         <div class="flex items-center gap-4 min-w-0 shrink">
@@ -115,15 +114,25 @@ const closeMobileSearch = () => {
           <button 
             @click="handleRequestClick"
             class="flex items-center gap-2 p-2 sm:px-4 sm:py-2 bg-transparent border border-purple-500/30 rounded-full text-[10px] font-black uppercase tracking-widest text-purple-400 hover:bg-purple-500/10 transition-all shrink-0 active:scale-95"
+            title="Request Artifact"
           >
             <PlusSquare :size="18" />
             <span class="hidden sm:inline">Request</span>
           </button>
 
-          <div @click="emit('logout')" class="flex items-center gap-3 bg-white/5 border border-white/10 rounded-full pl-4 pr-1 py-1 cursor-pointer hover:bg-red-500/10 hover:border-red-500/30 transition-all group/logout">
-            <span class="text-[10px] font-black hidden md:block uppercase tracking-widest text-neutral-400 group-hover/logout:text-red-500">Log Off</span>
-            <div class="w-8 h-8 rounded-full bg-neutral-900 flex items-center justify-center text-neutral-300 border border-white/10 group-hover/logout:border-red-500/30">
-              <LogOut :size="14" class="group-hover/logout:text-red-500" />
+          <button 
+            @click="emit('scan')"
+            class="p-2.5 rounded-full bg-white/5 hover:bg-purple-600/10 border border-white/10 transition-all group"
+            :class="{ 'text-purple-400 border-purple-500/20 shadow-[0_0_15px_rgba(168,85,247,0.4)]': isScanning, 'text-neutral-500 hover:text-white': !isScanning }"
+            title="Scan Library"
+          >
+            <RotateCw :size="18" :class="{ 'animate-spin': isScanning }" />
+          </button>
+
+          <div @click="emit('logout')" class="flex items-center gap-3 bg-white/5 border border-white/10 rounded-full pl-3 pr-1 py-1 cursor-pointer hover:bg-neutral-800 transition-all">
+            <span class="text-[11px] font-bold hidden md:block uppercase tracking-wider">{{ username || 'User' }}</span>
+            <div class="w-8 h-8 rounded-full bg-neutral-900 flex items-center justify-center text-neutral-300 border border-white/10">
+              <User :size="14" />
             </div>
           </div>
         </div>
@@ -184,7 +193,7 @@ const closeMobileSearch = () => {
       </main>
     </div>
 
-    <!-- Mobile Navigation Bar -->
+    <!-- Mobile Navigation Bar - Safe Bottom -->
     <nav class="md:hidden fixed bottom-0 left-0 right-0 bg-[#111111]/90 backdrop-blur-xl border-t border-white/5 z-[60] safe-bottom">
       <div class="h-16 flex justify-around items-center px-4">
         <button 
