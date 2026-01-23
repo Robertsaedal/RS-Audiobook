@@ -345,13 +345,14 @@ const playFromModal = () => {
 };
 
 const handleSeriesClickFromModal = async (seriesId: string | null, seriesName?: string) => {
+  // CRITICAL: Close modal first, then navigate
   closeInfoModal();
+  
   if (seriesId) {
     await handleJumpToSeries(seriesId);
   } else if (seriesName) {
     // Fallback: Search for the series name if no ID is attached
     searchTerm.value = seriesName;
-    // We rely on the searchTerm watcher in LibraryLayout/Parent to trigger the search view
   }
 };
 
@@ -370,7 +371,7 @@ const modalInfoRows = computed(() => {
   if (!narrator && (m as any).narrators && Array.isArray((m as any).narrators) && (m as any).narrators.length > 0) {
     narrator = (m as any).narrators.join(', ');
   }
-  if (!narrator) narrator = 'Multi-cast'; // Fallback if still empty
+  if (!narrator) narrator = 'Multi-cast';
 
   // YEAR LOGIC: Check publishedYear -> publishedDate
   let year = m.publishedYear ? String(m.publishedYear) : null;
@@ -378,12 +379,16 @@ const modalInfoRows = computed(() => {
     year = String((m as any).publishedDate).substring(0, 4);
   }
 
-  // SERIES LOGIC: Check root seriesId, or extract from series array
-  // Priority: 1. Root ID (simplest) 2. ID from array 3. Match from Series Name if possible
-  const seriesId = m.seriesId || (Array.isArray((m as any).series) && (m as any).series.length > 0 ? (m as any).series[0].id : null);
-  
-  // Display Name logic: Prefer explicit name, then array name
-  const seriesName = m.seriesName || (Array.isArray((m as any).series) && (m as any).series.length > 0 ? (m as any).series[0].name : null);
+  // SERIES LOGIC: Robust check matching Player.vue
+  // Check Root properties OR Array properties
+  const seriesArray = (m as any).series;
+  const hasSeriesArray = Array.isArray(seriesArray) && seriesArray.length > 0;
+
+  const seriesId = m.seriesId || (hasSeriesArray ? seriesArray[0].id : null);
+  const seriesName = m.seriesName || (hasSeriesArray ? seriesArray[0].name : null);
+  const seriesSeq = m.seriesSequence || (m as any).sequence || (hasSeriesArray ? seriesArray[0].sequence : null);
+
+  const seriesDisplay = seriesName ? (seriesSeq ? `${seriesName} #${seriesSeq}` : seriesName) : null;
 
   const rows = [
     { label: 'Narrator', value: narrator || 'Unknown', icon: Mic },
@@ -391,15 +396,14 @@ const modalInfoRows = computed(() => {
     { label: 'Year', value: year || 'Unknown', icon: Calendar }
   ];
 
-  // Logic: If seriesName exists, we make it clickable (isAction: true).
-  // The handler will determine if we have an ID to jump to, or if we need to fallback to search.
-  if (seriesName) {
+  // Insert Series Row if display string exists
+  if (seriesDisplay) {
     rows.splice(1, 0, { 
       label: 'Series', 
-      value: seriesName, 
+      value: seriesDisplay, 
       icon: Layers,
       isAction: true,
-      actionId: seriesId || null, // Can be null, handler deals with it
+      actionId: seriesId || null,
       actionName: seriesName
     } as any);
   }
@@ -434,13 +438,11 @@ onUnmounted(() => {
 const handleJumpToSeries = async (seriesId: string) => {
   if (!absService.value || isOfflineMode.value) return;
   
-  // Guard against duplicate navigation or overwriting
   if (selectedSeries.value?.id === seriesId) return;
 
   try {
     const series = await absService.value.getSeries(seriesId);
     if (series) {
-      // Manually manage history for series navigation
       if (window.location.hash !== '#series') {
         window.history.pushState({ series: true }, '', '#series');
       }
@@ -466,11 +468,8 @@ const closeSeries = () => {
 
 const handleTabChange = (tab: LibraryTab) => {
   activeTab.value = tab;
-  // If we change tabs manually, ensure we clear series if we were in one, but only if not just browsing
   if (selectedSeries.value) {
     selectedSeries.value = null;
-    // We could clean up history here, but it's complex without router. 
-    // Usually user uses back button to exit series.
   }
   searchTerm.value = ''; 
   if (tab === 'HOME') fetchDashboardData();
@@ -651,7 +650,7 @@ const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && rec
                   class="p-4 rounded-2xl flex flex-col gap-1 text-left transition-all relative overflow-hidden"
                   :class="[
                     row.isAction 
-                      ? 'bg-purple-600 border border-purple-500/50 hover:bg-purple-500 cursor-pointer group active:scale-95 shadow-lg shadow-purple-900/20 hover:scale-[1.02]' 
+                      ? 'bg-purple-600 border border-purple-500/50 hover:bg-purple-500 cursor-pointer group active:scale-95 shadow-lg shadow-purple-900/20 hover:scale-105' 
                       : 'bg-white/5 border border-white/5'
                   ]"
                   @click="row.isAction ? handleSeriesClickFromModal(row.actionId, row.actionName) : null"
