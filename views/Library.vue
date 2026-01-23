@@ -12,8 +12,7 @@ import RequestPortal from '../components/RequestPortal.vue';
 import StatsView from './StatsView.vue';
 import SavedBooks from './SavedBooks.vue';
 import BookCard from '../components/BookCard.vue';
-import SeriesCard from '../components/SeriesCard.vue';
-import { PackageOpen, Loader2, WifiOff, RotateCw, Heart } from 'lucide-vue-next';
+import { PackageOpen, Loader2, Heart } from 'lucide-vue-next';
 
 defineOptions({
   name: 'Library'
@@ -37,11 +36,8 @@ const emit = defineEmits<{
 const absService = ref<ABSService | null>(props.providedService || null);
 const activeTab = ref<LibraryTab>('HOME');
 const searchTerm = ref('');
-const sortMethod = ref('addedAt'); 
-const desc = ref(1);
 const selectedSeries = ref<ABSSeries | null>(null);
 const isScanning = ref(false);
-const isOfflineMode = ref(!navigator.onLine);
 
 const wishlistItems = ref<ABSLibraryItem[]>([]);
 const currentlyReadingRaw = ref<ABSLibraryItem[]>([]);
@@ -55,26 +51,11 @@ const fetchWishlist = async () => {
   wishlistItems.value = await OfflineManager.getAllWishlisted();
 };
 
-const handleProgressUpdate = (p: ABSProgress, triggerEffects = true) => {
-  const mapToUpdate = props.progressMap || localProgressMap;
-  mapToUpdate.set(p.itemId, { ...p, lastUpdate: p.lastUpdate || Date.now() });
-  if (triggerEffects) fetchDashboardData();
-};
-
 const fetchDashboardData = async () => {
   fetchWishlist();
-  
   if (!absService.value) return;
-
-  // Wait for library selection if not present
-  if (!absService.value.libraryId) {
-    await absService.value.getLibraries();
-  }
-
-  if (!absService.value.libraryId) {
-    console.warn("No library ID available for fetching dashboard.");
-    return;
-  }
+  if (!absService.value.libraryId) await absService.value.getLibraries();
+  if (!absService.value.libraryId) return;
 
   if (!navigator.onLine) {
     const localBooks = await OfflineManager.getAllDownloadedBooks();
@@ -105,7 +86,6 @@ onMounted(async () => {
   window.addEventListener('online', fetchDashboardData);
 });
 
-// Watch for libraryId changes to trigger re-fetch
 watch(() => absService.value?.libraryId, (newId) => {
   if (newId) fetchDashboardData();
 });
@@ -118,7 +98,12 @@ const handleInfoClick = (item: ABSLibraryItem) => {
 
 const handleTabChange = (tab: LibraryTab) => {
   activeTab.value = tab;
+  selectedSeries.value = null; // Reset series view when changing tabs
   if (tab === 'HOME') fetchDashboardData();
+};
+
+const openSeries = (series: ABSSeries) => {
+  selectedSeries.value = series;
 };
 </script>
 
@@ -127,13 +112,11 @@ const handleTabChange = (tab: LibraryTab) => {
     <div class="flex-1 min-h-0 h-full flex flex-col relative">
       <div v-if="activeTab === 'HOME'" class="h-full overflow-y-auto custom-scrollbar pt-4 pb-40">
         
-        <!-- Empty State if no items found and not loading -->
         <div v-if="!currentlyReadingRaw.length && !recentlyAddedRaw.length && !wishlistItems.length" class="flex flex-col items-center justify-center py-40 opacity-30">
            <Loader2 class="animate-spin mb-4" :size="32" />
            <p class="text-[10px] font-black uppercase tracking-widest">Awaiting Artifact Response...</p>
         </div>
 
-        <!-- Continue Listening -->
         <section v-if="currentlyReadingRaw.length > 0 && absService" class="shelf-row py-8">
           <div class="shelf-tag"><span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Continue Listening</span></div>
           <div class="flex gap-8 overflow-x-auto no-scrollbar pl-2 pb-8">
@@ -143,7 +126,6 @@ const handleTabChange = (tab: LibraryTab) => {
           </div>
         </section>
 
-        <!-- Want To Listen (Wishlist) -->
         <section v-if="wishlistItems.length > 0 && absService" class="shelf-row py-8">
           <div class="shelf-tag border-l-purple-400 bg-purple-500/10 flex items-center gap-2">
             <Heart :size="10" fill="currentColor" class="text-purple-400" />
@@ -156,7 +138,6 @@ const handleTabChange = (tab: LibraryTab) => {
           </div>
         </section>
 
-        <!-- Standard Shelves -->
         <section v-if="recentlyAddedRaw.length > 0 && absService" class="shelf-row py-8">
           <div class="shelf-tag"><span class="text-[10px] font-black uppercase tracking-[0.3em] text-white">Recently Added</span></div>
           <div class="flex gap-8 overflow-x-auto no-scrollbar pl-2 pb-8">
@@ -168,8 +149,14 @@ const handleTabChange = (tab: LibraryTab) => {
       </div>
 
       <div v-else-if="activeTab === 'LIBRARY' && absService" class="h-full flex flex-col overflow-hidden">
-        <Bookshelf :absService="absService" sortMethod="addedAt" :desc="1" :search="''" :progressMap="activeProgressMap" @select-item="emit('select-item', $event)" @info-click="handleInfoClick" />
+        <Bookshelf :absService="absService" sortMethod="addedAt" :desc="1" :search="searchTerm" :progressMap="activeProgressMap" @select-item="emit('select-item', $event)" @info-click="handleInfoClick" />
       </div>
+
+      <div v-else-if="activeTab === 'SERIES' && absService" class="h-full flex flex-col overflow-hidden">
+        <SeriesView v-if="selectedSeries" :series="selectedSeries" :absService="absService" :progressMap="activeProgressMap" @back="selectedSeries = null" @select-item="emit('select-item', $event)" />
+        <SeriesShelf v-else :absService="absService" sortMethod="addedAt" :desc="1" :search="searchTerm" @select-series="openSeries" />
+      </div>
+
       <div v-else-if="activeTab === 'SAVED'" class="h-full flex flex-col overflow-hidden">
         <SavedBooks @select-item="emit('select-item', $event)" @info-click="handleInfoClick" />
       </div>
