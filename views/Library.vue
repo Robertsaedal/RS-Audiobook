@@ -319,6 +319,18 @@ const openInfoModal = async (item: ABSLibraryItem) => {
   window.history.pushState({ modal: 'info' }, '', '#info');
   selectedInfoItem.value = item;
   isInfoItemWishlisted.value = await OfflineManager.isWishlisted(item.id);
+
+  // ENRICHMENT: Fetch full item details to get nested series IDs if missing
+  if (absService.value && !isOfflineMode.value) {
+     try {
+       const enriched = await absService.value.getLibraryItem(item.id);
+       if (enriched && selectedInfoItem.value?.id === enriched.id) {
+          selectedInfoItem.value = enriched;
+       }
+     } catch(e) {
+       // Silent fail, keep using shallow data
+     }
+  }
 };
 
 const closeInfoModal = () => {
@@ -343,12 +355,15 @@ const playFromModal = () => {
   }
 };
 
-const handleSeriesClickFromModal = async (seriesId: string | null) => {
-  if (!seriesId) return;
-
-  // CRITICAL: Close modal first, then navigate
+const handleSeriesClickFromModal = async (seriesId: string | null, seriesName?: string | null) => {
   closeInfoModal();
-  await handleJumpToSeries(seriesId);
+  
+  if (seriesId) {
+    await handleJumpToSeries(seriesId);
+  } else if (seriesName) {
+    searchTerm.value = seriesName; 
+    // The existing watcher on searchTerm will trigger the search automatically
+  }
 };
 
 const secondsToTimestamp = (s: number) => {
@@ -394,7 +409,15 @@ const modalInfoRows = computed(() => {
     seriesSeq = m.seriesSequence || (m as any).sequence || null;
   }
 
-  const seriesDisplay = seriesName ? (seriesSeq ? `${seriesName} #${seriesSeq}` : seriesName) : null;
+  // REGEX CLEANING: Strip volume/book numbers from end of name
+  let cleanName = null;
+  if (seriesName) {
+     // Remove " #2", " Book 2", ", Vol. 2", " #2.5" from end of string
+     cleanName = seriesName.replace(/(\s+#\d+(\.\d+)?$)|(\s+(Book|Vol\.?|Volume)\s+\d+$)/i, '').trim();
+  }
+
+  // Display value on pill: Use Clean Name if available, otherwise full name
+  const displayValue = cleanName || seriesName;
 
   const rows = [
     { label: 'Narrator', value: narrator || 'Unknown', icon: Mic, isAction: false },
@@ -403,22 +426,16 @@ const modalInfoRows = computed(() => {
   ];
 
   // Insert Series Row
-  // Only make it an ACTION (Purple Button) if we have a valid ID.
-  // Otherwise, if we have a display name but no ID, show it as a static info row.
-  if (seriesDisplay && seriesId) {
+  if (displayValue) {
+    const isActionable = !!seriesId || !!cleanName;
+    
     rows.splice(1, 0, { 
       label: 'Series', 
-      value: seriesDisplay, 
+      value: displayValue, 
       icon: Layers,
-      isAction: true,
-      actionId: seriesId
-    } as any);
-  } else if (seriesDisplay) {
-    rows.splice(1, 0, { 
-      label: 'Series', 
-      value: seriesDisplay, 
-      icon: Layers,
-      isAction: false
+      isAction: isActionable,
+      actionId: seriesId,
+      actionName: cleanName
     } as any);
   }
 
@@ -667,7 +684,7 @@ const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && rec
                       ? 'bg-purple-600 border border-purple-500/50 hover:bg-purple-500 cursor-pointer group active:scale-95 shadow-lg shadow-purple-900/20 hover:scale-105' 
                       : 'bg-white/5 border border-white/5'
                   ]"
-                  @click="row.isAction ? handleSeriesClickFromModal(row.actionId) : null"
+                  @click="row.isAction ? handleSeriesClickFromModal(row.actionId, row.actionName) : null"
                 >
                   <div class="flex items-center gap-2 mb-1" :class="row.isAction ? 'text-purple-200' : 'text-neutral-500'">
                     <component :is="row.icon" :size="12" />

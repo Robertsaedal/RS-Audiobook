@@ -154,6 +154,12 @@ export class ABSService {
     return Array.isArray(data) ? data : (data?.libraries || []);
   }
 
+  async getLibraryItem(itemId: string): Promise<ABSLibraryItem | null> {
+    if (!this.libraryId) return null;
+    const data = await this.fetchApi(`/libraries/${this.libraryId}/items/${itemId}?include=progress,userProgress,metadata,series,media&expanded=1&_cb=${Date.now()}`);
+    return data;
+  }
+
   async getLibraryItemsPaged(params: LibraryQueryParams): Promise<{ results: ABSLibraryItem[], total: number }> {
     if (!this.libraryId) return { results: [], total: 0 };
 
