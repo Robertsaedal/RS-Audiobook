@@ -3,7 +3,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { ABSService } from '../services/absService';
 import { ABSProgress } from '../types';
-import { BarChart2, AlertCircle, PlayCircle, Trophy, ChevronLeft, ChevronRight, Clock, Calendar } from 'lucide-vue-next';
+import { AlertCircle, PlayCircle, Trophy, ChevronLeft, ChevronRight, Clock, Calendar } from 'lucide-vue-next';
 
 const props = defineProps<{
   absService: ABSService,
@@ -72,22 +72,6 @@ const totalBooksFinished = computed(() => {
   return 0;
 });
 
-// Aggregate monthly data using robust parsing
-const monthlyData = computed(() => {
-  const months = new Array(12).fill(0);
-  if (!stats.value?.days) return months;
-
-  Object.entries(stats.value.days).forEach(([dateStr, seconds]) => {
-    const parsed = parseYearMonth(dateStr);
-    if (parsed && parsed.year === selectedYear.value) {
-      if (parsed.month >= 0 && parsed.month < 12) {
-        months[parsed.month] += Number(seconds);
-      }
-    }
-  });
-  return months;
-});
-
 const totalListeningTime = computed(() => {
   if (!stats.value?.days) return 0;
   let total = 0;
@@ -117,11 +101,6 @@ const activeDaysCount = computed(() => {
     }
   });
   return count;
-});
-
-const maxMonthlyValue = computed(() => {
-  const max = Math.max(...monthlyData.value);
-  return max > 0 ? max : 1; 
 });
 
 const displaySessions = computed(() => {
@@ -160,8 +139,6 @@ const changeYear = (delta: number) => {
 onMounted(() => {
   fetchStats();
 });
-
-const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 </script>
 
 <template>
@@ -245,39 +222,6 @@ const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep
                 <span class="text-sm font-black text-neutral-500 uppercase">Days</span>
              </div>
           </div>
-        </div>
-
-        <!-- Volume Chart -->
-        <div class="bg-neutral-900/40 border border-white/5 rounded-3xl p-8 flex flex-col gap-4">
-           <div class="flex items-center gap-3 text-neutral-400">
-             <BarChart2 :size="20" />
-             <span class="text-[9px] font-black uppercase tracking-[0.3em]">Volume by Month</span>
-           </div>
-           <div class="flex-1 flex items-end justify-between gap-2 pt-10 h-48">
-               <div 
-                 v-for="(val, index) in monthlyData" 
-                 :key="index"
-                 class="flex-1 flex flex-col justify-end group relative h-full"
-               >
-                  <!-- Value Tooltip -->
-                  <div class="absolute -top-10 left-1/2 -translate-x-1/2 bg-white text-black text-[9px] font-black px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-20 pointer-events-none shadow-xl border border-white/10">
-                      {{ formatTooltipDuration(val) }}
-                  </div>
-
-                  <!-- Bar -->
-                  <div 
-                    class="w-full bg-neutral-800 rounded-t-sm group-hover:bg-purple-500 transition-all duration-500 relative"
-                    :style="{ 
-                      height: val > 0 ? `${(val / maxMonthlyValue) * 100}%` : '4px', 
-                      opacity: val > 0 ? 1 : 0.2,
-                      backgroundColor: val > 0 ? undefined : 'rgba(255,255,255,0.05)'
-                    }"
-                  />
-               </div>
-           </div>
-           <div class="flex justify-between text-[8px] font-black uppercase text-neutral-700 mt-4 border-t border-white/5 pt-4">
-              <span v-for="(m, i) in monthNames" :key="i" class="w-full text-center">{{ m }}</span>
-           </div>
         </div>
 
         <!-- Activity History -->

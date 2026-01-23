@@ -2,8 +2,8 @@
 <script setup lang="ts">
 import { computed, ref, nextTick } from 'vue';
 import { 
-  Home, BookOpen, Layers, User,
-  X, RotateCw, PlusSquare, Search, BarChart2, ArrowLeft
+  Home, BookOpen, Layers,
+  RotateCw, PlusSquare, Search, BarChart2, ArrowLeft, LogOut
 } from 'lucide-vue-next';
 import confetti from 'canvas-confetti';
 import AppLogo from './AppLogo.vue';
@@ -27,7 +27,7 @@ const emit = defineEmits<{
   (e: 'update:search', val: string): void;
 }>();
 
-const version = "5.6.0";
+const version = "5.8.0";
 const showMobileSearch = ref(false);
 const mobileInputRef = ref<HTMLInputElement | null>(null);
 
@@ -120,19 +120,10 @@ const closeMobileSearch = () => {
             <span class="hidden sm:inline">Request</span>
           </button>
 
-          <button 
-            @click="emit('scan')"
-            class="p-2.5 rounded-full bg-white/5 hover:bg-purple-600/10 border border-white/10 transition-all group"
-            :class="{ 'text-purple-400 border-purple-500/20 shadow-[0_0_15px_rgba(168,85,247,0.4)]': isScanning, 'text-neutral-500 hover:text-white': !isScanning }"
-            title="Scan Library"
-          >
-            <RotateCw :size="18" :class="{ 'animate-spin': isScanning }" />
-          </button>
-
-          <div @click="emit('logout')" class="flex items-center gap-3 bg-white/5 border border-white/10 rounded-full pl-3 pr-1 py-1 cursor-pointer hover:bg-neutral-800 transition-all">
-            <span class="text-[11px] font-bold hidden md:block uppercase tracking-wider">{{ username || 'User' }}</span>
-            <div class="w-8 h-8 rounded-full bg-neutral-900 flex items-center justify-center text-neutral-300 border border-white/10">
-              <User :size="14" />
+          <div @click="emit('logout')" class="flex items-center gap-3 bg-white/5 border border-white/10 rounded-full pl-4 pr-1 py-1 cursor-pointer hover:bg-red-500/10 hover:border-red-500/30 transition-all group/logout">
+            <span class="text-[10px] font-black hidden md:block uppercase tracking-widest text-neutral-400 group-hover/logout:text-red-500">Log Off</span>
+            <div class="w-8 h-8 rounded-full bg-neutral-900 flex items-center justify-center text-neutral-300 border border-white/10 group-hover/logout:border-red-500/30">
+              <LogOut :size="14" class="group-hover/logout:text-red-500" />
             </div>
           </div>
         </div>
@@ -183,8 +174,7 @@ const closeMobileSearch = () => {
     <!-- Main Content Area -->
     <div 
       id="app-content" 
-      class="flex-1 h-full pt-16 relative z-10 safe-top"
-      :class="{ 'has-siderail': true }"
+      class="flex-1 h-full pt-16 relative z-10 safe-top md:ml-20 transition-all duration-200"
     >
       <main class="h-full page-content overflow-hidden" :class="{ 'streaming': isStreaming }">
         <div class="max-w-7xl mx-auto w-full px-4 md:px-8 py-8 h-full flex flex-col">

@@ -21,15 +21,6 @@
     transition: margin-left 0.2s ease-in-out, width 0.2s ease-in-out;
   }
 
-  /* Only apply siderail offsets on desktop where the sidebar is visible */
-  @media (min-width: 768px) {
-    #app-content.has-siderail {
-      width: calc(100% - 80px);
-      max-width: calc(100% - 80px);
-      margin-left: 80px;
-    }
-  }
-
   /* iOS Safe Areas */
   .safe-top {
     padding-top: env(safe-area-inset-top);
