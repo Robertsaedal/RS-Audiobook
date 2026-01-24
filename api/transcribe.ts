@@ -72,6 +72,11 @@ export default async function handler(req: any, res: any) {
       displayName: "Audiobook Segment",
     });
 
+    // OPTIMIZATION: Delete local file immediately after upload to free space
+    if (fs.existsSync(tempFilePath)) {
+        fs.unlinkSync(tempFilePath);
+    }
+
     // 5. Generate Content
     console.log('[API] Generating Transcript...');
     
@@ -92,18 +97,20 @@ export default async function handler(req: any, res: any) {
 
     const vttText = result.response.text();
 
-    // 6. Cleanup
+    // 6. Cleanup Gemini File (Best Effort)
     try {
-      if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
-      // await fileManager.deleteFile(uploadResult.file.name);
+       // Note: Deleting the file from Gemini immediately might cause issues if generation is still streaming/processing internally,
+       // but typically once generateContent returns, we are done.
+       await fileManager.deleteFile(uploadResult.file.name);
     } catch (cleanupErr) {
-      console.warn("Cleanup warning:", cleanupErr);
+      console.warn("Gemini Cleanup warning:", cleanupErr);
     }
 
     return res.status(200).json({ vtt: vttText });
 
   } catch (error: any) {
     console.error('[API Error]', error);
+    // Ensure temp file is deleted on error
     if (fs.existsSync(tempFilePath)) {
       try { fs.unlinkSync(tempFilePath); } catch(e) {}
     }
