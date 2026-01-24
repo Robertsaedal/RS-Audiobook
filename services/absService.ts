@@ -17,6 +17,7 @@ export class ABSService {
   private userId: string | null = null;
   public libraryId: string | null = null;
   private socket: Socket | null = null;
+  private socketErrorCount = 0; // Circuit Breaker Counter
 
   constructor(serverUrl: string, token: string, userId?: string, libraryId?: string) {
     // Ensure URL doesn't have trailing slash
@@ -36,6 +37,12 @@ export class ABSService {
   }
 
   private initSocket() {
+    // CIRCUIT BREAKER: If we failed too many times, stop trying.
+    if (this.socketErrorCount > 3) {
+      console.warn('[ABSService] Socket circuit breaker active. Live updates disabled.');
+      return;
+    }
+
     this.socket = io(this.serverUrl, {
       auth: { token: this.token },
       path: '/socket.io',
@@ -43,20 +50,30 @@ export class ABSService {
       autoConnect: true,
       reconnection: true,
       timeout: 10000,
+      forceNew: true // Force new session to avoid sticky-session 400 errors
     });
 
     // CRITICAL: The server expects an explicit 'auth' event after connection.
     this.socket.on('connect', () => {
       console.log('[ABSService] Socket connected (Polling), authenticating...');
+      this.socketErrorCount = 0; // Reset on successful connect
       this.emitAuth();
     });
 
     this.socket.on('connect_error', (err) => {
-      console.warn('[ABSService] Live updates disabled (using polling mode).', err.message);
+      this.socketErrorCount++;
+      if (this.socketErrorCount > 3) {
+        console.warn('[ABSService] Too many socket errors. Disconnecting permanently.', err.message);
+        this.socket?.disconnect();
+        this.socket = null;
+      } else {
+        console.warn(`[ABSService] Socket Error (${this.socketErrorCount}/3):`, err.message);
+      }
     });
   }
 
   public reconnect() {
+    if (this.socketErrorCount > 3) return; // Respect circuit breaker
     if (this.socket && this.socket.connected) return;
     this.disconnect();
     this.initSocket();

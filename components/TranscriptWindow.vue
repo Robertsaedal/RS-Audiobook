@@ -90,13 +90,26 @@ const generateTranscript = async () => {
       downloadUrl, 
       duration,
       (chunk) => {
-        // Update status on first chunk or continuous chunks
-        customStatusText.value = 'Receiving data...';
+        // PARSE STATUS UPDATES from backend notes
+        // Backend sends "NOTE Status: <Message>"
+        const statusMatch = chunk.match(/NOTE Status: (.*)/);
+        if (statusMatch) {
+            customStatusText.value = statusMatch[1].trim();
+        } else if (!customStatusText.value) {
+            customStatusText.value = 'Receiving data...';
+        }
+
+        // Check for backend reported errors in the stream
+        const errorMatch = chunk.match(/NOTE Error: (.*)/);
+        if (errorMatch) {
+             throw new Error(errorMatch[1].trim());
+        }
         
         accumulatedVtt += chunk;
         
-        // Once we get meaningful data, remove the full screen loading state
-        if (!hasStoppedLoading && accumulatedVtt.length > 50) {
+        // Once we get meaningful data (cues), remove the full screen loading state
+        // We look for the timestamp arrow "-->" which indicates actual cues have started
+        if (!hasStoppedLoading && accumulatedVtt.includes('-->')) {
            stopProgressSimulation();
            isLoading.value = false; 
            hasTranscript.value = true;
@@ -104,7 +117,10 @@ const generateTranscript = async () => {
         }
 
         // Parse whatever we have so far
-        cues.value = TranscriptionService.parseVTT(accumulatedVtt);
+        const newCues = TranscriptionService.parseVTT(accumulatedVtt);
+        if (newCues.length > 0) {
+            cues.value = newCues;
+        }
       }
     );
     
@@ -238,7 +254,7 @@ watch(() => props.item.id, loadTranscript, { immediate: true });
           :key="index"
           @click="handleCueClick(cue)"
           class="cursor-pointer transition-all duration-500 py-3 px-4 rounded-2xl border border-transparent hover:bg-white/5 w-full text-center max-w-lg"
-          :class="activeCueIndex === index ? 'active-cue bg-white/5 border-purple-500/20 scale-105 shadow-lg' : 'opacity-40 hover:opacity-80 scale-95 blur-[0.5px] hover:blur-0'"
+          :class="activeCueIndex === index ? 'active-cue bg-white/5 border-purple-500/20 scale-105 shadow-lg' : 'opacity-40 hover:opacity-80 scale-95 blur-sm hover:blur-none'"
         >
           <p 
             class="text-base md:text-lg font-bold leading-relaxed transition-colors duration-300"
@@ -252,13 +268,3 @@ watch(() => props.item.id, loadTranscript, { immediate: true });
     </div>
   </div>
 </template>
-
-<style scoped>
-/* Ensure smooth transitions for opacity and blur */
-.blur-[0.5px] {
-  filter: blur(0.5px);
-}
-.hover\:blur-0:hover {
-  filter: blur(0);
-}
-</style>
