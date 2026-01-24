@@ -37,16 +37,6 @@ export default async function handler(req: any, res: any) {
   let fileUri: string = "";
 
   try {
-    res.writeHead(200, {
-      'Content-Type': 'text/plain; charset=utf-8',
-      'Transfer-Encoding': 'chunked',
-      'Connection': 'keep-alive',
-      'X-Content-Type-Options': 'nosniff'
-    });
-
-    res.write("WEBVTT\n\n");
-    res.write("NOTE Status: analyzing file size...\n\n");
-
     // 1. Analyze File Size via HEAD
     let totalBytes = 0;
     try {
@@ -78,10 +68,6 @@ export default async function handler(req: any, res: any) {
 
         const calculatedEnd = Math.min(startByte + CHUNK_SIZE_BYTES, totalBytes);
         endByte = calculatedEnd.toString();
-        
-        res.write(`NOTE Status: Large file detected (${(totalBytes/1024/1024).toFixed(0)}MB). Downloading byte range ${startByte}-${endByte}...\n\n`);
-    } else {
-        res.write(`NOTE Status: Processing full file...\n\n`);
     }
 
     // 3. Fetch Audio Stream with Range Headers
@@ -90,7 +76,6 @@ export default async function handler(req: any, res: any) {
         headers['Range'] = `bytes=${startByte}-${endByte}`;
     }
 
-    res.write("NOTE Status: Downloading segment...\n\n");
     const audioResponse = await fetch(downloadUrl, { headers });
     
     if (!audioResponse.ok && audioResponse.status !== 206) {
@@ -101,7 +86,6 @@ export default async function handler(req: any, res: any) {
     const mimeType = audioResponse.headers.get('content-type') || 'audio/mp3';
 
     // 4. Init Gemini Resumable Upload
-    res.write("NOTE Status: Uplinking to Gemini...\n\n");
     const uploadBaseUrl = "https://generativelanguage.googleapis.com/upload/v1beta/files";
     const startRes = await fetch(`${uploadBaseUrl}?key=${apiKey}`, {
         method: 'POST',
@@ -115,7 +99,14 @@ export default async function handler(req: any, res: any) {
         body: JSON.stringify({ file: { display_name: 'Streamed Segment' } })
     });
 
-    if (!startRes.ok) throw new Error(`Gemini Init Failed: ${startRes.status}`);
+    if (!startRes.ok) {
+        const errText = await startRes.text();
+        if (startRes.status === 429 || errText.includes('429')) {
+             return res.status(429).json({ error: 'Gemini API Rate Limit Reached. Please wait.' });
+        }
+        throw new Error(`Gemini Init Failed: ${startRes.status}`);
+    }
+
     const uploadUrl = startRes.headers.get('x-goog-upload-url');
     if (!uploadUrl) throw new Error("No upload URL received");
 
@@ -141,11 +132,16 @@ export default async function handler(req: any, res: any) {
     fileUri = uploadData.file.uri;
 
     // 6. Generate Transcript
-    res.write("NOTE Status: Transcribing segment...\n\n");
-    
+    // Important: We write headers NOW, because if we fail before this, we want to return standard JSON errors.
+    res.writeHead(200, {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Transfer-Encoding': 'chunked',
+      'Connection': 'keep-alive',
+      'X-Content-Type-Options': 'nosniff'
+    });
+
     const ai = new GoogleGenAI({ apiKey: apiKey });
 
-    // Simplified Prompt: We handle time offsets in the frontend now.
     const promptText = `
     This audio is a segment of a larger book. 
     Transcribe it into WebVTT format.
@@ -176,8 +172,20 @@ export default async function handler(req: any, res: any) {
 
   } catch (error: any) {
     console.error('[API Error]', error);
-    if (!res.writableEnded) {
-        res.write(`\nNOTE Error: ${error.message || 'Processing Failed'}\n`);
+    
+    // Explicitly handle Rate Limits that might occur during SDK usage
+    if (error.message?.includes('429') || error.status === 429) {
+        if (!res.headersSent) {
+             return res.status(429).json({ error: 'Too Many Requests' });
+        } else {
+             res.write(`\nNOTE Error: 429 Resource Exhausted. Retrying recommended.\n`);
+        }
+    } else {
+        if (!res.headersSent) {
+             return res.status(500).json({ error: error.message || 'Internal Server Error' });
+        } else {
+             res.write(`\nNOTE Error: ${error.message || 'Processing Failed'}\n`);
+        }
     }
   } finally {
     if (uploadedFileVal && uploadedFileVal.name) {

@@ -1,10 +1,11 @@
 
 <script setup lang="ts">
-import { ref, watch, onMounted, computed, nextTick } from 'vue';
+import { ref, watch, onMounted, computed, nextTick, onUnmounted } from 'vue';
 import { TranscriptionService, VttCue } from '../services/transcriptionService';
+import { useTranscriptionQueue } from '../composables/useTranscriptionQueue';
 import { ABSService } from '../services/absService';
 import { ABSLibraryItem } from '../types';
-import { Loader2, Sparkles, X, AlertTriangle, FileText } from 'lucide-vue-next';
+import { Loader2, Sparkles, X, AlertTriangle, FileText, CheckCircle, Clock } from 'lucide-vue-next';
 
 const props = defineProps<{
   item: ABSLibraryItem,
@@ -17,55 +18,35 @@ const emit = defineEmits<{
   (e: 'seek', time: number): void
 }>();
 
+const { getItemStatus, addToQueue, cooldownTimer } = useTranscriptionQueue();
+
 const cues = ref<VttCue[]>([]);
-const isLoading = ref(false);
-const errorMsg = ref<string | null>(null);
 const hasTranscript = ref(false);
 const activeCueIndex = ref(-1);
 const scrollContainer = ref<HTMLElement | null>(null);
-const customStatusText = ref<string | null>(null);
 
-// Progress State
-const processingProgress = ref(0);
-let progressInterval: any = null;
+// Queue Status tracking
+const queueItem = computed(() => getItemStatus(props.item.id, props.currentTime));
+const isQueued = computed(() => !!queueItem.value);
+const queueStatus = computed(() => queueItem.value?.status);
+const queueError = computed(() => queueItem.value?.error);
+
+const progressLabel = computed(() => {
+  if (cooldownTimer.value > 0 && queueStatus.value === 'retrying') {
+    return `Rate Limit Reached. Retrying in ${cooldownTimer.value}s...`;
+  }
+  if (queueStatus.value === 'pending') return 'Waiting in Queue...';
+  if (queueStatus.value === 'processing') return 'Transcribing Audio...';
+  if (queueStatus.value === 'completed') return 'Finalizing...';
+  if (queueStatus.value === 'failed') return 'Transcription Failed';
+  return 'Initializing...';
+});
 
 const activeCue = computed(() => activeCueIndex.value !== -1 ? cues.value[activeCueIndex.value] : null);
 
-const progressLabel = computed(() => {
-  if (customStatusText.value) return customStatusText.value;
-  if (processingProgress.value < 20) return 'Initializing Gemini...';
-  if (processingProgress.value < 80) return 'Processing Audio...';
-  return 'Finalizing...';
-});
-
-const startProgressSimulation = () => {
-  processingProgress.value = 0;
-  customStatusText.value = null;
-  if (progressInterval) clearInterval(progressInterval);
-  
-  progressInterval = setInterval(() => {
-    if (processingProgress.value < 20) {
-       processingProgress.value += 2; // Fast start
-    } else if (processingProgress.value < 80) {
-       processingProgress.value += 0.5; // Steady processing
-    } else if (processingProgress.value < 95) {
-       processingProgress.value += 0.1; // Slow finish
-    }
-  }, 100);
-};
-
-const stopProgressSimulation = () => {
-  if (progressInterval) clearInterval(progressInterval);
-  processingProgress.value = 100;
-};
-
 const loadTranscript = async () => {
-  errorMsg.value = null;
   const vtt = await TranscriptionService.getTranscript(props.item.id);
   if (vtt) {
-    // If loading from cache, we assume offset is 0 or handled (cached full file)
-    // However, for segment caching, this might need refinement. 
-    // Current fix focuses on live generation sync.
     cues.value = TranscriptionService.parseVTT(vtt, 0);
     hasTranscript.value = true;
   } else {
@@ -74,70 +55,21 @@ const loadTranscript = async () => {
   }
 };
 
-const generateTranscript = async () => {
-  isLoading.value = true;
-  errorMsg.value = null;
-  cues.value = [];
-  startProgressSimulation();
-
-  let accumulatedVtt = '';
-  let hasStoppedLoading = false;
-
-  try {
-    const downloadUrl = props.absService.getDownloadUrl(props.item.id);
-    const duration = props.item.media.duration;
-    
-    // Pass duration, streaming callback, and CURRENT TIME to service
-    const vtt = await TranscriptionService.generateTranscript(
-      props.item.id, 
-      downloadUrl, 
-      duration,
-      (chunk) => {
-        // PARSE STATUS UPDATES from backend notes
-        const statusMatch = chunk.match(/NOTE Status: (.*)/);
-        if (statusMatch) {
-            customStatusText.value = statusMatch[1].trim();
-        } else if (!customStatusText.value) {
-            customStatusText.value = 'Receiving data...';
-        }
-
-        // Check for backend reported errors in the stream
-        const errorMatch = chunk.match(/NOTE Error: (.*)/);
-        if (errorMatch) {
-             throw new Error(errorMatch[1].trim());
-        }
-        
-        accumulatedVtt += chunk;
-        
-        if (!hasStoppedLoading && accumulatedVtt.includes('-->')) {
-           stopProgressSimulation();
-           isLoading.value = false; 
-           hasTranscript.value = true;
-           hasStoppedLoading = true;
-        }
-
-        // Parse with current time offset to sync with player
-        const newCues = TranscriptionService.parseVTT(accumulatedVtt, props.currentTime);
-        if (newCues.length > 0) {
-            cues.value = newCues;
-        }
-      },
-      props.currentTime 
-    );
-    
-    // Final parse with offset
-    cues.value = TranscriptionService.parseVTT(vtt, props.currentTime);
-    hasTranscript.value = true;
-
-  } catch (e: any) {
-    console.error("Transcription Failed", e);
-    errorMsg.value = e.message || "Gemini connection failed.";
-    hasTranscript.value = false;
-  } finally {
-    stopProgressSimulation();
-    isLoading.value = false;
-  }
+const handleGenerateClick = () => {
+  const downloadUrl = props.absService.getDownloadUrl(props.item.id);
+  const duration = props.item.media.duration;
+  
+  addToQueue(props.item.id, downloadUrl, duration, props.currentTime);
 };
+
+// Poll for completion if queued
+let pollInterval: any = null;
+
+watch(queueStatus, (newStatus) => {
+  if (newStatus === 'completed') {
+    loadTranscript();
+  }
+});
 
 const handleCueClick = (cue: VttCue) => {
   emit('seek', cue.start);
@@ -169,7 +101,11 @@ const scrollToActive = () => {
   });
 };
 
-watch(() => props.item.id, loadTranscript, { immediate: true });
+onMounted(() => {
+  loadTranscript();
+});
+
+watch(() => props.item.id, loadTranscript);
 </script>
 
 <template>
@@ -189,33 +125,33 @@ watch(() => props.item.id, loadTranscript, { immediate: true });
     <!-- Content Area -->
     <div ref="scrollContainer" class="flex-1 overflow-y-auto custom-scrollbar p-6 relative">
       
-      <!-- Loading State (Blocking Overlay) -->
-      <div v-if="isLoading" class="absolute inset-0 flex flex-col items-center justify-center gap-6 z-20 bg-black/80 backdrop-blur-md">
+      <!-- Processing State (Blocking Overlay) -->
+      <div v-if="isQueued && queueStatus !== 'completed' && queueStatus !== 'failed'" class="absolute inset-0 flex flex-col items-center justify-center gap-6 z-20 bg-black/80 backdrop-blur-md">
         <div class="relative mb-2">
           <div class="absolute inset-0 bg-purple-500/20 blur-xl rounded-full animate-pulse" />
-          <Loader2 :size="48" class="text-purple-500 animate-spin relative z-10" />
+          <Loader2 v-if="queueStatus === 'processing'" :size="48" class="text-purple-500 animate-spin relative z-10" />
+          <Clock v-else :size="48" class="text-neutral-500 animate-pulse relative z-10" />
         </div>
         
-        <div class="flex flex-col items-center gap-3 w-64">
-           <p class="text-[9px] font-black uppercase tracking-[0.3em] text-white animate-pulse">Processing Audio...</p>
+        <div class="flex flex-col items-center gap-3 w-64 text-center">
+           <p class="text-[9px] font-black uppercase tracking-[0.3em] text-white animate-pulse">
+             {{ progressLabel }}
+           </p>
            
-           <!-- High Fidelity Progress Bar -->
+           <!-- Progress Bar -->
            <div class="w-full h-1 bg-white/10 rounded-full overflow-hidden">
                <div 
-                  class="h-full bg-purple-500 shadow-[0_0_10px_rgba(168,85,247,0.5)] transition-all duration-300 ease-out rounded-full"
-                  :style="{ width: `${processingProgress}%` }"
+                  class="h-full transition-all duration-300 ease-out rounded-full"
+                  :class="queueStatus === 'retrying' ? 'bg-amber-500' : 'bg-purple-500 shadow-[0_0_10px_rgba(168,85,247,0.5)]'"
+                  :style="{ width: queueStatus === 'processing' ? '60%' : '100%' }"
+                  :class="queueStatus === 'processing' ? 'animate-pulse' : ''"
                ></div>
            </div>
-
-           <!-- Dynamic Status Label -->
-           <p class="text-[8px] font-bold uppercase tracking-widest text-neutral-500 transition-all duration-300">
-               {{ progressLabel }}
-           </p>
         </div>
       </div>
 
-      <!-- No Transcript State -->
-      <div v-if="!hasTranscript && !isLoading" class="h-full flex flex-col items-center justify-center text-center space-y-6 px-4">
+      <!-- No Transcript / Queue Trigger State -->
+      <div v-if="!hasTranscript && !isQueued" class="h-full flex flex-col items-center justify-center text-center space-y-6 px-4">
         <div class="w-16 h-16 rounded-full bg-white/5 border border-white/5 flex items-center justify-center">
            <FileText :size="24" class="text-neutral-500" />
         </div>
@@ -226,13 +162,14 @@ watch(() => props.item.id, loadTranscript, { immediate: true });
           </p>
         </div>
         
-        <div v-if="errorMsg" class="w-full bg-red-500/10 border border-red-500/20 p-3 rounded-xl flex items-center gap-2 text-red-400 justify-center">
+        <!-- Queue Error Message -->
+        <div v-if="queueError" class="w-full bg-red-500/10 border border-red-500/20 p-3 rounded-xl flex items-center gap-2 text-red-400 justify-center">
            <AlertTriangle :size="12" />
-           <span class="text-[8px] font-bold uppercase">{{ errorMsg }}</span>
+           <span class="text-[8px] font-bold uppercase">{{ queueError }}</span>
         </div>
 
         <button 
-          @click="generateTranscript"
+          @click="handleGenerateClick"
           class="px-6 py-3 bg-purple-600 hover:bg-purple-500 text-white font-black uppercase tracking-[0.15em] text-[9px] rounded-full shadow-[0_0_20px_rgba(168,85,247,0.3)] transition-all active:scale-95 flex items-center gap-2"
         >
           <Sparkles :size="12" />
@@ -240,14 +177,8 @@ watch(() => props.item.id, loadTranscript, { immediate: true });
         </button>
       </div>
 
-      <!-- Transcript Lines (Visible while streaming) -->
+      <!-- Transcript Lines -->
       <div v-if="hasTranscript" class="space-y-4 py-20 flex flex-col items-center min-h-full justify-center">
-        <!-- Live Generation Indicator at bottom if actively accumulating and less than full -->
-        <div v-if="cues.length === 0" class="flex flex-col items-center gap-2 animate-pulse text-purple-400">
-           <Sparkles :size="16" />
-           <span class="text-[8px] font-black uppercase tracking-widest">Generating Text...</span>
-        </div>
-
         <div 
           v-for="(cue, index) in cues" 
           :key="index"
