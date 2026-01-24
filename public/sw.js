@@ -1,5 +1,5 @@
 
-const CACHE_NAME = 'rs-audio-v16';
+const CACHE_NAME = 'rs-audio-v17';
 const STATIC_ASSETS = [
   '/',
   '/index.html',

@@ -449,7 +449,7 @@ const modalInfoRows = computed(() => {
     rows.splice(1, 0, { 
       label: 'Series', 
       value: displayValue, 
-      icon: Layers,
+      icon: Layers, 
       isAction: isActionable,
       actionId: seriesId,
       actionName: cleanName
@@ -458,6 +458,10 @@ const modalInfoRows = computed(() => {
 
   return rows;
 });
+
+const handleResume = () => {
+  silentProgressPoll();
+};
 
 onMounted(async () => {
   await initService();
@@ -468,6 +472,7 @@ onMounted(async () => {
   window.addEventListener('online', updateOnlineStatus);
   window.addEventListener('offline', updateOnlineStatus);
   window.addEventListener('popstate', onPopState);
+  window.addEventListener('rs-app-resume', handleResume);
 });
 
 onActivated(async () => {
@@ -490,6 +495,7 @@ onUnmounted(() => {
   window.removeEventListener('online', updateOnlineStatus);
   window.removeEventListener('offline', updateOnlineStatus);
   window.removeEventListener('popstate', onPopState);
+  window.removeEventListener('rs-app-resume', handleResume);
 });
 
 const handleJumpToSeries = async (seriesId: string) => {

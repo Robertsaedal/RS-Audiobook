@@ -81,6 +81,18 @@ const handleGlobalProgressSync = (event: Event) => {
   }
 };
 
+const handleVisibilityChange = () => {
+  if (document.visibilityState === 'visible' && auth.value && absService.value) {
+    console.log('📱 App Resumed: Triggering Sync...');
+    // 1. Re-connect socket if needed
+    absService.value.reconnect();
+    // 2. Request fresh items (socket)
+    absService.value.emitGetUserItems();
+    // 3. Dispatch local event for Library.vue polling
+    window.dispatchEvent(new Event('rs-app-resume'));
+  }
+};
+
 const initAbsService = () => {
   if (!auth.value) return;
   
@@ -160,12 +172,14 @@ onMounted(() => {
   window.addEventListener('popstate', handlePopState);
   window.addEventListener('beforeinstallprompt', handleInstallPrompt);
   window.addEventListener('rs-progress-sync', handleGlobalProgressSync);
+  document.addEventListener('visibilitychange', handleVisibilityChange);
 });
 
 onUnmounted(() => {
   window.removeEventListener('popstate', handlePopState);
   window.removeEventListener('beforeinstallprompt', handleInstallPrompt);
   window.removeEventListener('rs-progress-sync', handleGlobalProgressSync);
+  document.removeEventListener('visibilitychange', handleVisibilityChange);
   absService.value?.disconnect();
 });
 

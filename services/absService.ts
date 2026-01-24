@@ -78,18 +78,25 @@ export class ABSService {
     let lastError: Error | null = null;
     
     // CORS FIX: Removed custom Cache-Control headers.
-    // We now rely solely on the URL timestamp (_cb) below to bypass cache.
+    // We now rely on the URL timestamp (_cb) below AND cache: 'no-store' to bypass cache.
     const headers = { ...options.headers };
 
     // Append Cache Buster to URL automatically
     const separator = url.includes('?') ? '&' : '?';
     const cleanUrl = `${url}${separator}_cb=${Date.now()}`;
 
+    // Force browser to ignore internal cache, vital for mobile
+    const newOptions = { 
+      ...options, 
+      headers, 
+      cache: 'no-store' as RequestCache 
+    };
+
     for (let i = 0; i < retries; i++) {
       const controller = new AbortController();
       const id = setTimeout(() => controller.abort(), timeout);
       try {
-        const response = await fetch(cleanUrl, { ...options, headers, signal: controller.signal });
+        const response = await fetch(cleanUrl, { ...newOptions, signal: controller.signal });
         clearTimeout(id);
         
         const contentType = response.headers.get("content-type");
