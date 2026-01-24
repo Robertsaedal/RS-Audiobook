@@ -6,21 +6,30 @@ import path from 'path';
 import os from 'os';
 import { pipeline } from 'stream/promises';
 
-// Helper to save URL to temp file
-async function downloadFile(url: string, destPath: string) {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`Failed to download audio: ${response.statusText}`);
+// Vercel Serverless Config
+export const config = {
+  maxDuration: 300, // 5 minutes
+};
+
+// Helper to save URL to temp file with optional Range
+async function downloadFile(url: string, destPath: string, range?: string) {
+  const headers: HeadersInit = {};
+  if (range) {
+    headers['Range'] = range;
+  }
+  
+  const response = await fetch(url, { headers });
+  if (!response.ok && response.status !== 206) { // 206 Partial Content is expected for Range requests
+      throw new Error(`Failed to download audio: ${response.statusText}`);
+  }
   if (!response.body) throw new Error("No response body");
   
-  // Create a writable stream to the temp file
   const fileStream = fs.createWriteStream(destPath);
-  
-  // @ts-ignore - ReadableStream/Node stream mismatch typing in some envs
+  // @ts-ignore
   await pipeline(response.body, fileStream);
 }
 
 export default async function handler(req: any, res: any) {
-  // 1. CORS Headers (Optional if same domain, but good for safety)
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
@@ -43,20 +52,27 @@ export default async function handler(req: any, res: any) {
     return res.status(500).json({ error: 'Server misconfiguration: Missing GEMINI_API_KEY' });
   }
 
-  const { downloadUrl } = req.body;
+  const { downloadUrl, rangeStart, rangeEnd, startTimeOffset } = req.body;
   if (!downloadUrl) {
     return res.status(400).json({ error: 'Missing downloadUrl' });
   }
 
   // Generate a random temp filename
-  const tempFilePath = path.join(os.tmpdir(), `audio-${Date.now()}.mp3`);
+  const tempFilePath = path.join(os.tmpdir(), `audio-${Date.now()}-${Math.random().toString(36).substring(7)}.mp3`);
 
   try {
-    // 2. Download Audio to Temp
-    console.log('[API] Downloading audio to temp storage...');
-    await downloadFile(downloadUrl, tempFilePath);
+    // 2. Download Audio (Full or Chunk)
+    let rangeHeader;
+    if (typeof rangeStart === 'number' && typeof rangeEnd === 'number') {
+        rangeHeader = `bytes=${rangeStart}-${rangeEnd}`;
+        console.log(`[API] Downloading range: ${rangeHeader}`);
+    } else {
+        console.log('[API] Downloading full file...');
+    }
 
-    // 3. Initialize Gemini Server Tools
+    await downloadFile(downloadUrl, tempFilePath, rangeHeader);
+
+    // 3. Initialize Gemini
     const fileManager = new GoogleAIFileManager(apiKey);
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
@@ -68,13 +84,16 @@ export default async function handler(req: any, res: any) {
       displayName: "Audiobook Segment",
     });
 
-    console.log(`[API] File uploaded: ${uploadResult.file.uri}`);
-
     // 5. Generate Content
-    // Note: Audio files take a moment to process. 
-    // For production, you might need a loop checking getFile state, 
-    // but Flash is usually instant for audio.
     console.log('[API] Generating Transcript...');
+    
+    let promptText = `Transcribe the audio into WebVTT format, including precise timestamp cues. 
+    Output ONLY the WEBVTT content. No markdown, no notes. Start directly with WEBVTT.`;
+
+    if (startTimeOffset) {
+        promptText += ` IMPORTANT: This is a segment of a larger file. The audio starts at timestamp ${startTimeOffset}. Please offset the VTT timestamps to start from there.`;
+    }
+
     const result = await model.generateContent([
       {
         fileData: {
@@ -82,17 +101,14 @@ export default async function handler(req: any, res: any) {
           fileUri: uploadResult.file.uri
         }
       },
-      { text: `Transcribe the audio into WebVTT format, including precise timestamp cues (HH:MM:SS.mmm). 
-               Ensure speaker labels are included if discernible. 
-               Return ONLY the complete WebVTT content. Start directly with WEBVTT.` }
+      { text: promptText }
     ]);
 
     const vttText = result.response.text();
 
-    // 6. Cleanup (Delete temp file)
+    // 6. Cleanup
     try {
-      fs.unlinkSync(tempFilePath);
-      // Optional: Delete from Gemini Manager to save quota
+      if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
       // await fileManager.deleteFile(uploadResult.file.name);
     } catch (cleanupErr) {
       console.warn("Cleanup warning:", cleanupErr);
@@ -102,12 +118,9 @@ export default async function handler(req: any, res: any) {
 
   } catch (error: any) {
     console.error('[API Error]', error);
-    
-    // Attempt cleanup on error
     if (fs.existsSync(tempFilePath)) {
-      fs.unlinkSync(tempFilePath);
+      try { fs.unlinkSync(tempFilePath); } catch(e) {}
     }
-
     return res.status(500).json({ 
       error: error.message || 'Transcription processing failed' 
     });

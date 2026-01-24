@@ -24,7 +24,37 @@ const hasTranscript = ref(false);
 const activeCueIndex = ref(-1);
 const scrollContainer = ref<HTMLElement | null>(null);
 
+// Progress State
+const processingProgress = ref(0);
+let progressInterval: any = null;
+
 const activeCue = computed(() => activeCueIndex.value !== -1 ? cues.value[activeCueIndex.value] : null);
+
+const progressLabel = computed(() => {
+  if (processingProgress.value < 20) return 'Initializing Gemini...';
+  if (processingProgress.value < 80) return 'Transcribing Audio...';
+  return 'Formatting Timestamps...';
+});
+
+const startProgressSimulation = () => {
+  processingProgress.value = 0;
+  if (progressInterval) clearInterval(progressInterval);
+  
+  progressInterval = setInterval(() => {
+    if (processingProgress.value < 20) {
+       processingProgress.value += 2; // Fast start
+    } else if (processingProgress.value < 80) {
+       processingProgress.value += 0.5; // Steady processing
+    } else if (processingProgress.value < 95) {
+       processingProgress.value += 0.1; // Slow finish
+    }
+  }, 100);
+};
+
+const stopProgressSimulation = () => {
+  if (progressInterval) clearInterval(progressInterval);
+  processingProgress.value = 100;
+};
 
 const loadTranscript = async () => {
   errorMsg.value = null;
@@ -41,16 +71,24 @@ const loadTranscript = async () => {
 const generateTranscript = async () => {
   isLoading.value = true;
   errorMsg.value = null;
+  startProgressSimulation();
+
   try {
     const downloadUrl = props.absService.getDownloadUrl(props.item.id);
     const vtt = await TranscriptionService.generateTranscript(props.absService, props.item.id, downloadUrl);
     cues.value = TranscriptionService.parseVTT(vtt);
     hasTranscript.value = true;
+    stopProgressSimulation();
   } catch (e: any) {
     console.error("Transcription Failed", e);
     errorMsg.value = e.message || "Gemini connection failed.";
+    if (progressInterval) clearInterval(progressInterval);
+    processingProgress.value = 0;
   } finally {
-    isLoading.value = false;
+    // Small delay to allow bar to hit 100% visually
+    setTimeout(() => {
+        isLoading.value = false;
+    }, 600);
   }
 };
 
@@ -107,12 +145,28 @@ watch(() => props.item.id, loadTranscript, { immediate: true });
     <div ref="scrollContainer" class="flex-1 overflow-y-auto custom-scrollbar p-6 relative">
       
       <!-- Loading State -->
-      <div v-if="isLoading" class="absolute inset-0 flex flex-col items-center justify-center gap-6 z-20 bg-black/50 backdrop-blur-sm">
-        <div class="relative">
-          <div class="absolute inset-0 bg-purple-500/30 blur-xl rounded-full animate-pulse" />
-          <Loader2 :size="40" class="text-purple-500 animate-spin relative z-10" />
+      <div v-if="isLoading" class="absolute inset-0 flex flex-col items-center justify-center gap-6 z-20 bg-black/80 backdrop-blur-md">
+        <div class="relative mb-2">
+          <div class="absolute inset-0 bg-purple-500/20 blur-xl rounded-full animate-pulse" />
+          <Loader2 :size="48" class="text-purple-500 animate-spin relative z-10" />
         </div>
-        <p class="text-[9px] font-black uppercase tracking-[0.3em] text-white animate-pulse">Processing Audio...</p>
+        
+        <div class="flex flex-col items-center gap-3 w-64">
+           <p class="text-[9px] font-black uppercase tracking-[0.3em] text-white animate-pulse">Processing Audio...</p>
+           
+           <!-- High Fidelity Progress Bar -->
+           <div class="w-full h-1 bg-white/10 rounded-full overflow-hidden">
+               <div 
+                  class="h-full bg-purple-500 shadow-[0_0_10px_rgba(168,85,247,0.5)] transition-all duration-300 ease-out rounded-full"
+                  :style="{ width: `${processingProgress}%` }"
+               ></div>
+           </div>
+
+           <!-- Dynamic Status Label -->
+           <p class="text-[8px] font-bold uppercase tracking-widest text-neutral-500 transition-all duration-300">
+               {{ progressLabel }}
+           </p>
+        </div>
       </div>
 
       <!-- No Transcript State -->
