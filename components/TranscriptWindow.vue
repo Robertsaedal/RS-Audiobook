@@ -63,7 +63,10 @@ const loadTranscript = async () => {
   errorMsg.value = null;
   const vtt = await TranscriptionService.getTranscript(props.item.id);
   if (vtt) {
-    cues.value = TranscriptionService.parseVTT(vtt);
+    // If loading from cache, we assume offset is 0 or handled (cached full file)
+    // However, for segment caching, this might need refinement. 
+    // Current fix focuses on live generation sync.
+    cues.value = TranscriptionService.parseVTT(vtt, 0);
     hasTranscript.value = true;
   } else {
     hasTranscript.value = false;
@@ -91,7 +94,6 @@ const generateTranscript = async () => {
       duration,
       (chunk) => {
         // PARSE STATUS UPDATES from backend notes
-        // Backend sends "NOTE Status: <Message>"
         const statusMatch = chunk.match(/NOTE Status: (.*)/);
         if (statusMatch) {
             customStatusText.value = statusMatch[1].trim();
@@ -107,8 +109,6 @@ const generateTranscript = async () => {
         
         accumulatedVtt += chunk;
         
-        // Once we get meaningful data (cues), remove the full screen loading state
-        // We look for the timestamp arrow "-->" which indicates actual cues have started
         if (!hasStoppedLoading && accumulatedVtt.includes('-->')) {
            stopProgressSimulation();
            isLoading.value = false; 
@@ -116,17 +116,17 @@ const generateTranscript = async () => {
            hasStoppedLoading = true;
         }
 
-        // Parse whatever we have so far
-        const newCues = TranscriptionService.parseVTT(accumulatedVtt);
+        // Parse with current time offset to sync with player
+        const newCues = TranscriptionService.parseVTT(accumulatedVtt, props.currentTime);
         if (newCues.length > 0) {
             cues.value = newCues;
         }
       },
-      props.currentTime // Explicitly pass current time for chunking
+      props.currentTime 
     );
     
-    // Final parse to ensure everything is correct
-    cues.value = TranscriptionService.parseVTT(vtt);
+    // Final parse with offset
+    cues.value = TranscriptionService.parseVTT(vtt, props.currentTime);
     hasTranscript.value = true;
 
   } catch (e: any) {
@@ -147,11 +147,9 @@ const handleCueClick = (cue: VttCue) => {
 watch(() => props.currentTime, (time) => {
   if (cues.value.length === 0) return;
   
-  // Optimized find active cue
-  // Check if current active is still valid to avoid full search
   if (activeCueIndex.value !== -1) {
     const current = cues.value[activeCueIndex.value];
-    if (time >= current.start && time <= current.end) return; // Still active
+    if (time >= current.start && time <= current.end) return; 
   }
 
   const idx = cues.value.findIndex(c => time >= c.start && time <= c.end);

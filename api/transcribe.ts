@@ -58,44 +58,33 @@ export default async function handler(req: any, res: any) {
     }
 
     // 2. Calculate Byte Range
-    // If file is small, take it all. If huge, take a chunk around currentTime.
     let startByte = 0;
-    let endByte = ''; // empty means end of file
+    let endByte = ''; 
     let isPartial = false;
-    let timeOffset = 0;
 
     if (totalBytes > CHUNK_SIZE_BYTES) {
         isPartial = true;
-        // Estimate byte position based on time ratio
-        // Safety check: duration must be > 0
         const safeDuration = duration || 1;
         const ratio = Math.min(Math.max(currentTime / safeDuration, 0), 1);
         
-        // Target start: requested time minus buffer (e.g. 30s) to catch context
-        // But strictly, we map time directly to bytes linearly (imprecise for VBR but good enough)
         const estimatedStartByte = Math.floor(totalBytes * ratio);
         
-        // Align to start (0) if we are in the first chunk window
         if (estimatedStartByte < CHUNK_SIZE_BYTES) {
             startByte = 0;
-            timeOffset = 0;
         } else {
-            // Buffer back 1MB (~3 mins) to ensure we don't cut words, if possible
+            // Buffer back 1MB to ensure context
             startByte = Math.max(0, estimatedStartByte - (1 * 1024 * 1024));
-            
-            // Recalculate time offset for the prompt
-            timeOffset = (startByte / totalBytes) * safeDuration;
         }
 
         const calculatedEnd = Math.min(startByte + CHUNK_SIZE_BYTES, totalBytes);
         endByte = calculatedEnd.toString();
         
-        res.write(`NOTE Status: Large file detected (${(totalBytes/1024/1024).toFixed(0)}MB). Processing chunk starting at ${(timeOffset/60).toFixed(0)}m...\n\n`);
+        res.write(`NOTE Status: Large file detected (${(totalBytes/1024/1024).toFixed(0)}MB). Downloading byte range ${startByte}-${endByte}...\n\n`);
     } else {
         res.write(`NOTE Status: Processing full file...\n\n`);
     }
 
-    // 3. Fetch Audio Stream (Range or Full)
+    // 3. Fetch Audio Stream with Range Headers
     const headers: any = {};
     if (isPartial) {
         headers['Range'] = `bytes=${startByte}-${endByte}`;
@@ -108,14 +97,11 @@ export default async function handler(req: any, res: any) {
         throw new Error(`Download failed: ${audioResponse.status} ${audioResponse.statusText}`);
     }
     
-    // Use actual content-length of the chunk
     const chunkLength = audioResponse.headers.get('content-length');
     const mimeType = audioResponse.headers.get('content-type') || 'audio/mp3';
 
     // 4. Init Gemini Resumable Upload
     res.write("NOTE Status: Uplinking to Gemini...\n\n");
-    // Note: We use the raw REST API for upload to support piping streams, 
-    // as the SDK's file manager expects local file paths.
     const uploadBaseUrl = "https://generativelanguage.googleapis.com/upload/v1beta/files";
     const startRes = await fetch(`${uploadBaseUrl}?key=${apiKey}`, {
         method: 'POST',
@@ -157,27 +143,19 @@ export default async function handler(req: any, res: any) {
     // 6. Generate Transcript
     res.write("NOTE Status: Transcribing segment...\n\n");
     
-    // Initialize new SDK
     const ai = new GoogleGenAI({ apiKey: apiKey });
 
-    // Precise Prompt Engineering for Offsets
-    const offsetSeconds = Math.floor(timeOffset);
-    const offsetH = Math.floor(offsetSeconds / 3600);
-    const offsetM = Math.floor((offsetSeconds % 3600) / 60);
-    const offsetS = offsetSeconds % 60;
-    const offsetStr = `${offsetH.toString().padStart(2,'0')}:${offsetM.toString().padStart(2,'0')}:${offsetS.toString().padStart(2,'0')}`;
-
+    // Simplified Prompt: We handle time offsets in the frontend now.
     const promptText = `
     This audio is a segment of a larger book. 
-    It starts approximately at timestamp ${offsetStr} of the original recording.
     Transcribe it into WebVTT format.
-    IMPORTANT: Adjust all cue timestamps by adding ${offsetStr} to them, so they match the original book position.
     Do NOT include the 'WEBVTT' header.
+    Start timestamps at 00:00:00.000.
     Start directly with the first cue.
     `;
 
     const response = await ai.models.generateContentStream({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-2.0-flash', 
       contents: {
         parts: [
           {
