@@ -1,21 +1,16 @@
 
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { PassThrough } from 'stream';
 
 export const config = {
-  maxDuration: 60, // Standard Vercel Timeout (can be increased on Pro)
+  maxDuration: 60,
   api: {
-    bodyParser: true, // We need body parsing for the initial JSON payload
+    bodyParser: true,
   },
 };
 
-// 25MB Chunk Limit to keep execution time safely within Vercel limits
 const CHUNK_SIZE_BYTES = 25 * 1024 * 1024; 
 
-/**
- * A Resilient Stream that automatically resumes downloads if the source connection drops.
- * It presents a continuous Readable stream to the consumer (Google Upload).
- */
 class ResilientDownloadStream extends PassThrough {
   private url: string;
   private rangeStart: number;
@@ -56,24 +51,22 @@ class ResilientDownloadStream extends PassThrough {
 
       if (!response.body) throw new Error("No response body");
 
-      // @ts-ignore - Node.js fetch body is an async iterator
+      // @ts-ignore - Node.js fetch body is async iterator
       for await (const chunk of response.body) {
         this.totalBytesReceived += chunk.length;
         const canContinue = this.write(Buffer.from(chunk));
-        
-        // Handle backpressure
         if (!canContinue) {
           await new Promise(resolve => this.once('drain', resolve));
         }
       }
 
-      this.end(); // Stream finished successfully
+      this.end(); 
 
     } catch (error: any) {
       if (this.retryCount < this.maxRetries) {
         this.retryCount++;
-        console.warn(`[Stream] Connection lost. Retrying (${this.retryCount}/${this.maxRetries}) from byte ${this.rangeStart + this.totalBytesReceived}...`);
-        await new Promise(resolve => setTimeout(resolve, 1000 * this.retryCount)); // Exponential backoff
+        console.warn(`[Stream] Retry ${this.retryCount}/${this.maxRetries}...`);
+        await new Promise(resolve => setTimeout(resolve, 1000 * this.retryCount));
         this.startStream();
       } else {
         console.error("[Stream] Max retries reached.");
@@ -92,7 +85,6 @@ class ResilientDownloadStream extends PassThrough {
 }
 
 export default async function handler(req: any, res: any) {
-  // CORS Setup
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,POST');
@@ -101,8 +93,7 @@ export default async function handler(req: any, res: any) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
 
-  // Support both standard API_KEY and the project specific GEMINI_API_KEY
-  const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
   if (!apiKey) return res.status(500).json({ error: 'Server misconfiguration: Missing API Key' });
 
   const { downloadUrl, duration, currentTime = 0 } = req.body;
@@ -111,89 +102,97 @@ export default async function handler(req: any, res: any) {
   let uploadedFileName = '';
 
   try {
-    // 1. Analyze File Size via HEAD
+    // 1. Analyze File Size
     let totalBytes = 0;
     try {
         const headRes = await fetch(downloadUrl, { method: 'HEAD' });
         const cl = headRes.headers.get('content-length');
         if (cl) totalBytes = parseInt(cl, 10);
     } catch (e) {
-        console.warn("[Transcribe] HEAD request failed, assuming stream");
+        console.warn("[Transcribe] HEAD failed, assuming stream");
     }
 
-    // 2. Calculate Byte Range (Smart Chunking)
+    // 2. Smart Chunking
     let startByte = 0;
     let endByteStr = ''; 
+    let uploadSize = 0;
     
     if (totalBytes > CHUNK_SIZE_BYTES) {
         const ratio = Math.min(Math.max(currentTime / (duration || 1), 0), 1);
         const estimatedStart = Math.floor(totalBytes * ratio);
-        // Buffer back 1MB for context overlap
         startByte = Math.max(0, estimatedStart - (1024 * 1024)); 
         const calculatedEnd = Math.min(startByte + CHUNK_SIZE_BYTES, totalBytes);
         endByteStr = calculatedEnd.toString();
+        uploadSize = calculatedEnd - startByte;
+    } else if (totalBytes > 0) {
+        uploadSize = totalBytes;
     }
 
-    // 3. Initialize Resumable Upload with Google
+    // 3. Init Resumable Upload
     const uploadBaseUrl = "https://generativelanguage.googleapis.com/upload/v1beta/files";
     const initRes = await fetch(`${uploadBaseUrl}?key=${apiKey}`, {
         method: 'POST',
         headers: {
             'X-Goog-Upload-Protocol': 'resumable',
             'X-Goog-Upload-Command': 'start',
-            'X-Goog-Upload-Header-Content-Length': endByteStr ? (parseInt(endByteStr) - startByte).toString() : '',
+            'X-Goog-Upload-Header-Content-Length': uploadSize > 0 ? uploadSize.toString() : '',
             'X-Goog-Upload-Header-Content-Type': 'audio/mp3',
             'Content-Type': 'application/json'
         },
         body: JSON.stringify({ file: { display_name: 'Audio Chunk' } })
     });
 
-    if (!initRes.ok) throw new Error(`Gemini Upload Init Failed: ${initRes.status}`);
+    if (!initRes.ok) throw new Error(`Gemini Init Failed: ${initRes.status}`);
     const uploadUrl = initRes.headers.get('x-goog-upload-url');
     if (!uploadUrl) throw new Error("No upload URL returned");
 
-    // 4. Pipe Resilient Stream -> Google
+    // 4. Pipe Stream -> Google
     const sourceStream = new ResilientDownloadStream(downloadUrl, startByte, endByteStr);
     
+    // Explicit Content-Length is required for robust Vercel streaming
+    const uploadHeaders: any = {
+        'X-Goog-Upload-Command': 'upload, finalize',
+        'X-Goog-Upload-Offset': '0'
+    };
+    if (uploadSize > 0) {
+        uploadHeaders['Content-Length'] = uploadSize.toString();
+    }
+
     const uploadRes = await fetch(uploadUrl, {
         method: 'POST',
-        headers: {
-            'X-Goog-Upload-Command': 'upload, finalize',
-            'X-Goog-Upload-Offset': '0'
-        },
-        // @ts-ignore: Fetch accepts streams in Node environment
+        headers: uploadHeaders,
+        // @ts-ignore
         body: sourceStream, 
         duplex: 'half'
     });
 
-    if (!uploadRes.ok) throw new Error(`Gemini Stream Upload Failed: ${uploadRes.status}`);
+    if (!uploadRes.ok) throw new Error(`Gemini Upload Failed: ${uploadRes.status}`);
     
     const uploadData = await uploadRes.json();
     uploadedFileName = uploadData.file.name;
     const fileUri = uploadData.file.uri;
 
-    // 5. Polling for 'ACTIVE' State with Heartbeat
-    // We start writing the response headers now to keep the connection alive
+    // 5. Polling (Heartbeat)
     res.writeHead(200, {
       'Content-Type': 'text/plain; charset=utf-8',
       'Transfer-Encoding': 'chunked',
       'X-Content-Type-Options': 'nosniff'
     });
 
-    const ai = new GoogleGenAI({ apiKey: apiKey });
+    // Use REST for polling to avoid complex SDK setup for simple get
     let isReady = false;
     let attempts = 0;
 
-    // "Heartbeat" loop: Write whitespace to client while waiting
     while (!isReady && attempts < 60) {
-        const file = await ai.files.get({ name: uploadedFileName });
+        const pollRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/${uploadedFileName}?key=${apiKey}`);
+        const pollData = await pollRes.json();
         
-        if (file.state === 'ACTIVE') {
+        if (pollData.state === 'ACTIVE') {
             isReady = true;
-        } else if (file.state === 'FAILED') {
+        } else if (pollData.state === 'FAILED') {
             throw new Error('Google File Processing Failed');
         } else {
-            res.write(': processing...\n'); // Heartbeat comment (ignored by JSON parsers usually)
+            res.write(': processing...\n'); 
             await new Promise(r => setTimeout(r, 1000));
             attempts++;
         }
@@ -201,57 +200,44 @@ export default async function handler(req: any, res: any) {
 
     if (!isReady) throw new Error("Processing Timeout");
 
-    // 6. Generate Content with Smart Prompt
+    // 6. Generate Content (SDK)
+    const genAI = new GoogleGenerativeAI(apiKey);
+    // Stable model ID
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
     const promptText = `
     Transcribe this audio with high precision.
-    
-    Requirements:
     1. **Speaker Diarization**: Identify speakers (e.g., "Speaker 1", "Narrator").
-    2. **Background Noise**: Briefly describe significant background sounds in brackets (e.g., "[Door slams]", "[Music fades]").
-    3. **JSONL Output**: Return a valid JSONL (JSON Lines) format. No markdown blocks.
+    2. **Background Noise**: Briefly describe significant sounds in brackets (e.g., "[Music fades]").
+    3. **JSONL Output**: Return valid JSONL. No markdown.
     
-    Line Schema:
-    {
-      "start": "HH:MM:SS.mmm",
-      "end": "HH:MM:SS.mmm",
-      "speaker": "Name",
-      "text": "Spoken text",
-      "background_noise": "Optional description"
-    }
+    Schema: {"start": "HH:MM:SS.mmm", "end": "HH:MM:SS.mmm", "speaker": "Name", "text": "Spoken text", "background_noise": "Optional"}
     `;
 
-    const response = await ai.models.generateContentStream({
-      model: 'gemini-3-flash-preview', 
-      contents: {
-        parts: [
-          { fileData: { mimeType: 'audio/mp3', fileUri: fileUri } },
-          { text: promptText }
-        ]
-      }
-    });
+    const result = await model.generateContentStream([
+        { fileData: { mimeType: "audio/mp3", fileUri: fileUri } },
+        { text: promptText }
+    ]);
 
-    for await (const chunk of response) {
-        const text = chunk.text;
+    for await (const chunk of result.stream) {
+        const text = chunk.text(); // Method, not property
         if (text) res.write(text);
     }
 
   } catch (error: any) {
     console.error('[Transcribe Error]', error);
-    // If headers already sent, we can only write the error to the stream
-    if (res.headersSent) {
-        res.write(`\nERROR: ${error.message}`);
-    } else {
+    if (!res.headersSent) {
         res.status(500).json({ error: error.message });
+    } else {
+        res.write(`\nERROR: ${error.message}`);
     }
   } finally {
-    // Cleanup: Delete file from Google
     if (uploadedFileName) {
         try {
-            // Manual delete via fetch to avoid initializing another AI client if not needed
             await fetch(`https://generativelanguage.googleapis.com/v1beta/${uploadedFileName}?key=${apiKey}`, {
                 method: 'DELETE'
             });
-        } catch (e) { /* ignore cleanup error */ }
+        } catch (e) { /* ignore */ }
     }
     res.end();
   }
