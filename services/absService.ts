@@ -128,9 +128,10 @@ export class ABSService {
         console.log(`[Network] Response ${response.status} ${response.statusText} for ${url}`);
 
         const contentType = response.headers.get("content-type");
-        if (contentType && contentType.includes("text/html") && !url.includes('/login')) {
+        // API responses should NEVER be HTML. If they are, it's usually a 404 page or proxy error.
+        if (contentType && contentType.includes("text/html")) {
           console.error(`[Network] Invalid Content-Type: Received HTML instead of JSON for ${url}`);
-          throw new TypeError("Authorization check failed: Server returned HTML.");
+          throw new TypeError("Authorization check failed: Server returned HTML (Web Page) instead of JSON (API).");
         }
 
         if (response.ok || (response.status >= 400 && response.status < 500)) return response;
@@ -162,32 +163,67 @@ export class ABSService {
   static async login(serverUrl: string, username: string, password: string): Promise<any> {
     console.log(`[Login] Initiating login for user '${username}' at '${serverUrl}'`);
     
-    const cleanUrl = this.normalizeUrl(serverUrl);
-    const loginUrl = `${cleanUrl}/login`;
-    
-    console.log(`[Login] Normalized Login URL: ${loginUrl}`);
-
-    try {
-        const response = await this.fetchWithRetry(loginUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username: username.trim(), password: password || '' }),
-        });
-        
-        console.log(`[Login] Response Status: ${response.status}`);
-        const data = await response.json();
-        
-        if (!response.ok) {
-            console.error(`[Login] Failed with status ${response.status}`, data);
-            throw new Error(data || `Login failed: ${response.status}`);
-        }
-        
-        console.log(`[Login] Success! Token received.`);
-        return data;
-    } catch (e) {
-        console.error(`[Login] CRITICAL FAILURE:`, e);
-        throw e;
+    // Mixed Content Check: Warn if trying to access HTTP from HTTPS
+    if (typeof window !== 'undefined' && window.location.protocol === 'https:' && serverUrl.trim().startsWith('http:')) {
+         console.error("[Login] SECURITY BLOCK: You are on a secure site (HTTPS) trying to connect to an insecure server (HTTP). Browsers block this.");
     }
+
+    const cleanUrl = this.normalizeUrl(serverUrl);
+    
+    // Strategy: Try /login first (Standard), then /api/login (Proxy/Custom)
+    const candidates = [`${cleanUrl}/login`, `${cleanUrl}/api/login`];
+    let lastError: any = null;
+
+    for (const url of candidates) {
+        try {
+            console.log(`[Login] Attempting connection to: ${url}`);
+            
+            // 0 retries (1 attempt) per endpoint to fail fast
+            const response = await this.fetchWithRetry(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ username: username.trim(), password: password || '' }),
+            }, 0, 20000); 
+            
+            if (!response.ok) {
+                // If 404, it might be the wrong endpoint, loop to next
+                if (response.status === 404) {
+                    throw new Error("404 Not Found");
+                }
+                
+                // If 401/403, we found the server but credentials are wrong. 
+                // Stop trying other endpoints.
+                if (response.status === 401 || response.status === 403) {
+                     const data = await response.json().catch(() => ({ error: 'Invalid Credentials' }));
+                     throw new Error(typeof data === 'string' ? data : (data.error || 'Invalid Credentials'));
+                }
+                
+                throw new Error(`Server returned status ${response.status}`);
+            }
+            
+            // Double check content type before parsing
+            const contentType = response.headers.get("content-type");
+            if (contentType && contentType.includes("text/html")) {
+                throw new Error("Endpoint returned HTML (Likely Web UI, not API)");
+            }
+
+            const data = await response.json();
+            console.log(`[Login] Success! Connected via ${url}`);
+            return data;
+
+        } catch (e: any) {
+            console.warn(`[Login] Failed at ${url}:`, e.message);
+            lastError = e;
+
+            // Stop chain if we know it's a credential issue
+            if (e.message && (e.message.includes('Invalid') || e.message.includes('401') || e.message.includes('403'))) {
+                throw e;
+            }
+        }
+    }
+    
+    console.error("[Login] All connection attempts failed.");
+    throw lastError || new Error("Connection failed. Check Server URL and ensure it is accessible.");
   }
 
   static async authorize(serverUrl: string, token: string): Promise<any> {
