@@ -9,7 +9,9 @@ export const config = {
   },
 };
 
-const CHUNK_SIZE_BYTES = 25 * 1024 * 1024; 
+// CRITICAL: Reduced to 3MB to prevent Vercel 504 Timeout errors.
+// 3MB is approx 3-5 mins of audio, sufficient for a segment transcript.
+const CHUNK_SIZE_BYTES = 3 * 1024 * 1024; 
 
 class ResilientDownloadStream extends PassThrough {
   private url: string;
@@ -120,7 +122,8 @@ export default async function handler(req: any, res: any) {
     if (totalBytes > CHUNK_SIZE_BYTES) {
         const ratio = Math.min(Math.max(currentTime / (duration || 1), 0), 1);
         const estimatedStart = Math.floor(totalBytes * ratio);
-        startByte = Math.max(0, estimatedStart - (1024 * 1024)); 
+        // Reduced buffer to 256KB to speed up stream start
+        startByte = Math.max(0, estimatedStart - (256 * 1024)); 
         const calculatedEnd = Math.min(startByte + CHUNK_SIZE_BYTES, totalBytes);
         endByteStr = calculatedEnd.toString();
         uploadSize = calculatedEnd - startByte;
@@ -172,18 +175,19 @@ export default async function handler(req: any, res: any) {
     uploadedFileName = uploadData.file.name;
     const fileUri = uploadData.file.uri;
 
-    // 5. Polling (Heartbeat)
+    // 5. Polling (Heartbeat) - Optimized for speed
     res.writeHead(200, {
       'Content-Type': 'text/plain; charset=utf-8',
       'Transfer-Encoding': 'chunked',
-      'X-Content-Type-Options': 'nosniff'
+      'X-Content-Type-Options': 'nosniff',
+      'Connection': 'keep-alive'
     });
 
     // Use REST for polling to avoid complex SDK setup for simple get
     let isReady = false;
     let attempts = 0;
 
-    while (!isReady && attempts < 60) {
+    while (!isReady && attempts < 100) {
         const pollRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/${uploadedFileName}?key=${apiKey}`);
         const pollData = await pollRes.json();
         
@@ -193,7 +197,7 @@ export default async function handler(req: any, res: any) {
             throw new Error('Google File Processing Failed');
         } else {
             res.write(': processing...\n'); 
-            await new Promise(r => setTimeout(r, 1000));
+            await new Promise(r => setTimeout(r, 500)); // Poll every 500ms
             attempts++;
         }
     }
@@ -202,16 +206,15 @@ export default async function handler(req: any, res: any) {
 
     // 6. Generate Content (SDK)
     const genAI = new GoogleGenerativeAI(apiKey);
-    // Stable model ID
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
     const promptText = `
-    Transcribe this audio with high precision.
-    1. **Speaker Diarization**: Identify speakers (e.g., "Speaker 1", "Narrator").
-    2. **Background Noise**: Briefly describe significant sounds in brackets (e.g., "[Music fades]").
-    3. **JSONL Output**: Return valid JSONL. No markdown.
+    Transcribe audio.
+    1. Speaker Diarization (Speaker 1, etc).
+    2. [Noise] in brackets.
+    3. Output strictly JSONL.
     
-    Schema: {"start": "HH:MM:SS.mmm", "end": "HH:MM:SS.mmm", "speaker": "Name", "text": "Spoken text", "background_noise": "Optional"}
+    Schema: {"start": "HH:MM:SS.mmm", "end": "HH:MM:SS.mmm", "speaker": "Name", "text": "Text", "background_noise": "Desc"}
     `;
 
     const result = await model.generateContentStream([
@@ -220,7 +223,7 @@ export default async function handler(req: any, res: any) {
     ]);
 
     for await (const chunk of result.stream) {
-        const text = chunk.text(); // Method, not property
+        const text = chunk.text();
         if (text) res.write(text);
     }
 
@@ -234,9 +237,10 @@ export default async function handler(req: any, res: any) {
   } finally {
     if (uploadedFileName) {
         try {
-            await fetch(`https://generativelanguage.googleapis.com/v1beta/${uploadedFileName}?key=${apiKey}`, {
+            // Non-blocking cleanup
+            fetch(`https://generativelanguage.googleapis.com/v1beta/${uploadedFileName}?key=${apiKey}`, {
                 method: 'DELETE'
-            });
+            }).catch(() => {});
         } catch (e) { /* ignore */ }
     }
     res.end();
