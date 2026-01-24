@@ -25,6 +25,7 @@ onMounted(async () => {
       const auth = JSON.parse(savedAuth) as AuthState;
       if (auth.user?.token) {
         processing.value = true;
+        // Verify session validity in background
         const authorizeRes = await ABSService.authorize(auth.serverUrl, auth.user.token);
         
         if (authorizeRes) {
@@ -46,7 +47,7 @@ onMounted(async () => {
     } catch (e: any) {
       console.error('Auto-login check failed', e);
       localStorage.removeItem('rs_auth');
-      error.value = e.message || 'Stored session invalid.';
+      // Do not show error for auto-login failure, just let user log in again
     } finally {
       processing.value = false;
     }
@@ -59,23 +60,42 @@ const submitForm = async () => {
 
   try {
     const normalizedUrl = ABSService.normalizeUrl(serverUrl.value);
-    let token = '';
+    let authData: AuthState | null = null;
 
     if (loginMode.value === 'standard') {
+      console.log('[LoginView] Attempting Standard Login...');
+      // 1. Standard Login: Returns User Object directly
       const authRes = await ABSService.login(normalizedUrl, username.value, password.value);
-      token = authRes.user.accessToken || authRes.user.token;
-    } else {
-      token = apiKey.value.trim();
-    }
-    
-    if (!token) {
-      throw new Error(loginMode.value === 'standard' ? 'No access token received.' : 'API Key is required.');
-    }
+      const user = authRes.user;
+      const userToken = user.token || user.accessToken;
 
-    const authorizeRes = await ABSService.authorize(normalizedUrl, token);
-    
-    if (authorizeRes) {
-      const authData: AuthState = {
+      if (!userToken) throw new Error("Login successful but no token returned.");
+
+      // Optimistic Success: We have the user and token, no need to call /authorize again immediately
+      authData = {
+        serverUrl: normalizedUrl,
+        user: { 
+          id: user.id, 
+          username: user.username, 
+          token: userToken,
+          mediaProgress: user.mediaProgress || [], // Login endpoint usually provides this
+          defaultLibraryId: user.defaultLibraryId
+        }
+      };
+      
+      console.log('[LoginView] Standard Login Successful (Optimistic)');
+
+    } else {
+      console.log('[LoginView] Attempting API Key Login...');
+      // 2. API Key Login: We only have the key, must verify it via /authorize
+      const token = apiKey.value.trim();
+      if (!token) throw new Error('API Key is required.');
+
+      const authorizeRes = await ABSService.authorize(normalizedUrl, token);
+      
+      if (!authorizeRes) throw new Error('Authorization returned empty response');
+
+      authData = {
         serverUrl: normalizedUrl,
         user: { 
           id: authorizeRes.user.id, 
@@ -85,10 +105,14 @@ const submitForm = async () => {
           defaultLibraryId: authorizeRes.user.defaultLibraryId
         }
       };
+      console.log('[LoginView] API Key Login Successful');
+    }
 
+    if (authData) {
       localStorage.setItem('rs_auth', JSON.stringify(authData));
       emit('login', authData);
     }
+
   } catch (err: any) {
     console.error('Portal connection failed', err);
     error.value = err.message || 'Connection failed: Check URL and Credentials';

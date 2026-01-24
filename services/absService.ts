@@ -179,11 +179,12 @@ export class ABSService {
             console.log(`[Login] Attempting connection to: ${url}`);
             
             // 0 retries (1 attempt) per endpoint to fail fast
+            // INCREASED TIMEOUT: 30 seconds for initial login candidate
             const response = await this.fetchWithRetry(url, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ username: username.trim(), password: password || '' }),
-            }, 0, 20000); 
+            }, 0, 30000); 
             
             if (!response.ok) {
                 // If 404, it might be the wrong endpoint, loop to next
