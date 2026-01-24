@@ -5,7 +5,7 @@ import { TranscriptionService, TranscriptCue } from '../services/transcriptionSe
 import { useTranscriptionQueue } from '../composables/useTranscriptionQueue';
 import { ABSService } from '../services/absService';
 import { ABSLibraryItem } from '../types';
-import { Loader2, Sparkles, X, AlertTriangle, FileText, CheckCircle, Clock } from 'lucide-vue-next';
+import { Loader2, Sparkles, X, AlertTriangle, FileText, CheckCircle, Clock, Volume2 } from 'lucide-vue-next';
 
 const props = defineProps<{
   item: ABSLibraryItem,
@@ -185,17 +185,26 @@ watch(() => props.item.id, loadTranscript);
           class="cursor-pointer transition-all duration-500 p-4 rounded-2xl border border-transparent hover:bg-white/5 w-full max-w-lg flex flex-col gap-2 group"
           :class="activeCueIndex === index ? 'active-cue bg-white/5 border-purple-500/20 scale-105 shadow-lg' : 'opacity-50 hover:opacity-90 blur-[1px] hover:blur-none'"
         >
-          <!-- Speaker Label -->
-          <div v-if="cue.speaker" class="flex items-center gap-2">
+          <!-- Metadata Header -->
+          <div class="flex items-center gap-3">
+             <!-- Speaker -->
              <span 
+               v-if="cue.speaker"
                class="text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md border"
                :class="activeCueIndex === index ? 'text-purple-300 border-purple-500/30 bg-purple-500/10' : 'text-neutral-500 border-white/5 bg-black/20'"
              >
                {{ cue.speaker }}
              </span>
+             
+             <!-- Background Noise Indicator -->
+             <div v-if="cue.background_noise" class="flex items-center gap-1.5 text-neutral-500">
+               <Volume2 :size="10" />
+               <span class="text-[8px] italic text-neutral-600">{{ cue.background_noise }}</span>
+             </div>
           </div>
 
           <p 
+            v-if="cue.text"
             class="text-base md:text-lg font-bold leading-relaxed transition-colors duration-300"
             :class="activeCueIndex === index ? 'text-purple-100 drop-shadow-[0_0_15px_rgba(168,85,247,0.2)]' : 'text-neutral-300'"
           >

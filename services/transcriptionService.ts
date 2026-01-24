@@ -5,7 +5,8 @@ export interface TranscriptCue {
   start: number;
   end: number;
   text: string;
-  speaker?: string; // Added speaker field
+  speaker?: string;
+  background_noise?: string; // New field
 }
 
 export class TranscriptionService {
@@ -68,19 +69,17 @@ export class TranscriptionService {
   private static async saveTranscript(itemId: string, vttContent: string): Promise<string> {
     await db.transcripts.put({
       itemId,
-      vttContent, // Storing JSONL content here (reusing the field name to avoid schema migration)
+      vttContent, 
       createdAt: Date.now()
     });
     return vttContent;
   }
 
-  // Updated to parse JSON Lines (JSONL) instead of VTT
   static parseTranscript(jsonlString: string, offsetSeconds: number = 0): TranscriptCue[] {
     const lines = jsonlString.split(/\r?\n/);
     const cues: TranscriptCue[] = [];
 
     const parseTime = (timeStr: string) => {
-      // Expected Format: HH:MM:SS.mmm
       if (!timeStr) return 0;
       const parts = timeStr.split(':');
       let h = 0, m = 0, s = 0, ms = 0;
@@ -105,19 +104,28 @@ export class TranscriptionService {
       const trimmed = line.trim();
       if (!trimmed) continue;
       
-      // Try to parse valid JSON line
+      // Filter out heartbeat comments or API errors in stream
+      if (trimmed.startsWith(':') || trimmed.startsWith('ERROR:')) continue;
+
       try {
-        const obj = JSON.parse(trimmed);
-        if (obj.text) { // Ensure at least text exists
+        // Handle potential lingering markdown blocks from model
+        const cleanLine = trimmed.replace(/^```json/, '').replace(/^```/, '');
+        if (!cleanLine) continue;
+
+        const obj = JSON.parse(cleanLine);
+        
+        // Push even if text is empty but background noise exists
+        if (obj.text || obj.background_noise) { 
             cues.push({ 
                 start: parseTime(obj.start) + offsetSeconds, 
                 end: parseTime(obj.end) + offsetSeconds, 
-                text: obj.text,
-                speaker: obj.speaker
+                text: obj.text || '',
+                speaker: obj.speaker,
+                background_noise: obj.background_noise
             });
         }
       } catch (e) {
-        // Skip invalid lines (markdown fence, partial chunks, etc.)
+        // Skip invalid lines
       }
     }
 
