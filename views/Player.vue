@@ -1,4 +1,3 @@
-
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { AuthState, ABSLibraryItem } from '../types';
@@ -363,7 +362,7 @@ const infoRows = computed(() => {
             <button 
               v-if="metadata.seriesName" 
               @click="handleSeriesClick($event)" 
-              class="group flex items-center justify-center gap-2 mx-auto px-4 py-1.5 rounded-full bg-purple-500/20 border border-purple-500/30 hover:bg-purple-500/30 transition-all active:scale-95 shadow-sm tap-effect backdrop-blur-md"
+              class="group flex items-center justify-center gap-2 mx-auto px-4 py-1.5 rounded-full bg-gradient-to-r from-purple-900/50 to-purple-800/50 border border-purple-500/30 hover:border-purple-400/50 transition-all active:scale-95 shadow-sm tap-effect backdrop-blur-md"
             >
               <Layers :size="12" class="text-purple-300" />
               <span class="text-purple-100 font-bold text-[10px] md:text-xs">
@@ -423,11 +422,14 @@ const infoRows = computed(() => {
             <!-- Play/Pause Main -->
             <button 
               @click="togglePlay" 
-              class="w-20 h-20 md:w-24 md:h-24 rounded-full bg-purple-600/80 text-white flex items-center justify-center shadow-2xl shadow-black/50 active:scale-95 transition-all group relative tap-effect hover:scale-105 hover:bg-purple-500/90 border border-white/10 backdrop-blur-xl"
+              class="w-20 h-20 md:w-24 md:h-24 rounded-full bg-gradient-to-br from-[#7c3aed] to-[#6d28d9] text-white flex items-center justify-center shadow-lg shadow-purple-900/40 active:scale-95 transition-all group relative tap-effect hover:scale-105 border border-white/10"
             >
               <div v-if="state.isLoading" class="absolute inset-0 bg-white/20 rounded-full animate-ping" />
               <Pause v-if="state.isPlaying" :size="36" fill="currentColor" />
               <Play v-else :size="36" fill="currentColor" class="translate-x-1" />
+              
+              <!-- Subtle Inner Highlight -->
+              <div class="absolute inset-0 rounded-full shadow-[inset_0_1px_1px_rgba(255,255,255,0.2)] pointer-events-none"></div>
             </button>
 
             <!-- Forward -->

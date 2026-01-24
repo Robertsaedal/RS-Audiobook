@@ -1,4 +1,3 @@
-
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, nextTick, computed } from 'vue';
 import { ABSLibraryItem, ABSProgress } from '../types';
@@ -13,7 +12,8 @@ const props = defineProps<{
   sortMethod: string,
   desc: number,
   search?: string,
-  progressMap?: Map<string, ABSProgress> // New Prop
+  progressMap?: Map<string, ABSProgress>,
+  progressTick?: number
 }>();
 
 const emit = defineEmits<{
@@ -33,6 +33,8 @@ const isOffline = ref(false);
 
 // Computed property to merge library items with the global progress map
 const hydratedItems = computed(() => {
+  // Dependency tick to force re-evaluation even if object references in map don't trigger
+  const _ = props.progressTick; 
   if (!props.progressMap) return libraryItems.value;
   
   return libraryItems.value.map(item => {

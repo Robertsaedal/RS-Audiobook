@@ -1,4 +1,3 @@
-
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, onActivated, watch, computed, nextTick, reactive, shallowRef } from 'vue';
 import { AuthState, ABSLibraryItem, ABSSeries, ABSProgress } from '../types';
@@ -24,6 +23,7 @@ const props = defineProps<{
   isStreaming?: boolean,
   initialSeriesId?: string | null,
   progressMap?: Map<string, ABSProgress>,
+  progressTick?: number,
   providedService?: ABSService | null
 }>();
 
@@ -233,6 +233,8 @@ const handleOfflineFallback = async () => {
 
 // Optimized Hydration: Avoids creating new objects if progress hasn't changed effectively
 const hydrateList = (list: ABSLibraryItem[]) => {
+  // Use progressTick to force re-evaluation if available
+  const _ = props.progressTick; 
   return list.map(item => {
     const live = activeProgressMap.value.get(item.id);
     if (live) {
@@ -522,7 +524,17 @@ const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && rec
         </div>
       </Transition>
 
-      <SeriesView v-if="selectedSeries && absService" :series="selectedSeries" :absService="absService" :auth="auth" :progressMap="activeProgressMap" @back="closeSeries" @select-item="emit('select-item', $event)" @click-info="openInfoModal" />
+      <SeriesView 
+        v-if="selectedSeries && absService" 
+        :series="selectedSeries" 
+        :absService="absService" 
+        :auth="auth" 
+        :progressMap="activeProgressMap" 
+        :progressTick="progressTick" 
+        @back="closeSeries" 
+        @select-item="emit('select-item', $event)" 
+        @click-info="openInfoModal" 
+      />
 
       <template v-else>
         <div v-if="trimmedSearch" class="h-full bg-[#0d0d0d] overflow-y-auto custom-scrollbar pt-8 pb-40">
@@ -611,7 +623,7 @@ const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && rec
             </div>
           </div>
           <div v-else-if="activeTab === 'LIBRARY' && absService" class="h-full flex flex-col overflow-hidden">
-            <Bookshelf :absService="absService" :sortMethod="sortMethod" :desc="desc" :search="''" :progressMap="activeProgressMap" @select-item="emit('select-item', $event)" @click-info="openInfoModal" />
+            <Bookshelf :absService="absService" :sortMethod="sortMethod" :desc="desc" :search="''" :progressMap="activeProgressMap" :progressTick="progressTick" @select-item="emit('select-item', $event)" @click-info="openInfoModal" />
           </div>
           <div v-else-if="activeTab === 'SAVED' && absService" class="h-full flex flex-col overflow-hidden">
              <SavedView :absService="absService" :progressMap="activeProgressMap" @select-item="emit('select-item', $event)" @click-info="openInfoModal" />

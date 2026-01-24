@@ -1,4 +1,3 @@
-
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { ABSSeries, ABSLibraryItem, AuthState, ABSProgress } from '../types';
@@ -10,7 +9,8 @@ const props = defineProps<{
   series: ABSSeries,
   absService: ABSService,
   auth?: AuthState,
-  progressMap?: Map<string, ABSProgress> // New Prop
+  progressMap?: Map<string, ABSProgress>,
+  progressTick?: number
 }>();
 
 const emit = defineEmits<{
@@ -28,6 +28,8 @@ const scanFeedback = ref('');
 
 // Computed property to merge user progress from global map into books
 const enrichedBooks = computed(() => {
+  // Dependency tick
+  const _ = props.progressTick; 
   const rawBooks = seriesBooks.value.length > 0 ? seriesBooks.value : (localSeries.value.books || []);
   
   // Use progressMap if available (Real-time updates)

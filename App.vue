@@ -1,4 +1,3 @@
-
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, defineAsyncComponent, computed, reactive, watch } from 'vue';
 import { AuthState, ABSLibraryItem, ABSProgress } from './types';
@@ -21,6 +20,7 @@ const initialSeriesId = ref<string | null>(null);
 // Global ABS Service & Progress State
 const absService = ref<ABSService | null>(null);
 const progressMap = reactive(new Map<string, ABSProgress>());
+const progressTick = ref(0); // Forces UI updates on progress change
 
 // PWA State
 const deferredPrompt = ref<any>(null);
@@ -71,6 +71,7 @@ const initAbsService = () => {
     } else {
       progressMap.set(update.itemId, update);
     }
+    progressTick.value++; // Force Reactivity Downstream
 
     // Global Sync: Update Active Player Item if matching
     if (selectedItem.value && selectedItem.value.id === update.itemId) {
@@ -102,6 +103,7 @@ const initAbsService = () => {
         };
         progressMap.set(update.itemId, update);
       });
+      progressTick.value++;
     }
   });
 
@@ -111,6 +113,7 @@ const initAbsService = () => {
      const p = update as ABSProgress;
      if (p && p.itemId) {
         progressMap.set(p.itemId, p);
+        progressTick.value++;
         if (selectedItem.value && selectedItem.value.id === p.itemId) {
            selectedItem.value = { ...selectedItem.value, userProgress: p };
         }
@@ -254,6 +257,7 @@ const closePlayer = (shouldPopState = true) => {
             :isStreaming="isStreaming"
             :initialSeriesId="initialSeriesId"
             :progressMap="progressMap"
+            :progressTick="progressTick"
             :providedService="absService"
             @select-item="openPlayer" 
             @logout="handleLogout" 
