@@ -128,7 +128,8 @@ export default async function handler(req: any, res: any) {
 
     // 7. Generate Stream with Retry Logic
     let responseStream;
-    const modelName = 'gemini-1.5-flash';
+    // Updated model to gemini-2.5-flash as requested
+    const modelName = 'gemini-2.5-flash';
 
     const generate = async () => {
         return await ai.models.generateContentStream({
