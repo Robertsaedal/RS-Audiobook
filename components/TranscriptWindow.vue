@@ -1,7 +1,7 @@
 
 <script setup lang="ts">
 import { ref, watch, onMounted, computed, nextTick, onUnmounted } from 'vue';
-import { TranscriptionService, VttCue } from '../services/transcriptionService';
+import { TranscriptionService, TranscriptCue } from '../services/transcriptionService';
 import { useTranscriptionQueue } from '../composables/useTranscriptionQueue';
 import { ABSService } from '../services/absService';
 import { ABSLibraryItem } from '../types';
@@ -20,7 +20,7 @@ const emit = defineEmits<{
 
 const { getItemStatus, addToQueue, cooldownTimer } = useTranscriptionQueue();
 
-const cues = ref<VttCue[]>([]);
+const cues = ref<TranscriptCue[]>([]);
 const hasTranscript = ref(false);
 const activeCueIndex = ref(-1);
 const scrollContainer = ref<HTMLElement | null>(null);
@@ -45,10 +45,10 @@ const progressLabel = computed(() => {
 const activeCue = computed(() => activeCueIndex.value !== -1 ? cues.value[activeCueIndex.value] : null);
 
 const loadTranscript = async () => {
-  const vtt = await TranscriptionService.getTranscript(props.item.id);
-  if (vtt) {
-    cues.value = TranscriptionService.parseVTT(vtt, 0);
-    hasTranscript.value = true;
+  const content = await TranscriptionService.getTranscript(props.item.id);
+  if (content) {
+    cues.value = TranscriptionService.parseTranscript(content, 0);
+    hasTranscript.value = cues.value.length > 0;
   } else {
     hasTranscript.value = false;
     cues.value = [];
@@ -62,16 +62,13 @@ const handleGenerateClick = () => {
   addToQueue(props.item.id, downloadUrl, duration, props.currentTime);
 };
 
-// Poll for completion if queued
-let pollInterval: any = null;
-
 watch(queueStatus, (newStatus) => {
   if (newStatus === 'completed') {
     loadTranscript();
   }
 });
 
-const handleCueClick = (cue: VttCue) => {
+const handleCueClick = (cue: TranscriptCue) => {
   emit('seek', cue.start);
 };
 
@@ -115,7 +112,7 @@ watch(() => props.item.id, loadTranscript);
     <div class="absolute top-0 left-0 right-0 z-20 flex items-center justify-between p-4 bg-gradient-to-b from-black/60 to-transparent">
       <div class="flex items-center gap-2 px-2">
         <Sparkles :size="12" class="text-purple-500" />
-        <span class="text-[9px] font-black uppercase tracking-widest text-white/50">Lyrics / Text</span>
+        <span class="text-[9px] font-black uppercase tracking-widest text-white/50">Smart Transcribe</span>
       </div>
       <button @click="emit('close')" class="p-2 bg-white/5 rounded-full hover:bg-white/10 transition-colors text-neutral-400 hover:text-white border border-white/5">
         <X :size="14" />
@@ -160,7 +157,7 @@ watch(() => props.item.id, loadTranscript);
         <div class="space-y-1">
           <h3 class="text-sm font-black uppercase tracking-tight text-white">No Transcript</h3>
           <p class="text-[9px] text-neutral-500 leading-relaxed max-w-[200px] mx-auto">
-            Use Gemini to generate synchronized subtitles for this track.
+            Generate AI-powered transcripts with speaker identification for this segment.
           </p>
         </div>
         
@@ -180,17 +177,27 @@ watch(() => props.item.id, loadTranscript);
       </div>
 
       <!-- Transcript Lines -->
-      <div v-if="hasTranscript" class="space-y-4 py-20 flex flex-col items-center min-h-full justify-center">
+      <div v-if="hasTranscript" class="space-y-6 py-20 flex flex-col items-center min-h-full justify-center w-full">
         <div 
           v-for="(cue, index) in cues" 
           :key="index"
           @click="handleCueClick(cue)"
-          class="cursor-pointer transition-all duration-500 py-3 px-4 rounded-2xl border border-transparent hover:bg-white/5 w-full text-center max-w-lg"
-          :class="activeCueIndex === index ? 'active-cue bg-white/5 border-purple-500/20 scale-105 shadow-lg' : 'opacity-40 hover:opacity-80 scale-95 blur-sm hover:blur-none'"
+          class="cursor-pointer transition-all duration-500 p-4 rounded-2xl border border-transparent hover:bg-white/5 w-full max-w-lg flex flex-col gap-2 group"
+          :class="activeCueIndex === index ? 'active-cue bg-white/5 border-purple-500/20 scale-105 shadow-lg' : 'opacity-50 hover:opacity-90 blur-[1px] hover:blur-none'"
         >
+          <!-- Speaker Label -->
+          <div v-if="cue.speaker" class="flex items-center gap-2">
+             <span 
+               class="text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md border"
+               :class="activeCueIndex === index ? 'text-purple-300 border-purple-500/30 bg-purple-500/10' : 'text-neutral-500 border-white/5 bg-black/20'"
+             >
+               {{ cue.speaker }}
+             </span>
+          </div>
+
           <p 
             class="text-base md:text-lg font-bold leading-relaxed transition-colors duration-300"
-            :class="activeCueIndex === index ? 'text-purple-200 drop-shadow-[0_0_15px_rgba(168,85,247,0.3)]' : 'text-neutral-300'"
+            :class="activeCueIndex === index ? 'text-purple-100 drop-shadow-[0_0_15px_rgba(168,85,247,0.2)]' : 'text-neutral-300'"
           >
             {{ cue.text }}
           </p>

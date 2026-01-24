@@ -1,10 +1,11 @@
 
 import { db } from './db';
 
-export interface VttCue {
+export interface TranscriptCue {
   start: number;
   end: number;
   text: string;
+  speaker?: string; // Added speaker field
 }
 
 export class TranscriptionService {
@@ -42,7 +43,7 @@ export class TranscriptionService {
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder("utf-8");
-      let vttText = '';
+      let fullText = '';
       let done = false;
 
       while (!done) {
@@ -51,16 +52,12 @@ export class TranscriptionService {
         
         if (value) {
           const chunk = decoder.decode(value, { stream: true });
-          vttText += chunk;
+          fullText += chunk;
           if (onChunk) onChunk(chunk);
         }
       }
 
-      if (!vttText || (!vttText.includes('WEBVTT') && vttText.length < 50)) {
-         throw new Error("Invalid VTT format received from server.");
-      }
-
-      return this.saveTranscript(itemId, vttText);
+      return this.saveTranscript(itemId, fullText);
 
     } catch (error: any) {
       console.error("Transcription Service Error:", error);
@@ -71,61 +68,57 @@ export class TranscriptionService {
   private static async saveTranscript(itemId: string, vttContent: string): Promise<string> {
     await db.transcripts.put({
       itemId,
-      vttContent,
+      vttContent, // Storing JSONL content here (reusing the field name to avoid schema migration)
       createdAt: Date.now()
     });
     return vttContent;
   }
 
-  static parseVTT(vttString: string, offsetSeconds: number = 0): VttCue[] {
-    const lines = vttString.split(/\r?\n/);
-    const cues: VttCue[] = [];
-    let currentStart: number | null = null;
-    let currentEnd: number | null = null;
-    let currentText = '';
-
-    const timeRegex = /(\d{2}:\d{2}:\d{2}\.\d{3}) --> (\d{2}:\d{2}:\d{2}\.\d{3})/;
+  // Updated to parse JSON Lines (JSONL) instead of VTT
+  static parseTranscript(jsonlString: string, offsetSeconds: number = 0): TranscriptCue[] {
+    const lines = jsonlString.split(/\r?\n/);
+    const cues: TranscriptCue[] = [];
 
     const parseTime = (timeStr: string) => {
+      // Expected Format: HH:MM:SS.mmm
+      if (!timeStr) return 0;
       const parts = timeStr.split(':');
       let h = 0, m = 0, s = 0, ms = 0;
       
       if (parts.length === 3) {
-        h = parseInt(parts[0]);
-        m = parseInt(parts[1]);
+        h = parseInt(parts[0], 10);
+        m = parseInt(parts[1], 10);
         const secParts = parts[2].split('.');
-        s = parseInt(secParts[0]);
-        ms = parseInt(secParts[1]);
+        s = parseInt(secParts[0], 10);
+        ms = parseInt(secParts[1] || '0', 10);
       } else if (parts.length === 2) {
-        m = parseInt(parts[0]);
+        m = parseInt(parts[0], 10);
         const secParts = parts[1].split('.');
-        s = parseInt(secParts[0]);
-        ms = parseInt(secParts[1]);
+        s = parseInt(secParts[0], 10);
+        ms = parseInt(secParts[1] || '0', 10);
       }
 
       return h * 3600 + m * 60 + s + ms / 1000;
     };
 
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (!line || line === 'WEBVTT' || line.startsWith('NOTE')) continue;
-
-      const timeMatch = line.match(timeRegex);
-      if (timeMatch) {
-        if (currentStart !== null && currentText) {
-          cues.push({ start: currentStart, end: currentEnd!, text: currentText.trim() });
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      
+      // Try to parse valid JSON line
+      try {
+        const obj = JSON.parse(trimmed);
+        if (obj.text) { // Ensure at least text exists
+            cues.push({ 
+                start: parseTime(obj.start) + offsetSeconds, 
+                end: parseTime(obj.end) + offsetSeconds, 
+                text: obj.text,
+                speaker: obj.speaker
+            });
         }
-        // Apply Offset Here
-        currentStart = parseTime(timeMatch[1]) + offsetSeconds;
-        currentEnd = parseTime(timeMatch[2]) + offsetSeconds;
-        currentText = '';
-      } else if (currentStart !== null) {
-        currentText += (currentText ? '\n' : '') + line;
+      } catch (e) {
+        // Skip invalid lines (markdown fence, partial chunks, etc.)
       }
-    }
-    // Push last cue
-    if (currentStart !== null && currentText) {
-      cues.push({ start: currentStart, end: currentEnd!, text: currentText.trim() });
     }
 
     return cues;

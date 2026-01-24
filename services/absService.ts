@@ -93,7 +93,8 @@ export class ABSService {
   }
 
   private static async fetchWithRetry(url: string, options: RequestInit, retries = 3, timeout = 60000): Promise<Response> {
-    console.log(`[Network] Starting Request: ${url}`);
+    const traceId = Math.random().toString(36).substring(7); // Short ID to track this specific request in logs
+    console.log(`[HARD-LOG] [${traceId}] Starting Request: ${url}`);
     let lastError: Error | null = null;
     
     // CORS FIX: Removed custom Cache-Control headers AND cache: 'no-store'.
@@ -112,12 +113,12 @@ export class ABSService {
     };
 
     for (let i = 0; i < retries; i++) {
-      console.log(`[Network] Attempt ${i + 1}/${retries} for ${url}`);
+      console.log(`[HARD-LOG] [${traceId}] Attempt ${i + 1}/${retries}`);
       
       const controller = new AbortController();
       // Only set timeout if not keepalive
       const id = options.keepalive ? null : setTimeout(() => {
-        console.error(`[Network] TIMEOUT REACHED (${timeout}ms) for ${url}`);
+        console.error(`[HARD-LOG] [${traceId}] TIMEOUT REACHED (${timeout}ms) for ${url}`);
         controller.abort(new Error("Network timeout: Server took too long to respond"));
       }, timeout);
       
@@ -125,50 +126,53 @@ export class ABSService {
         const response = await fetch(cleanUrl, { ...newOptions, signal: controller.signal });
         if (id) clearTimeout(id);
         
-        console.log(`[Network] Response ${response.status} ${response.statusText} for ${url}`);
-
+        console.log(`[HARD-LOG] [${traceId}] Response Status: ${response.status} ${response.statusText}`);
+        
         const contentType = response.headers.get("content-type");
+        console.log(`[HARD-LOG] [${traceId}] Content-Type: ${contentType}`);
+
         // API responses should NEVER be HTML. If they are, it's usually a 404 page or proxy error.
         if (contentType && contentType.includes("text/html")) {
-          console.error(`[Network] Invalid Content-Type: Received HTML instead of JSON for ${url}`);
+          console.error(`[HARD-LOG] [${traceId}] Invalid Content-Type: Received HTML instead of JSON for ${url}`);
           throw new TypeError("Authorization check failed: Server returned HTML (Web Page) instead of JSON (API).");
         }
 
         if (response.ok || (response.status >= 400 && response.status < 500)) return response;
         
-        console.error(`[Network] Server Error: ${response.status}`);
+        console.error(`[HARD-LOG] [${traceId}] Server Error: ${response.status}`);
         throw new Error(`SERVER_ERROR_${response.status}`);
       } catch (e: any) {
         if (id) clearTimeout(id);
         lastError = e;
         
         if (e.name === 'AbortError') {
-             console.warn(`[Network] Request aborted/timed out: ${url}`);
+             console.warn(`[HARD-LOG] [${traceId}] Request aborted/timed out: ${url}`);
         } else {
-             console.error(`[Network] Exception during fetch for ${url}:`, e);
+             console.error(`[HARD-LOG] [${traceId}] Exception during fetch:`, e);
         }
 
         if (options.keepalive || i === retries - 1) break;
         
         const delay = 1000 * (i + 1);
-        console.log(`[Network] Retrying in ${delay}ms...`);
+        console.log(`[HARD-LOG] [${traceId}] Retrying in ${delay}ms...`);
         await new Promise(resolve => setTimeout(resolve, delay)); 
       }
     }
     
-    console.error(`[Network] FAILED after ${retries} attempts: ${url}`);
+    console.error(`[HARD-LOG] [${traceId}] FAILED after ${retries} attempts: ${url}`);
     throw lastError || new Error('FAILED_AFTER_RETRIES');
   }
 
   static async login(serverUrl: string, username: string, password: string): Promise<any> {
-    console.log(`[Login] Initiating login for user '${username}' at '${serverUrl}'`);
+    console.log(`[HARD-LOG] [Login] Initiating login for user '${username}' at '${serverUrl}'`);
     
     // Mixed Content Check: Warn if trying to access HTTP from HTTPS
     if (typeof window !== 'undefined' && window.location.protocol === 'https:' && serverUrl.trim().startsWith('http:')) {
-         console.error("[Login] SECURITY BLOCK: You are on a secure site (HTTPS) trying to connect to an insecure server (HTTP). Browsers block this.");
+         console.error("[HARD-LOG] [Login] SECURITY BLOCK: You are on a secure site (HTTPS) trying to connect to an insecure server (HTTP). Browsers block this.");
     }
 
     const cleanUrl = this.normalizeUrl(serverUrl);
+    console.log(`[HARD-LOG] [Login] Normalized Login URL Base: ${cleanUrl}`);
     
     // Strategy: Try /login first (Standard), then /api/login (Proxy/Custom)
     const candidates = [`${cleanUrl}/login`, `${cleanUrl}/api/login`];
@@ -176,7 +180,7 @@ export class ABSService {
 
     for (const url of candidates) {
         try {
-            console.log(`[Login] Attempting connection to: ${url}`);
+            console.log(`[HARD-LOG] [Login] Attempting connection to: ${url}`);
             
             // 0 retries (1 attempt) per endpoint to fail fast
             // INCREASED TIMEOUT: 30 seconds for initial login candidate
@@ -184,11 +188,14 @@ export class ABSService {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ username: username.trim(), password: password || '' }),
-            }, 0, 30000); 
-            
+            }, 1, 30000); 
+
             if (!response.ok) {
+                console.log(`[HARD-LOG] [Login] Response not OK (${response.status}) from ${url}`);
+                
                 // If 404, it might be the wrong endpoint, loop to next
                 if (response.status === 404) {
+                    console.log(`[HARD-LOG] [Login] 404 received, skipping to next candidate.`);
                     throw new Error("404 Not Found");
                 }
                 
@@ -196,6 +203,7 @@ export class ABSService {
                 // Stop trying other endpoints.
                 if (response.status === 401 || response.status === 403) {
                      const data = await response.json().catch(() => ({ error: 'Invalid Credentials' }));
+                     console.error(`[HARD-LOG] [Login] Auth failed (401/403):`, data);
                      throw new Error(typeof data === 'string' ? data : (data.error || 'Invalid Credentials'));
                 }
                 
@@ -205,30 +213,32 @@ export class ABSService {
             // Double check content type before parsing
             const contentType = response.headers.get("content-type");
             if (contentType && contentType.includes("text/html")) {
+                console.error(`[HARD-LOG] [Login] Endpoint returned HTML (Likely Web UI, not API)`);
                 throw new Error("Endpoint returned HTML (Likely Web UI, not API)");
             }
 
             const data = await response.json();
-            console.log(`[Login] Success! Connected via ${url}`);
+            console.log(`[HARD-LOG] [Login] Success! Connected via ${url}`, data);
             return data;
 
         } catch (e: any) {
-            console.warn(`[Login] Failed at ${url}:`, e.message);
+            console.warn(`[HARD-LOG] [Login] Failed at ${url}:`, e.message);
             lastError = e;
 
             // Stop chain if we know it's a credential issue
             if (e.message && (e.message.includes('Invalid') || e.message.includes('401') || e.message.includes('403'))) {
+                console.error(`[HARD-LOG] [Login] Stopping attempts due to Auth failure.`);
                 throw e;
             }
         }
     }
     
-    console.error("[Login] All connection attempts failed.");
+    console.error("[HARD-LOG] [Login] All connection attempts failed.");
     throw lastError || new Error("Connection failed. Check Server URL and ensure it is accessible.");
   }
 
   static async authorize(serverUrl: string, token: string): Promise<any> {
-    console.log(`[Auth] Authorizing token at ${serverUrl}`);
+    console.log(`[HARD-LOG] [Auth] Authorizing token at ${serverUrl}`);
     const cleanUrl = this.normalizeUrl(serverUrl);
     const authUrl = `${cleanUrl}/api/authorize`;
     const cleanToken = token.replace(/^Bearer\s+/i, '').trim();
@@ -242,18 +252,18 @@ export class ABSService {
         }
       });
       
-      console.log(`[Auth] Response Status: ${response.status}`);
+      console.log(`[HARD-LOG] [Auth] Response Status: ${response.status}`);
       const data = await response.json();
       
       if (!response.ok) {
-          console.error(`[Auth] Failed:`, data);
+          console.error(`[HARD-LOG] [Auth] Failed:`, data);
           throw new Error(data || 'Authorization failed');
       }
       
-      console.log(`[Auth] Success!`);
+      console.log(`[HARD-LOG] [Auth] Success!`);
       return data;
     } catch (e) {
-      console.error(`[Auth] CRITICAL FAILURE:`, e);
+      console.error(`[HARD-LOG] [Auth] CRITICAL FAILURE:`, e);
       throw e;
     }
   }
