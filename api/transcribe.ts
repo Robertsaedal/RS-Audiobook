@@ -1,5 +1,5 @@
 
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
 
 export const config = {
   maxDuration: 300,
@@ -114,6 +114,8 @@ export default async function handler(req: any, res: any) {
 
     // 4. Init Gemini Resumable Upload
     res.write("NOTE Status: Uplinking to Gemini...\n\n");
+    // Note: We use the raw REST API for upload to support piping streams, 
+    // as the SDK's file manager expects local file paths.
     const uploadBaseUrl = "https://generativelanguage.googleapis.com/upload/v1beta/files";
     const startRes = await fetch(`${uploadBaseUrl}?key=${apiKey}`, {
         method: 'POST',
@@ -154,8 +156,9 @@ export default async function handler(req: any, res: any) {
 
     // 6. Generate Transcript
     res.write("NOTE Status: Transcribing segment...\n\n");
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    
+    // Initialize new SDK
+    const ai = new GoogleGenAI({ apiKey: apiKey });
 
     // Precise Prompt Engineering for Offsets
     const offsetSeconds = Math.floor(timeOffset);
@@ -173,18 +176,23 @@ export default async function handler(req: any, res: any) {
     Start directly with the first cue.
     `;
 
-    const result = await model.generateContentStream([
-      {
-        fileData: {
-          mimeType: uploadData.file.mimeType,
-          fileUri: fileUri
-        }
-      },
-      { text: promptText }
-    ]);
+    const response = await ai.models.generateContentStream({
+      model: 'gemini-3-flash-preview',
+      contents: {
+        parts: [
+          {
+            fileData: {
+              mimeType: uploadData.file.mimeType,
+              fileUri: fileUri
+            }
+          },
+          { text: promptText }
+        ]
+      }
+    });
 
-    for await (const chunk of result.stream) {
-        const text = chunk.text();
+    for await (const chunk of response) {
+        const text = chunk.text;
         if (text) res.write(text);
     }
 
