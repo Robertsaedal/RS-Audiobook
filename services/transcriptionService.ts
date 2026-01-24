@@ -53,11 +53,22 @@ export class TranscriptionService {
         
         if (value) {
           const chunk = decoder.decode(value, { stream: true });
-          // Filter out heartbeat/status messages for the UI callback if needed
-          // but keep them in fullText for parsing later as the parser handles filtering
-          if (!chunk.startsWith(': status:')) {
-             if (onChunk) onChunk(chunk);
+          
+          // CRITICAL: Filter out heartbeat messages (: status: ...) from the UI/Parsing
+          // but keep valid JSON/Text.
+          
+          // Split by newline to handle cases where a chunk contains both status and data
+          const lines = chunk.split('\n');
+          const cleanLines = lines.filter(line => !line.trim().startsWith(': status:') && !line.trim().startsWith('ERROR:'));
+          
+          if (cleanLines.length > 0) {
+              // Pass clean content to callback (if UI needs to stream text)
+              const cleanChunk = cleanLines.join('\n');
+              if (onChunk && cleanChunk.trim()) onChunk(cleanChunk);
           }
+
+          // Accumulate full text for final saving
+          // We remove status lines from the final text to keep the DB clean
           fullText += chunk;
         }
       }
@@ -70,13 +81,19 @@ export class TranscriptionService {
     }
   }
 
-  private static async saveTranscript(itemId: string, vttContent: string): Promise<string> {
+  private static async saveTranscript(itemId: string, rawContent: string): Promise<string> {
+    // Clean up content before saving
+    const cleanContent = rawContent
+      .split('\n')
+      .filter(line => !line.startsWith(': status:') && !line.startsWith('ERROR:'))
+      .join('\n');
+
     await db.transcripts.put({
       itemId,
-      vttContent, 
+      vttContent: cleanContent, 
       createdAt: Date.now()
     });
-    return vttContent;
+    return cleanContent;
   }
 
   static parseTranscript(jsonlString: string, offsetSeconds: number = 0): TranscriptCue[] {
@@ -112,13 +129,12 @@ export class TranscriptionService {
       if (trimmed.startsWith(':') || trimmed.startsWith('ERROR:')) continue;
 
       try {
-        // Handle potential lingering markdown blocks from model
-        const cleanLine = trimmed.replace(/^```json/, '').replace(/^```/, '');
-        if (!cleanLine) continue;
+        // Handle potential lingering markdown blocks from model (e.g., ```json)
+        const cleanLine = trimmed.replace(/^```json/, '').replace(/^```/, '').replace(/,$/, ''); // Remove trailing comma if model outputs array style
+        if (!cleanLine || cleanLine === '[' || cleanLine === ']') continue;
 
         const obj = JSON.parse(cleanLine);
         
-        // Push even if text is empty but background noise exists
         if (obj.text || obj.background_noise) { 
             cues.push({ 
                 start: parseTime(obj.start) + offsetSeconds, 
