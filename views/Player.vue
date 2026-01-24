@@ -1,4 +1,3 @@
-
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { AuthState, ABSLibraryItem } from '../types';
@@ -421,10 +420,10 @@ const infoRows = computed(() => {
               <RotateCcw :size="26" />
             </button>
 
-            <!-- Play/Pause Main - PURE GLASS TRANSPARENT -->
+            <!-- Play/Pause Main - SOLID PURPLE MATCHING SERIES PILL -->
             <button 
               @click="togglePlay" 
-              class="w-20 h-20 md:w-24 md:h-24 rounded-full bg-white/5 backdrop-blur-md border border-purple-500/50 text-white flex items-center justify-center shadow-[0_0_30px_rgba(168,85,247,0.4)] active:scale-95 transition-all group relative tap-effect hover:scale-105 hover:bg-white/10 hover:border-purple-400 hover:shadow-[0_0_40px_rgba(168,85,247,0.6)]"
+              class="w-20 h-20 md:w-24 md:h-24 rounded-full bg-purple-600 text-white flex items-center justify-center shadow-[0_0_30px_rgba(147,51,234,0.5)] active:scale-95 transition-all group relative tap-effect hover:scale-105 hover:bg-purple-500 hover:shadow-[0_0_40px_rgba(147,51,234,0.7)]"
             >
               <div v-if="state.isLoading" class="absolute inset-0 bg-white/20 rounded-full animate-ping" />
               <Pause v-if="state.isPlaying" :size="42" fill="currentColor" />
