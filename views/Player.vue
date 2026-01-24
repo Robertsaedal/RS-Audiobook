@@ -1,3 +1,4 @@
+
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { AuthState, ABSLibraryItem } from '../types';
@@ -359,16 +360,17 @@ const infoRows = computed(() => {
               </div>
               <p class="text-sm md:text-lg font-bold text-neutral-500 line-clamp-1">{{ metadata.authorName }}</p>
             </div>
+            <!-- Updated Series Pill -->
             <button 
               v-if="metadata.seriesName" 
               @click="handleSeriesClick($event)" 
-              class="group flex items-center justify-center gap-2 mx-auto px-4 py-1.5 rounded-full bg-gradient-to-r from-purple-900/50 to-purple-800/50 border border-purple-500/30 hover:border-purple-400/50 transition-all active:scale-95 shadow-sm tap-effect backdrop-blur-md"
+              class="group flex items-center justify-center gap-2 mx-auto px-4 py-1.5 rounded-full bg-purple-600 transition-all active:scale-95 shadow-md tap-effect"
             >
-              <Layers :size="12" class="text-purple-300" />
-              <span class="text-purple-100 font-bold text-[10px] md:text-xs">
+              <Layers :size="12" class="text-white" />
+              <span class="text-white font-black text-[10px] md:text-xs uppercase tracking-wider">
                 {{ metadata.seriesName }} {{ metadata.seriesSequence ? `#${metadata.seriesSequence}` : '' }}
               </span>
-              <ArrowRight :size="12" class="text-purple-400 group-hover:text-purple-200 transition-colors group-hover:translate-x-1" />
+              <ArrowRight :size="12" class="text-white transition-transform group-hover:translate-x-1" />
             </button>
           </div>
         </div>
@@ -419,17 +421,14 @@ const infoRows = computed(() => {
               <RotateCcw :size="26" />
             </button>
 
-            <!-- Play/Pause Main -->
+            <!-- Play/Pause Main - UPDATED STYLE -->
             <button 
               @click="togglePlay" 
-              class="w-20 h-20 md:w-24 md:h-24 rounded-full bg-gradient-to-br from-[#7c3aed] to-[#6d28d9] text-white flex items-center justify-center shadow-lg shadow-purple-900/40 active:scale-95 transition-all group relative tap-effect hover:scale-105 border border-white/10"
+              class="w-20 h-20 md:w-24 md:h-24 rounded-full bg-[#a855f7] text-white flex items-center justify-center shadow-[0_0_20px_rgba(168,85,247,0.5)] active:scale-95 transition-all group relative tap-effect hover:scale-105"
             >
               <div v-if="state.isLoading" class="absolute inset-0 bg-white/20 rounded-full animate-ping" />
-              <Pause v-if="state.isPlaying" :size="36" fill="currentColor" />
-              <Play v-else :size="36" fill="currentColor" class="translate-x-1" />
-              
-              <!-- Subtle Inner Highlight -->
-              <div class="absolute inset-0 rounded-full shadow-[inset_0_1px_1px_rgba(255,255,255,0.2)] pointer-events-none"></div>
+              <Pause v-if="state.isPlaying" :size="42" fill="currentColor" />
+              <Play v-else :size="42" fill="currentColor" class="translate-x-1" />
             </button>
 
             <!-- Forward -->
