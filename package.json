@@ -17,7 +17,7 @@
     "dexie": "^4.0.1",
     "canvas-confetti": "^1.9.2",
     "@google/generative-ai": "^0.21.0",
-    "@google/genai": "^0.1.0"
+    "@google/genai": "*"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.0.0",
