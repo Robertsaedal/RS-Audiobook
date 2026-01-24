@@ -6,7 +6,7 @@ export interface TranscriptCue {
   end: number;
   text: string;
   speaker?: string;
-  background_noise?: string;
+  background_noise?: string; // New field
 }
 
 export class TranscriptionService {
@@ -24,7 +24,7 @@ export class TranscriptionService {
     currentTime: number = 0 
   ): Promise<string> {
     
-    console.log(`[Transcription] Initiating stream request for ${itemId} at ${currentTime}s...`);
+    console.log('[Transcription] Requesting smart segment transcription...');
 
     try {
       const response = await fetch('/api/transcribe', {
@@ -40,7 +40,7 @@ export class TranscriptionService {
         throw new Error(errData.error || `Server Error: ${response.status}`);
       }
 
-      if (!response.body) throw new Error("No response body");
+      if (!response.body) throw new Error("No response body available for streaming");
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder("utf-8");
@@ -53,29 +53,15 @@ export class TranscriptionService {
         
         if (value) {
           const chunk = decoder.decode(value, { stream: true });
-          // Only accumulate non-heartbeat content (heartbeats start with :)
-          if (!chunk.startsWith(':')) {
-             fullText += chunk;
-          }
+          fullText += chunk;
           if (onChunk) onChunk(chunk);
         }
       }
 
-      // Cleanup markdown artifacts if the model included them despite instructions
-      const cleaned = fullText
-        .replace(/```json/g, '')
-        .replace(/```/g, '')
-        .replace(/^[:\s]+/, '')
-        .trim();
-        
-      if (!cleaned) {
-        throw new Error("Received empty response from transcription artifact.");
-      }
-
-      return this.saveTranscript(itemId, cleaned);
+      return this.saveTranscript(itemId, fullText);
 
     } catch (error: any) {
-      console.error("[Transcription Service] Failure:", error);
+      console.error("Transcription Service Error:", error);
       throw error;
     }
   }
@@ -89,50 +75,47 @@ export class TranscriptionService {
     return vttContent;
   }
 
-  /**
-   * Robust parser that extracts JSON objects from a potentially messy text stream.
-   */
-  static parseTranscript(rawContent: string, offsetSeconds: number = 0): TranscriptCue[] {
+  static parseTranscript(jsonlString: string, offsetSeconds: number = 0): TranscriptCue[] {
+    const lines = jsonlString.split(/\r?\n/);
     const cues: TranscriptCue[] = [];
-    
-    // Non-greedy search for top-level JSON objects
-    const jsonObjectRegex = /{[^]*?}/g;
-    const matches = rawContent.match(jsonObjectRegex);
-
-    if (!matches) {
-      console.warn("[Transcription] No valid artifact segments found in data.");
-      return [];
-    }
 
     const parseTime = (timeStr: string) => {
       if (!timeStr) return 0;
-      const parts = timeStr.trim().split(':');
+      const parts = timeStr.split(':');
       let h = 0, m = 0, s = 0, ms = 0;
       
-      try {
-        if (parts.length === 3) {
-          h = parseInt(parts[0], 10);
-          m = parseInt(parts[1], 10);
-          const secParts = parts[2].split('.');
-          s = parseInt(secParts[0], 10);
-          ms = parseInt(secParts[1]?.substring(0, 3) || '0', 10);
-        } else if (parts.length === 2) {
-          m = parseInt(parts[0], 10);
-          const secParts = parts[1].split('.');
-          s = parseInt(secParts[0], 10);
-          ms = parseInt(secParts[1]?.substring(0, 3) || '0', 10);
-        }
-      } catch (e) { return 0; }
+      if (parts.length === 3) {
+        h = parseInt(parts[0], 10);
+        m = parseInt(parts[1], 10);
+        const secParts = parts[2].split('.');
+        s = parseInt(secParts[0], 10);
+        ms = parseInt(secParts[1] || '0', 10);
+      } else if (parts.length === 2) {
+        m = parseInt(parts[0], 10);
+        const secParts = parts[1].split('.');
+        s = parseInt(secParts[0], 10);
+        ms = parseInt(secParts[1] || '0', 10);
+      }
 
       return h * 3600 + m * 60 + s + ms / 1000;
     };
 
-    for (const match of matches) {
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      
+      // Filter out heartbeat comments or API errors in stream
+      if (trimmed.startsWith(':') || trimmed.startsWith('ERROR:')) continue;
+
       try {
-        const obj = JSON.parse(match);
+        // Handle potential lingering markdown blocks from model
+        const cleanLine = trimmed.replace(/^```json/, '').replace(/^```/, '');
+        if (!cleanLine) continue;
+
+        const obj = JSON.parse(cleanLine);
         
-        // Ensure the object has at least content or noise
-        if (obj.text !== undefined || obj.background_noise !== undefined) { 
+        // Push even if text is empty but background noise exists
+        if (obj.text || obj.background_noise) { 
             cues.push({ 
                 start: parseTime(obj.start) + offsetSeconds, 
                 end: parseTime(obj.end) + offsetSeconds, 
@@ -142,12 +125,10 @@ export class TranscriptionService {
             });
         }
       } catch (e) {
-        // Log individual object parsing failures for debugging
-        console.debug("[Transcription] Segment parse error:", e);
+        // Skip invalid lines
       }
     }
 
-    // Sort by timeline to ensure smooth UI flow
-    return cues.sort((a, b) => a.start - b.start);
+    return cues;
   }
 }

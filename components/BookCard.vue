@@ -23,7 +23,7 @@ const emit = defineEmits<{
 }>();
 
 const rootEl = ref<HTMLElement | null>(null);
-const isVisible = ref(false); 
+const isVisible = ref(false); // Controls loading of heavy assets
 const imageReady = ref(false);
 const isDownloaded = ref(false);
 const isWishlisted = ref(false);
@@ -32,16 +32,27 @@ const triggerCompletionEffect = ref(false);
 const accentColor = ref('#A855F7');
 const colorLoaded = ref(false);
 
+// Optimize: Intersection Observer for lazy loading logic
 let observer: IntersectionObserver | null = null;
 
+// Ensure reactivity by checking nested properties explicitly
 const progressData = computed(() => {
-  // Directly pull progress to establish dependency on props.item
-  return props.item.userProgress || (props.item.media as any)?.userProgress || (props.item as any).userMediaProgress || null;
+  const up = props.item.userProgress;
+  const mp = (props.item.media as any)?.userProgress;
+  const ump = (props.item as any).userMediaProgress;
+  
+  // Dependency tracking hack: accessing primitive properties forces Vue to track updates
+  if (up) { const _ = up.currentTime + up.duration; return up; }
+  if (mp) { const _ = mp.currentTime + mp.duration; return mp; }
+  if (ump) { const _ = ump.currentTime + ump.duration; return ump; }
+
+  return null;
 });
 
 const progressPercentage = computed(() => {
   const p = progressData.value;
   if (!p) return 0;
+  
   if (p.isFinished || (p as any).isCompleted) return 100;
 
   const total = p.duration || props.item.media.duration || 0;
@@ -76,12 +87,15 @@ const displaySequence = computed(() => {
   return null;
 });
 
+// Clamped position for the pill so it doesn't fall off edges of the card
 const pillPosition = computed(() => {
   const p = progressPercentage.value;
+  // Clamp between 10% and 90% to keep the pill entirely visible
   return Math.max(10, Math.min(90, p));
 });
 
 const initVisuals = async () => {
+  // Only called when element is near viewport
   if (await OfflineManager.isDownloaded(props.item.id)) {
     isDownloaded.value = true;
     localCover.value = await OfflineManager.getCoverUrl(props.item.id);
@@ -114,7 +128,7 @@ onMounted(() => {
         initVisuals();
         observer?.disconnect();
       }
-    }, { rootMargin: '200px' });
+    }, { rootMargin: '200px' }); // Load 200px before appearing
     observer.observe(rootEl.value);
   }
 });
@@ -138,12 +152,16 @@ watch(isFinished, (newVal) => {
     class="flex flex-col text-left group transition-all outline-none w-full relative h-full"
     :style="{ '--card-accent': accentColor }"
   >
+    <!-- Cover Artifact Container -->
     <div 
       class="relative w-full aspect-[2/3] bg-neutral-950 rounded-xl overflow-hidden border transition-all duration-500 shadow-[0_10px_40px_-10px_var(--card-accent)] group-hover:scale-[1.04] shrink-0"
       :class="triggerCompletionEffect ? 'ring-2 ring-purple-500/50 shadow-[0_0_30px_rgba(168,85,247,0.5)]' : ''"
       :style="{ borderColor: colorLoaded ? 'color-mix(in srgb, var(--card-accent) 40%, transparent)' : 'rgba(255,255,255,0.05)' }"
     >
+      <!-- Completion Flash Effect -->
       <div v-if="triggerCompletionEffect" class="absolute inset-0 z-50 pointer-events-none bg-purple-500/20 mix-blend-overlay animate-pulse" />
+
+      <!-- Shimmer Placeholder (Visible until lazy load fires + img loads) -->
       <div v-if="!imageReady || !isVisible" class="absolute inset-0 z-10 animate-shimmer" />
 
       <img 
@@ -167,6 +185,7 @@ watch(isFinished, (newVal) => {
         <span class="mt-2 text-[8px] font-black uppercase tracking-widest text-purple-300 animate-pulse">Syncing...</span>
       </div>
       
+      <!-- Book Sequence Badge -->
       <div v-if="displaySequence !== null && !downloadProgress && isVisible" class="absolute top-2 left-2 z-30">
         <div class="px-2 py-1 bg-black/70 backdrop-blur-md border border-white/10 rounded-md shadow-lg">
           <span class="text-[10px] font-black text-purple-400 tracking-tighter">
@@ -175,6 +194,7 @@ watch(isFinished, (newVal) => {
         </div>
       </div>
       
+      <!-- Badges -->
       <div v-if="!downloadProgress && isVisible" class="absolute top-2 right-2 z-30 flex flex-col items-end gap-1.5">
          <div 
            @click="handleInfoClick"
@@ -190,30 +210,31 @@ watch(isFinished, (newVal) => {
          </div>
       </div>
 
+      <!-- Finished Indicator Overlay -->
       <div v-if="isFinished && !downloadProgress && isVisible" class="absolute inset-0 flex items-center justify-center z-40 bg-black/40 backdrop-grayscale-[0.5] pointer-events-none">
          <div class="px-4 py-1.5 bg-purple-600/90 backdrop-blur-md border border-purple-400/30 rounded-full flex items-center justify-center shadow-xl transform -rotate-12">
             <span class="text-[9px] font-black text-white uppercase tracking-[0.2em]">COMPLETE</span>
          </div>
       </div>
 
+      <!-- Play Overlay -->
       <div v-if="!isFinished && !downloadProgress && isVisible" class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex items-center justify-center pointer-events-none">
         <div class="w-14 h-14 rounded-full bg-purple-600 text-white flex items-center justify-center shadow-[0_0_30px_rgba(168,85,247,0.5)] transform scale-90 group-hover:scale-100 transition-transform">
           <Play :size="24" fill="currentColor" class="translate-x-0.5" />
         </div>
       </div>
 
-      <!-- PROGRESS BAR: Optimized for Safari with fixed layout & forced GPU transitions -->
-      <div v-if="!hideProgress && !isFinished && progressPercentage > 0 && !downloadProgress && isVisible" class="absolute bottom-3 left-3 right-3 z-30 flex flex-col pointer-events-none transform-gpu">
-         <div class="relative w-full h-1.5 bg-purple-950/40 backdrop-blur-sm rounded-full overflow-visible">
-            <!-- Actual Progress -->
+      <!-- Progress Bar with Dynamic Pill (Hidden if downloading) -->
+      <div v-if="!hideProgress && !isFinished && progressPercentage > 0 && !downloadProgress && isVisible" class="absolute bottom-3 left-3 right-3 z-30 flex flex-col pointer-events-none">
+         <div class="relative w-full h-1.5 bg-purple-950/40 backdrop-blur-sm rounded-full">
             <div 
-              class="h-full bg-purple-500 rounded-full shadow-[0_0_10px_rgba(168,85,247,0.4)] transition-all duration-300 ease-out relative will-change-[width,background-color]" 
-              :style="{ width: progressPercentage + '%', backgroundColor: colorLoaded ? 'var(--card-accent)' : undefined, boxShadow: colorLoaded ? '0 0-10px var(--card-accent)' : undefined }"
+              class="h-full bg-purple-500 rounded-full shadow-[0_0_10px_rgba(168,85,247,0.4)] transition-all duration-300 relative" 
+              :style="{ width: progressPercentage + '%', backgroundColor: colorLoaded ? 'var(--card-accent)' : undefined, boxShadow: colorLoaded ? '0 0 10px var(--card-accent)' : undefined }"
             />
             
             <!-- Dynamic Percentage Pill -->
             <div 
-              class="absolute bottom-3 -translate-x-1/2 z-20 transition-all duration-300 ease-out will-change-transform"
+              class="absolute bottom-2.5 -translate-x-1/2 z-20 transition-all duration-300"
               :style="{ left: pillPosition + '%' }"
             >
                <div 
@@ -222,6 +243,7 @@ watch(isFinished, (newVal) => {
                >
                   {{ Math.round(progressPercentage) }}%
                </div>
+               <!-- Tiny Triangle Pointer -->
                <div 
                  class="w-0 h-0 border-l-[3px] border-l-transparent border-r-[3px] border-r-transparent border-t-[4px] border-t-purple-500 mx-auto mt-[-1px]"
                  :style="{ borderTopColor: colorLoaded ? 'var(--card-accent)' : undefined }"
@@ -231,6 +253,7 @@ watch(isFinished, (newVal) => {
       </div>
     </div>
     
+    <!-- Permanent Metadata Display -->
     <div v-if="showMetadata" class="mt-3 px-1 flex flex-col gap-1 w-full min-h-[3.5em]">
       <h3 
         class="text-[11px] font-black text-white uppercase tracking-tight leading-[1.3] transition-colors line-clamp-4 w-full break-words" 

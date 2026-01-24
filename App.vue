@@ -31,11 +31,13 @@ const isIOS = ref(false);
 const handlePopState = (event: PopStateEvent) => {
   const hash = window.location.hash;
   
+  // Player View Logic: If hash indicates player, force player view
   if (hash.startsWith('#player')) {
     if (currentView.value !== 'player') {
       currentView.value = 'player';
     }
   } else {
+    // If hash is NOT player (e.g. empty, #series, #info), revert to Library
     if (currentView.value === 'player') {
       currentView.value = 'library';
     }
@@ -43,8 +45,12 @@ const handlePopState = (event: PopStateEvent) => {
 };
 
 const handleInstallPrompt = (e: Event) => {
+  // Prevent Chrome 67 and earlier from automatically showing the prompt
   e.preventDefault();
+  // Stash the event so it can be triggered later.
   deferredPrompt.value = e;
+  
+  // Check if user has dismissed it recently
   const dismissed = localStorage.getItem('rs_pwa_dismissed');
   if (!dismissed) {
     showPwaBanner.value = true;
@@ -55,25 +61,34 @@ const handleGlobalProgressSync = (event: Event) => {
   const customEvent = event as CustomEvent<ABSProgress>;
   const update = customEvent.detail;
   if (update && update.itemId) {
-    // CRITICAL: Replace object reference entirely to trigger Safari/iOS reactivity
-    const newProgress = { ...update };
-    progressMap.set(update.itemId, newProgress);
+    const existing = progressMap.get(update.itemId);
+    if (existing) {
+      Object.assign(existing, update);
+    } else {
+      progressMap.set(update.itemId, update);
+    }
     progressTick.value++;
     
     // Sync active item if matching
     if (selectedItem.value && selectedItem.value.id === update.itemId) {
-       selectedItem.value = { 
-         ...selectedItem.value, 
-         userProgress: newProgress 
-       };
+       const updatedItem = { ...selectedItem.value };
+       updatedItem.userProgress = update;
+       if ((updatedItem as any).media?.userProgress) {
+         (updatedItem as any).media.userProgress = update;
+       }
+       selectedItem.value = updatedItem;
     }
   }
 };
 
 const handleVisibilityChange = () => {
   if (document.visibilityState === 'visible' && auth.value && absService.value) {
+    console.log('📱 App Resumed: Triggering Sync...');
+    // 1. Re-connect socket if needed
     absService.value.reconnect();
+    // 2. Request fresh items (socket)
     absService.value.emitGetUserItems();
+    // 3. Dispatch local event for Library.vue polling
     window.dispatchEvent(new Event('rs-app-resume'));
   }
 };
@@ -81,12 +96,16 @@ const handleVisibilityChange = () => {
 const initAbsService = () => {
   if (!auth.value) return;
   
+  // Initialize Service
   absService.value = new ABSService(auth.value.serverUrl, auth.value.user?.token || '');
 
+  // 1. Progress Update Listener
   absService.value.onProgressUpdate((update: ABSProgress) => {
+    // Dispatch as local event to reuse logic
     window.dispatchEvent(new CustomEvent('rs-progress-sync', { detail: update }));
   });
 
+  // 2. Init / User Items Listener (Force Refresh Response)
   absService.value.onInit((data: any) => {
     if (data.user && data.user.mediaProgress) {
       data.user.mediaProgress.forEach((p: any) => {
@@ -105,7 +124,9 @@ const initAbsService = () => {
     }
   });
 
+  // 3. User Online (Session Sync)
   absService.value.onUserOnline((update: any) => {
+     // Ensure it's treated as a progress update
      const p = update as ABSProgress;
      if (p && p.itemId) {
         window.dispatchEvent(new CustomEvent('rs-progress-sync', { detail: p }));
@@ -114,6 +135,7 @@ const initAbsService = () => {
 };
 
 onMounted(() => {
+  // Check auth
   const savedAuth = localStorage.getItem('rs_auth');
   if (savedAuth) {
     try {
@@ -126,18 +148,21 @@ onMounted(() => {
   }
   isInitializing.value = false;
 
+  // Device & PWA Detection
   const ua = window.navigator.userAgent;
   const isIosDevice = /iPad|iPhone|iPod/.test(ua) && !(window as any).MSStream;
   isIOS.value = isIosDevice;
 
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true;
   
+  // Check for existing deferred prompt (captured in main.ts)
   const earlyPrompt = (window as any).deferredPrompt;
   if (earlyPrompt) {
     handleInstallPrompt(earlyPrompt);
     (window as any).deferredPrompt = null;
   }
 
+  // IOS Banner Logic (No event, just timeout)
   if (isIosDevice && !isStandalone && !localStorage.getItem('rs_pwa_dismissed')) {
     setTimeout(() => {
       showPwaBanner.value = true;
@@ -193,6 +218,8 @@ const handleLogout = () => {
 const openPlayer = (item: ABSLibraryItem) => {
   selectedItem.value = item;
   isStreaming.value = true;
+  
+  // Push history state so back button closes player instead of app
   if (window.location.hash !== '#player') {
     window.history.pushState({ view: 'player' }, '', '#player');
   }
@@ -208,6 +235,8 @@ const expandMiniPlayer = () => {
 
 const handleSelectSeriesFromPlayer = (seriesId: string) => {
   initialSeriesId.value = seriesId;
+  // Race Condition Fix: Force reset URL history stack to clean slate to avoid 'Back' button traps
+  // This removes #player or #player-info from history stack effectively
   window.history.replaceState({ view: 'library' }, '', window.location.pathname);
   currentView.value = 'library';
 };
@@ -217,6 +246,7 @@ const handleItemUpdated = (updatedItem: ABSLibraryItem) => {
 };
 
 const closePlayer = (shouldPopState = true) => {
+  // If we are currently at #player or a sub-route of player, pop it
   if (shouldPopState && window.location.hash.startsWith('#player')) {
     window.history.back(); 
   } else {
@@ -227,6 +257,7 @@ const closePlayer = (shouldPopState = true) => {
 
 <template>
   <div class="min-h-screen bg-[#0d0d0d] text-white selection:bg-purple-900 flex flex-col font-sans overflow-hidden">
+    <!-- Loader -->
     <div v-if="isInitializing" class="fixed inset-0 bg-[#0d0d0d] flex flex-col items-center justify-center gap-6 z-[200]">
       <div class="w-16 h-16 border-4 border-purple-600/10 border-t-purple-600 rounded-full animate-spin" />
       <h2 class="font-black text-purple-500 tracking-[0.6em] text-[10px] uppercase">R.S ARCHIVE</h2>
@@ -236,6 +267,7 @@ const closePlayer = (shouldPopState = true) => {
       <Transition name="fade" mode="out-in">
         <Login v-if="currentView === 'login'" @login="handleLogin" />
         
+        <!-- Use KeepAlive to maintain Library state/scroll position and avoid re-fetching -->
         <KeepAlive include="Library" v-else-if="currentView === 'library' && auth">
           <Library 
             :auth="auth" 
@@ -260,6 +292,7 @@ const closePlayer = (shouldPopState = true) => {
         />
       </Transition>
 
+      <!-- Persistent Mini Player -->
       <MiniPlayer 
         v-if="currentView !== 'player'"
         :auth="auth"
