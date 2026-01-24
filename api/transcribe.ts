@@ -11,15 +11,10 @@ export const config = {
   maxDuration: 300, // 5 minutes
 };
 
-// Helper to save URL to temp file with optional Range
-async function downloadFile(url: string, destPath: string, range?: string) {
-  const headers: HeadersInit = {};
-  if (range) {
-    headers['Range'] = range;
-  }
-  
-  const response = await fetch(url, { headers });
-  if (!response.ok && response.status !== 206) { // 206 Partial Content is expected for Range requests
+// Helper to save URL to temp file
+async function downloadFile(url: string, destPath: string) {
+  const response = await fetch(url);
+  if (!response.ok) { 
       throw new Error(`Failed to download audio: ${response.statusText}`);
   }
   if (!response.body) throw new Error("No response body");
@@ -52,7 +47,7 @@ export default async function handler(req: any, res: any) {
     return res.status(500).json({ error: 'Server misconfiguration: Missing GEMINI_API_KEY' });
   }
 
-  const { downloadUrl, rangeStart, rangeEnd, startTimeOffset } = req.body;
+  const { downloadUrl, duration } = req.body;
   if (!downloadUrl) {
     return res.status(400).json({ error: 'Missing downloadUrl' });
   }
@@ -61,16 +56,9 @@ export default async function handler(req: any, res: any) {
   const tempFilePath = path.join(os.tmpdir(), `audio-${Date.now()}-${Math.random().toString(36).substring(7)}.mp3`);
 
   try {
-    // 2. Download Audio (Full or Chunk)
-    let rangeHeader;
-    if (typeof rangeStart === 'number' && typeof rangeEnd === 'number') {
-        rangeHeader = `bytes=${rangeStart}-${rangeEnd}`;
-        console.log(`[API] Downloading range: ${rangeHeader}`);
-    } else {
-        console.log('[API] Downloading full file...');
-    }
-
-    await downloadFile(downloadUrl, tempFilePath, rangeHeader);
+    // 2. Download Audio
+    console.log('[API] Downloading file...');
+    await downloadFile(downloadUrl, tempFilePath);
 
     // 3. Initialize Gemini
     const fileManager = new GoogleAIFileManager(apiKey);
@@ -87,12 +75,10 @@ export default async function handler(req: any, res: any) {
     // 5. Generate Content
     console.log('[API] Generating Transcript...');
     
-    let promptText = `Transcribe the audio into WebVTT format, including precise timestamp cues. 
-    Output ONLY the WEBVTT content. No markdown, no notes. Start directly with WEBVTT.`;
-
-    if (startTimeOffset) {
-        promptText += ` IMPORTANT: This is a segment of a larger file. The audio starts at timestamp ${startTimeOffset}. Please offset the VTT timestamps to start from there.`;
-    }
+    const promptText = `The total duration of this audio is ${duration || 'unknown'} seconds. 
+    Transcribe the audio into WebVTT format, including precise timestamp cues. 
+    Output ONLY the WEBVTT content. No markdown, no notes. Start directly with WEBVTT.
+    Please ensure the WebVTT timestamps reflect this total length.`;
 
     const result = await model.generateContent([
       {

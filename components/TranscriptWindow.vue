@@ -75,7 +75,11 @@ const generateTranscript = async () => {
 
   try {
     const downloadUrl = props.absService.getDownloadUrl(props.item.id);
-    const vtt = await TranscriptionService.generateTranscript(props.absService, props.item.id, downloadUrl);
+    const duration = props.item.media.duration;
+    
+    // Pass duration to service
+    const vtt = await TranscriptionService.generateTranscript(props.item.id, downloadUrl, duration);
+    
     cues.value = TranscriptionService.parseVTT(vtt);
     hasTranscript.value = true;
     stopProgressSimulation();
