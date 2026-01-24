@@ -9,11 +9,16 @@ export interface TranscriptCue {
   background_noise?: string; 
 }
 
+export interface TranscriptResult {
+    content: string;
+    offset: number;
+}
+
 export class TranscriptionService {
   
-  static async getTranscript(itemId: string): Promise<string | null> {
+  static async getTranscript(itemId: string): Promise<TranscriptResult | null> {
     const record = await db.transcripts.get(itemId);
-    return record ? record.vttContent : null;
+    return record ? { content: record.vttContent, offset: record.offset || 0 } : null;
   }
 
   static async deleteTranscript(itemId: string): Promise<void> {
@@ -58,26 +63,19 @@ export class TranscriptionService {
         if (value) {
           const chunk = decoder.decode(value, { stream: true });
           
-          // CRITICAL: Filter out heartbeat messages (: status: ...) from the UI/Parsing
-          // but keep valid JSON/Text.
-          
-          // Split by newline to handle cases where a chunk contains both status and data
           const lines = chunk.split('\n');
           const cleanLines = lines.filter(line => !line.trim().startsWith(': status:') && !line.trim().startsWith('ERROR:'));
           
           if (cleanLines.length > 0) {
-              // Pass clean content to callback (if UI needs to stream text)
               const cleanChunk = cleanLines.join('\n');
               if (onChunk && cleanChunk.trim()) onChunk(cleanChunk);
           }
 
-          // Accumulate full text for final saving
-          // We remove status lines from the final text to keep the DB clean
           fullText += chunk;
         }
       }
 
-      return this.saveTranscript(itemId, fullText);
+      return this.saveTranscript(itemId, fullText, currentTime);
 
     } catch (error: any) {
       console.error("Transcription Service Error:", error);
@@ -85,7 +83,7 @@ export class TranscriptionService {
     }
   }
 
-  private static async saveTranscript(itemId: string, rawContent: string): Promise<string> {
+  private static async saveTranscript(itemId: string, rawContent: string, offset: number): Promise<string> {
     // Clean up content before saving
     const cleanContent = rawContent
       .split('\n')
@@ -95,7 +93,8 @@ export class TranscriptionService {
     await db.transcripts.put({
       itemId,
       vttContent: cleanContent, 
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      offset: offset
     });
     return cleanContent;
   }
@@ -129,12 +128,10 @@ export class TranscriptionService {
       const trimmed = line.trim();
       if (!trimmed) continue;
       
-      // Filter out heartbeat comments (: status: ...) and errors
       if (trimmed.startsWith(':') || trimmed.startsWith('ERROR:')) continue;
 
       try {
-        // Handle potential lingering markdown blocks from model (e.g., ```json)
-        const cleanLine = trimmed.replace(/^```json/, '').replace(/^```/, '').replace(/,$/, ''); // Remove trailing comma if model outputs array style
+        const cleanLine = trimmed.replace(/^```json/, '').replace(/^```/, '').replace(/,$/, '');
         if (!cleanLine || cleanLine === '[' || cleanLine === ']') continue;
 
         const obj = JSON.parse(cleanLine);

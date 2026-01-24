@@ -52,12 +52,12 @@ export default async function handler(req: any, res: any) {
     console.log(`[Transcribe] Processing Segment starting at ${currentTime}s`);
 
     // 2. USE FFMPEG TO CREATE A VALID AUDIO SEGMENT
-    // This fixes the "missing header" issue by re-encoding a slice of the audio
-    // into a standalone MP3 file with valid headers.
+    // Using input seeking (-ss BEFORE -i) to force fast remote seeking via Range headers
     await new Promise((resolve, reject) => {
-        ffmpeg(downloadUrl)
-            .setStartTime(currentTime)
-            .setDuration(300) // Transcribe 5 minutes of context
+        ffmpeg()
+            .input(downloadUrl)
+            .inputOptions([`-ss ${currentTime}`]) // Input seek for speed
+            .outputOptions(['-t 300']) // 5 Minute Duration
             .audioCodec('libmp3lame')
             .audioBitrate(128)
             .format('mp3')

@@ -15,6 +15,7 @@ export interface TranscriptRecord {
   itemId: string;
   vttContent: string;
   createdAt: number;
+  offset?: number; // Playback start time offset in seconds
 }
 
 export class AppDatabase extends Dexie {

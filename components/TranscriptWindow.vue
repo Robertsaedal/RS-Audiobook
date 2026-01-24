@@ -45,9 +45,10 @@ const progressLabel = computed(() => {
 const activeCue = computed(() => activeCueIndex.value !== -1 ? cues.value[activeCueIndex.value] : null);
 
 const loadTranscript = async () => {
-  const content = await TranscriptionService.getTranscript(props.item.id);
-  if (content) {
-    cues.value = TranscriptionService.parseTranscript(content, 0);
+  const result = await TranscriptionService.getTranscript(props.item.id);
+  if (result) {
+    // Parse with the stored offset to ensure timestamps match the book position
+    cues.value = TranscriptionService.parseTranscript(result.content, result.offset);
     hasTranscript.value = cues.value.length > 0;
   } else {
     hasTranscript.value = false;
