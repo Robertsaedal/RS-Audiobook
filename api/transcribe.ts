@@ -24,18 +24,27 @@ class ResilientDownloadStream extends PassThrough {
   private maxRetries: number = 5;
   private retryCount: number = 0;
   private activeRequestController: AbortController | null = null;
+  private expectedLength: number = 0;
 
   constructor(url: string, start: number, end: string) {
     super();
     this.url = url;
     this.rangeStart = start;
     this.rangeEnd = end;
+    
+    // Calculate how many bytes we actually expect to pull
+    if (this.rangeEnd) {
+        this.expectedLength = (parseInt(this.rangeEnd) - this.rangeStart) + 1;
+    }
+
     this.startStream();
   }
 
   private async startStream() {
     try {
       const currentStart = this.rangeStart + this.totalBytesReceived;
+      
+      // Stop if we've fulfilled the range
       if (this.rangeEnd && currentStart > parseInt(this.rangeEnd)) {
         (this as any).end();
         return;
@@ -45,22 +54,37 @@ class ResilientDownloadStream extends PassThrough {
       
       this.activeRequestController = new AbortController();
       
+      // Range header: inclusive. bytes=0-499 requests the first 500 bytes.
       const response = await fetch(this.url, {
-        headers: { 'Range': `bytes=${currentStart}-${this.rangeEnd}` },
+        headers: this.rangeEnd ? { 'Range': `bytes=${currentStart}-${this.rangeEnd}` } : {},
         signal: this.activeRequestController.signal
       });
 
       if (!response.ok && response.status !== 206) {
-        throw new Error(`Source returned ${response.status}`);
+        const errText = await response.text();
+        throw new Error(`Source returned ${response.status}: ${errText.substring(0, 100)}`);
       }
 
       if (!response.body) throw new Error("No response body");
 
       // @ts-ignore - Node.js fetch body is an async iterator
       for await (const chunk of response.body) {
-        this.totalBytesReceived += chunk.length;
-        const canContinue = (this as any).write(new Uint8Array(chunk));
+        // Ensure we don't push more than expected if range was set
+        let chunkToPush = chunk;
+        if (this.expectedLength > 0 && (this.totalBytesReceived + chunk.length) > this.expectedLength) {
+            const allowed = this.expectedLength - this.totalBytesReceived;
+            chunkToPush = chunk.slice(0, allowed);
+        }
+
+        this.totalBytesReceived += chunkToPush.length;
+        const canContinue = (this as any).write(new Uint8Array(chunkToPush));
         
+        if (this.expectedLength > 0 && this.totalBytesReceived >= this.expectedLength) {
+            (this as any).end();
+            if (this.activeRequestController) this.activeRequestController.abort();
+            return;
+        }
+
         if (!canContinue) {
           await new Promise(resolve => (this as any).once('drain', resolve));
         }
@@ -69,6 +93,8 @@ class ResilientDownloadStream extends PassThrough {
       (this as any).end(); 
 
     } catch (error: any) {
+      if (error.name === 'AbortError') return; // Expected termination
+
       if (this.retryCount < this.maxRetries) {
         this.retryCount++;
         console.warn(`[Stream] Connection lost. Retrying (${this.retryCount}/${this.maxRetries})...`);
@@ -100,7 +126,6 @@ export default async function handler(req: any, res: any) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
 
-  // Use API_KEY to match the .env variable
   const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY;
   if (!apiKey) return res.status(500).json({ error: 'Server misconfiguration: Missing API Key' });
 
@@ -121,32 +146,50 @@ export default async function handler(req: any, res: any) {
 
     let startByte = 0;
     let endByteStr = ''; 
+    let uploadLength = 0;
     
     if (totalBytes > CHUNK_SIZE_BYTES) {
         const ratio = Math.min(Math.max(currentTime / (duration || 1), 0), 1);
         const estimatedStart = Math.floor(totalBytes * ratio);
+        
+        // Context Buffer: 1MB back
         startByte = Math.max(0, estimatedStart - (1024 * 1024)); 
-        const calculatedEnd = Math.min(startByte + CHUNK_SIZE_BYTES, totalBytes);
+        
+        // Inclusive end byte. 25MB chunk
+        const calculatedEnd = Math.min(startByte + CHUNK_SIZE_BYTES - 1, totalBytes - 1);
         endByteStr = calculatedEnd.toString();
+        
+        // Total bytes to upload
+        uploadLength = (calculatedEnd - startByte) + 1;
+    } else {
+        uploadLength = totalBytes;
     }
 
     const uploadBaseUrl = "https://generativelanguage.googleapis.com/upload/v1beta/files";
+    
+    // Resumable upload start
     const initRes = await fetch(`${uploadBaseUrl}?key=${apiKey}`, {
         method: 'POST',
         headers: {
             'X-Goog-Upload-Protocol': 'resumable',
             'X-Goog-Upload-Command': 'start',
-            'X-Goog-Upload-Header-Content-Length': endByteStr ? (parseInt(endByteStr) - startByte).toString() : '',
-            'X-Goog-Upload-Header-Content-Type': 'audio/mp3',
+            'X-Goog-Upload-Header-Content-Length': uploadLength > 0 ? uploadLength.toString() : '',
+            // Use application/octet-stream for maximum compatibility across different audio formats
+            'X-Goog-Upload-Header-Content-Type': 'application/octet-stream',
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ file: { display_name: 'Audio Chunk' } })
+        body: JSON.stringify({ file: { display_name: `Transcribe_${Date.now()}.mp3` } })
     });
 
-    if (!initRes.ok) throw new Error(`Gemini Upload Init Failed: ${initRes.status}`);
+    if (!initRes.ok) {
+        const initErr = await initRes.text();
+        throw new Error(`Gemini Upload Init Failed: ${initRes.status} - ${initErr}`);
+    }
+    
     const uploadUrl = initRes.headers.get('x-goog-upload-url');
-    if (!uploadUrl) throw new Error("No upload URL returned");
+    if (!uploadUrl) throw new Error("No upload URL returned from Google");
 
+    // Start piping source -> Google
     const sourceStream = new ResilientDownloadStream(downloadUrl, startByte, endByteStr);
     
     const uploadRes = await fetch(uploadUrl, {
@@ -160,12 +203,16 @@ export default async function handler(req: any, res: any) {
         duplex: 'half'
     });
 
-    if (!uploadRes.ok) throw new Error(`Gemini Stream Upload Failed: ${uploadRes.status}`);
+    if (!uploadRes.ok) {
+        const uploadErr = await uploadRes.text();
+        throw new Error(`Gemini Stream Upload Failed: ${uploadRes.status} - ${uploadErr.substring(0, 150)}`);
+    }
     
     const uploadData = await uploadRes.json();
     uploadedFileName = uploadData.file.name;
     const fileUri = uploadData.file.uri;
 
+    // Start response stream to client
     res.writeHead(200, {
       'Content-Type': 'text/plain; charset=utf-8',
       'Transfer-Encoding': 'chunked',
@@ -176,6 +223,7 @@ export default async function handler(req: any, res: any) {
     let isReady = false;
     let attempts = 0;
 
+    // Wait for Gemini processing
     while (!isReady && attempts < 60) {
         const file = await ai.files.get({ name: uploadedFileName });
         
@@ -197,11 +245,10 @@ export default async function handler(req: any, res: any) {
     Transcribe the provided audio carefully.
     
     OUTPUT FORMAT REQUIREMENTS:
-    1. Output ONLY valid JSON objects, one per line.
-    2. Do NOT use markdown code blocks (e.g., no \`\`\`json).
-    3. Do NOT include any introductory or summary text.
-    4. Diarize speakers as "Speaker A", "Speaker B", or "Narrator".
-    5. Note background sounds in the "background_noise" field (e.g., "[Bird chirping]").
+    1. Output ONLY valid JSON objects, one per line (JSONL).
+    2. Do NOT use markdown code blocks.
+    3. Identify speakers as "Speaker A", "Speaker B", or "Narrator".
+    4. Note background sounds in the "background_noise" field.
 
     JSON SCHEMA (Per Line):
     {"start": "HH:MM:SS.mmm", "end": "HH:MM:SS.mmm", "speaker": "Name", "text": "...", "background_noise": "..."}
