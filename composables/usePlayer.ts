@@ -142,7 +142,8 @@ export function usePlayer() {
   };
 
   const onEvtTimeupdate = () => {
-    if (!audioEl || !state.activeItem) return;
+    // CRITICAL FIX: Ignore updates during loading/seeking to prevent progress jumping
+    if (!audioEl || !state.activeItem || state.isLoading) return;
     
     state.currentRealtime = Date.now();
 
@@ -151,8 +152,10 @@ export function usePlayer() {
       state.sleepEndTime = null;
     }
     
+    // Safety check for valid numeric time
+    const playerTime = Number.isFinite(audioEl.currentTime) ? audioEl.currentTime : 0;
     const currentTrackOffset = state.isOffline ? 0 : (audioTracks[currentTrackIndex]?.startOffset || 0);
-    const newTime = currentTrackOffset + audioEl.currentTime;
+    const newTime = currentTrackOffset + playerTime;
 
     const chapters = state.activeItem.media.chapters || [];
     if (chapters.length > 0) {
@@ -430,6 +433,7 @@ export function usePlayer() {
       audioEl.currentTime = Math.max(0, offsetTime);
     } else {
       const currentTrack = audioTracks[currentTrackIndex];
+      // Sync Logic Fix: If moving to a new track, update index and load
       if (target < currentTrack.startOffset || target > currentTrack.startOffset + currentTrack.duration) {
         const trackIdx = audioTracks.findIndex((t) => target >= t.startOffset && target < t.startOffset + t.duration);
         if (trackIdx >= 0) {
@@ -442,8 +446,9 @@ export function usePlayer() {
         audioEl.currentTime = Math.max(0, offsetTime);
       }
     }
+    // Update state immediately to reflect UI change, regardless of loading delay
     state.currentTime = target;
-    dispatchProgressSync(); // Update UI immediately on seek
+    dispatchProgressSync(); 
   };
 
   const setPlaybackRate = (rate: number) => {

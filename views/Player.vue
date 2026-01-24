@@ -421,10 +421,10 @@ const infoRows = computed(() => {
               <RotateCcw :size="26" />
             </button>
 
-            <!-- Play/Pause Main - TRANSPARENT GLASS WITH GLOW -->
+            <!-- Play/Pause Main - PURE GLASS TRANSPARENT -->
             <button 
               @click="togglePlay" 
-              class="w-20 h-20 md:w-24 md:h-24 rounded-full bg-black/20 backdrop-blur-xl border-2 border-purple-500 text-white flex items-center justify-center shadow-[0_0_20px_rgba(168,85,247,0.6)] active:scale-95 transition-all group relative tap-effect hover:scale-105 hover:bg-black/40 hover:border-purple-400"
+              class="w-20 h-20 md:w-24 md:h-24 rounded-full bg-white/5 backdrop-blur-md border border-purple-500/50 text-white flex items-center justify-center shadow-[0_0_30px_rgba(168,85,247,0.4)] active:scale-95 transition-all group relative tap-effect hover:scale-105 hover:bg-white/10 hover:border-purple-400 hover:shadow-[0_0_40px_rgba(168,85,247,0.6)]"
             >
               <div v-if="state.isLoading" class="absolute inset-0 bg-white/20 rounded-full animate-ping" />
               <Pause v-if="state.isPlaying" :size="42" fill="currentColor" />
