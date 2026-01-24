@@ -6,7 +6,7 @@ export interface TranscriptCue {
   end: number;
   text: string;
   speaker?: string;
-  background_noise?: string; // New field
+  background_noise?: string;
 }
 
 export class TranscriptionService {
@@ -24,7 +24,7 @@ export class TranscriptionService {
     currentTime: number = 0 
   ): Promise<string> {
     
-    console.log('[Transcription] Requesting smart segment transcription...');
+    console.log('[Transcription] Initiating stream request...');
 
     try {
       const response = await fetch('/api/transcribe', {
@@ -40,7 +40,7 @@ export class TranscriptionService {
         throw new Error(errData.error || `Server Error: ${response.status}`);
       }
 
-      if (!response.body) throw new Error("No response body available for streaming");
+      if (!response.body) throw new Error("No response body");
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder("utf-8");
@@ -53,15 +53,20 @@ export class TranscriptionService {
         
         if (value) {
           const chunk = decoder.decode(value, { stream: true });
-          fullText += chunk;
+          // Only accumulate non-heartbeat content
+          if (!chunk.startsWith(':')) {
+             fullText += chunk;
+          }
           if (onChunk) onChunk(chunk);
         }
       }
 
-      return this.saveTranscript(itemId, fullText);
+      // Final cleanup of any lingering markdown artifacts before saving
+      const cleaned = fullText.replace(/```json/g, '').replace(/```/g, '').trim();
+      return this.saveTranscript(itemId, cleaned);
 
     } catch (error: any) {
-      console.error("Transcription Service Error:", error);
+      console.error("Transcription generation failed:", error);
       throw error;
     }
   }
@@ -75,47 +80,53 @@ export class TranscriptionService {
     return vttContent;
   }
 
-  static parseTranscript(jsonlString: string, offsetSeconds: number = 0): TranscriptCue[] {
-    const lines = jsonlString.split(/\r?\n/);
+  /**
+   * Parses the raw LLM output into structured cues.
+   * Uses a robust regex to find all JSON objects in the string,
+   * which handles markdown blocks, heartbeat comments, and unexpected text.
+   */
+  static parseTranscript(rawContent: string, offsetSeconds: number = 0): TranscriptCue[] {
     const cues: TranscriptCue[] = [];
+    
+    // Find all JSON objects {...} in the string
+    // This is much safer than line-by-line parsing for LLM outputs
+    const jsonObjectRegex = /{[^]*?}/g;
+    const matches = rawContent.match(jsonObjectRegex);
+
+    if (!matches) {
+      console.warn("[Transcription] No valid JSON cues found in raw content.");
+      return [];
+    }
 
     const parseTime = (timeStr: string) => {
       if (!timeStr) return 0;
       const parts = timeStr.split(':');
       let h = 0, m = 0, s = 0, ms = 0;
       
-      if (parts.length === 3) {
-        h = parseInt(parts[0], 10);
-        m = parseInt(parts[1], 10);
-        const secParts = parts[2].split('.');
-        s = parseInt(secParts[0], 10);
-        ms = parseInt(secParts[1] || '0', 10);
-      } else if (parts.length === 2) {
-        m = parseInt(parts[0], 10);
-        const secParts = parts[1].split('.');
-        s = parseInt(secParts[0], 10);
-        ms = parseInt(secParts[1] || '0', 10);
-      }
+      try {
+        if (parts.length === 3) {
+          h = parseInt(parts[0], 10);
+          m = parseInt(parts[1], 10);
+          const secParts = parts[2].split('.');
+          s = parseInt(secParts[0], 10);
+          ms = parseInt(secParts[1] || '0', 10);
+        } else if (parts.length === 2) {
+          m = parseInt(parts[0], 10);
+          const secParts = parts[1].split('.');
+          s = parseInt(secParts[0], 10);
+          ms = parseInt(secParts[1] || '0', 10);
+        }
+      } catch (e) { return 0; }
 
       return h * 3600 + m * 60 + s + ms / 1000;
     };
 
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      
-      // Filter out heartbeat comments or API errors in stream
-      if (trimmed.startsWith(':') || trimmed.startsWith('ERROR:')) continue;
-
+    for (const match of matches) {
       try {
-        // Handle potential lingering markdown blocks from model
-        const cleanLine = trimmed.replace(/^```json/, '').replace(/^```/, '');
-        if (!cleanLine) continue;
-
-        const obj = JSON.parse(cleanLine);
+        const obj = JSON.parse(match);
         
-        // Push even if text is empty but background noise exists
-        if (obj.text || obj.background_noise) { 
+        // Validation: Must have at least a text or noise field
+        if (obj.text !== undefined || obj.background_noise !== undefined) { 
             cues.push({ 
                 start: parseTime(obj.start) + offsetSeconds, 
                 end: parseTime(obj.end) + offsetSeconds, 
@@ -125,10 +136,11 @@ export class TranscriptionService {
             });
         }
       } catch (e) {
-        // Skip invalid lines
+        // Skip malformed JSON fragments
       }
     }
 
-    return cues;
+    // Sort by start time just in case the model reordered them
+    return cues.sort((a, b) => a.start - b.start);
   }
 }

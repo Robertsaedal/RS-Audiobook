@@ -37,7 +37,8 @@ class ResilientDownloadStream extends PassThrough {
     try {
       const currentStart = this.rangeStart + this.totalBytesReceived;
       if (this.rangeEnd && currentStart > parseInt(this.rangeEnd)) {
-        this.end();
+        // Fix: Cast this to any to access standard Node.js stream methods when TS types are missing
+        (this as any).end();
         return;
       }
 
@@ -59,15 +60,18 @@ class ResilientDownloadStream extends PassThrough {
       // @ts-ignore - Node.js fetch body is an async iterator
       for await (const chunk of response.body) {
         this.totalBytesReceived += chunk.length;
-        const canContinue = this.write(Buffer.from(chunk));
+        // Fix: Use Uint8Array instead of Buffer to avoid "Cannot find name 'Buffer'" error
+        const canContinue = (this as any).write(new Uint8Array(chunk));
         
         // Handle backpressure
         if (!canContinue) {
-          await new Promise(resolve => this.once('drain', resolve));
+          // Fix: Cast this to any for standard EventEmitter methods
+          await new Promise(resolve => (this as any).once('drain', resolve));
         }
       }
 
-      this.end(); // Stream finished successfully
+      // Fix: Cast to any for end method
+      (this as any).end(); // Stream finished successfully
 
     } catch (error: any) {
       if (this.retryCount < this.maxRetries) {
@@ -77,7 +81,8 @@ class ResilientDownloadStream extends PassThrough {
         this.startStream();
       } else {
         console.error("[Stream] Max retries reached.");
-        this.emit('error', error);
+        // Fix: Cast to any for emit method
+        (this as any).emit('error', error);
       }
     }
   }
@@ -202,25 +207,20 @@ export default async function handler(req: any, res: any) {
 
     // 6. Generate Content with Smart Prompt
     const promptText = `
-    Transcribe this audio with high precision.
+    Transcribe the provided audio with extremely high precision.
     
-    Requirements:
-    1. **Speaker Diarization**: Identify speakers (e.g., "Speaker 1", "Narrator").
-    2. **Background Noise**: Briefly describe significant background sounds in brackets (e.g., "[Door slams]", "[Music fades]").
-    3. **JSONL Output**: Return a valid JSONL (JSON Lines) format. No markdown blocks.
+    CRITICAL RULES:
+    1. **Format**: Output ONLY valid JSON objects, one per line (JSONL).
+    2. **Diarization**: Identify speakers as "Speaker A", "Speaker B", "Narrator", etc.
+    3. **Background**: Describe sounds in brackets like [Music swells] or [Door creaks] in the "background_noise" field.
+    4. **No Noise**: Do NOT include markdown code blocks, backticks, or extra text.
     
-    Line Schema:
-    {
-      "start": "HH:MM:SS.mmm",
-      "end": "HH:MM:SS.mmm",
-      "speaker": "Name",
-      "text": "Spoken text",
-      "background_noise": "Optional description"
-    }
+    JSON Object Schema per line:
+    {"start": "HH:MM:SS.mmm", "end": "HH:MM:SS.mmm", "speaker": "Name", "text": "...", "background_noise": "..."}
     `;
 
     const response = await ai.models.generateContentStream({
-      model: 'gemini-3-flash-preview', // Flash is fast & cost-effective for audio
+      model: 'gemini-3-flash-preview',
       contents: {
         parts: [
           { fileData: { mimeType: 'audio/mp3', fileUri: fileUri } },
@@ -246,7 +246,6 @@ export default async function handler(req: any, res: any) {
     // Cleanup: Delete file from Google
     if (uploadedFileName) {
         try {
-            // Manual delete via fetch to avoid initializing another AI client if not needed
             await fetch(`https://generativelanguage.googleapis.com/v1beta/${uploadedFileName}?key=${apiKey}`, {
                 method: 'DELETE'
             });

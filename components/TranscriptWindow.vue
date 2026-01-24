@@ -1,11 +1,11 @@
 
 <script setup lang="ts">
-import { ref, watch, onMounted, computed, nextTick, onUnmounted } from 'vue';
+import { ref, watch, onMounted, computed, nextTick } from 'vue';
 import { TranscriptionService, TranscriptCue } from '../services/transcriptionService';
 import { useTranscriptionQueue } from '../composables/useTranscriptionQueue';
 import { ABSService } from '../services/absService';
 import { ABSLibraryItem } from '../types';
-import { Loader2, Sparkles, X, AlertTriangle, FileText, CheckCircle, Clock, Volume2 } from 'lucide-vue-next';
+import { Loader2, Sparkles, X, AlertTriangle, FileText, Clock, Volume2 } from 'lucide-vue-next';
 
 const props = defineProps<{
   item: ABSLibraryItem,
@@ -24,6 +24,7 @@ const cues = ref<TranscriptCue[]>([]);
 const hasTranscript = ref(false);
 const activeCueIndex = ref(-1);
 const scrollContainer = ref<HTMLElement | null>(null);
+const isLoadingLocal = ref(true);
 
 // Queue Status tracking
 const queueItem = computed(() => getItemStatus(props.item.id, props.currentTime));
@@ -42,16 +43,26 @@ const progressLabel = computed(() => {
   return 'Initializing...';
 });
 
-const activeCue = computed(() => activeCueIndex.value !== -1 ? cues.value[activeCueIndex.value] : null);
-
 const loadTranscript = async () => {
-  const content = await TranscriptionService.getTranscript(props.item.id);
-  if (content) {
-    cues.value = TranscriptionService.parseTranscript(content, 0);
-    hasTranscript.value = cues.value.length > 0;
-  } else {
-    hasTranscript.value = false;
-    cues.value = [];
+  isLoadingLocal.value = true;
+  try {
+    const content = await TranscriptionService.getTranscript(props.item.id);
+    if (content) {
+      const parsed = TranscriptionService.parseTranscript(content, 0);
+      cues.value = parsed;
+      hasTranscript.value = parsed.length > 0;
+      
+      if (parsed.length === 0) {
+        console.warn("[TranscriptWindow] Content found in DB but parsed to 0 cues.");
+      }
+    } else {
+      hasTranscript.value = false;
+      cues.value = [];
+    }
+  } catch (e) {
+    console.error("[TranscriptWindow] Failed to load local transcript", e);
+  } finally {
+    isLoadingLocal.value = false;
   }
 };
 
@@ -62,9 +73,11 @@ const handleGenerateClick = () => {
   addToQueue(props.item.id, downloadUrl, duration, props.currentTime);
 };
 
-watch(queueStatus, (newStatus) => {
+// CRITICAL: Watch for queue completion to immediately refresh UI
+watch(queueStatus, async (newStatus) => {
   if (newStatus === 'completed') {
-    loadTranscript();
+    console.log("[TranscriptWindow] Queue completed, refreshing...");
+    await loadTranscript();
   }
 });
 
@@ -76,11 +89,6 @@ const handleCueClick = (cue: TranscriptCue) => {
 watch(() => props.currentTime, (time) => {
   if (cues.value.length === 0) return;
   
-  if (activeCueIndex.value !== -1) {
-    const current = cues.value[activeCueIndex.value];
-    if (time >= current.start && time <= current.end) return; 
-  }
-
   const idx = cues.value.findIndex(c => time >= c.start && time <= c.end);
   if (idx !== -1 && idx !== activeCueIndex.value) {
     activeCueIndex.value = idx;
@@ -102,7 +110,9 @@ onMounted(() => {
   loadTranscript();
 });
 
-watch(() => props.item.id, loadTranscript);
+watch(() => props.item.id, () => {
+  loadTranscript();
+});
 </script>
 
 <template>
@@ -122,6 +132,11 @@ watch(() => props.item.id, loadTranscript);
     <!-- Content Area -->
     <div ref="scrollContainer" class="flex-1 overflow-y-auto custom-scrollbar p-6 relative">
       
+      <!-- Loading Local State -->
+      <div v-if="isLoadingLocal && !isQueued" class="absolute inset-0 flex items-center justify-center">
+         <Loader2 :size="24" class="text-purple-500 animate-spin" />
+      </div>
+
       <!-- Processing State (Blocking Overlay) -->
       <div v-if="isQueued && queueStatus !== 'completed' && queueStatus !== 'failed'" class="absolute inset-0 flex flex-col items-center justify-center gap-6 z-20 bg-black/80 backdrop-blur-md">
         <div class="relative mb-2">
@@ -150,7 +165,7 @@ watch(() => props.item.id, loadTranscript);
       </div>
 
       <!-- No Transcript / Queue Trigger State -->
-      <div v-if="!hasTranscript && !isQueued" class="h-full flex flex-col items-center justify-center text-center space-y-6 px-4">
+      <div v-if="!hasTranscript && !isQueued && !isLoadingLocal" class="h-full flex flex-col items-center justify-center text-center space-y-6 px-4">
         <div class="w-16 h-16 rounded-full bg-white/5 border border-white/5 flex items-center justify-center">
            <FileText :size="24" class="text-neutral-500" />
         </div>
