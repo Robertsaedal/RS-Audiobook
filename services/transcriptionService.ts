@@ -16,6 +16,10 @@ export class TranscriptionService {
     return record ? record.vttContent : null;
   }
 
+  static async deleteTranscript(itemId: string): Promise<void> {
+    await db.transcripts.delete(itemId);
+  }
+
   static async generateTranscript(
     itemId: string, 
     downloadUrl: string,

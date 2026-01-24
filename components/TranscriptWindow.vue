@@ -5,7 +5,7 @@ import { TranscriptionService, TranscriptCue } from '../services/transcriptionSe
 import { useTranscriptionQueue } from '../composables/useTranscriptionQueue';
 import { ABSService } from '../services/absService';
 import { ABSLibraryItem } from '../types';
-import { Loader2, Sparkles, X, AlertTriangle, FileText, CheckCircle, Clock, Volume2 } from 'lucide-vue-next';
+import { Loader2, Sparkles, X, AlertTriangle, FileText, CheckCircle, Clock, Volume2, RotateCcw } from 'lucide-vue-next';
 
 const props = defineProps<{
   item: ABSLibraryItem,
@@ -50,6 +50,14 @@ const loadTranscript = async () => {
     cues.value = TranscriptionService.parseTranscript(content, 0);
     hasTranscript.value = cues.value.length > 0;
   } else {
+    hasTranscript.value = false;
+    cues.value = [];
+  }
+};
+
+const deleteTranscript = async () => {
+  if (confirm('Delete this transcript? You can regenerate it afterwards.')) {
+    await TranscriptionService.deleteTranscript(props.item.id);
     hasTranscript.value = false;
     cues.value = [];
   }
@@ -114,9 +122,19 @@ watch(() => props.item.id, loadTranscript);
         <Sparkles :size="12" class="text-purple-500" />
         <span class="text-[9px] font-black uppercase tracking-widest text-white/50">Smart Transcribe</span>
       </div>
-      <button @click="emit('close')" class="p-2 bg-white/5 rounded-full hover:bg-white/10 transition-colors text-neutral-400 hover:text-white border border-white/5">
-        <X :size="14" />
-      </button>
+      <div class="flex items-center gap-2">
+        <button 
+          v-if="hasTranscript" 
+          @click="deleteTranscript" 
+          class="p-2 bg-white/5 rounded-full hover:bg-red-500/20 transition-colors text-neutral-400 hover:text-red-400 border border-white/5"
+          title="Delete & Reset"
+        >
+          <RotateCcw :size="14" />
+        </button>
+        <button @click="emit('close')" class="p-2 bg-white/5 rounded-full hover:bg-white/10 transition-colors text-neutral-400 hover:text-white border border-white/5">
+          <X :size="14" />
+        </button>
+      </div>
     </div>
 
     <!-- Content Area -->
