@@ -1,7 +1,14 @@
+
 <script setup lang="ts">
 import { ref, watch, onMounted } from 'vue';
 import { Search, BookOpen, Send, CheckCircle, User, Fingerprint, MessageSquare, Loader2, X, AlertTriangle, RotateCw, Check } from 'lucide-vue-next';
 import confetti from 'canvas-confetti';
+import { ABSService } from '../services/absService';
+
+// Props
+const props = defineProps<{
+  absService: ABSService | null
+}>();
 
 // Configuration
 const DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/1462941148321546290/H0cmE88xjO3T73sJMRg0meSc6ar82TmvILqWCWkoN5jKXpNj4CJeJbhkd8I_1fbDtAXF';
@@ -19,11 +26,6 @@ const scanFeedback = ref('');
 
 let debounceTimeout: any = null;
 
-// Get ABS Service from parent context (provided or passed via props, but for this component we can use a helper)
-import { ABSService } from '../services/absService';
-const authData = JSON.parse(localStorage.getItem('rs_auth') || '{}');
-const absService = authData.user ? new ABSService(authData.serverUrl, authData.user.token) : null;
-
 const searchBooks = async () => {
   if (!searchTerm.value || searchTerm.value.length < 3) {
     searchResults.value = [];
@@ -34,9 +36,15 @@ const searchBooks = async () => {
   errorMsg.value = '';
   try {
     const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(searchTerm.value)}&maxResults=6`);
+    if (!res.ok) throw new Error('Index Connection Failed');
     const data = await res.json();
+    
+    if (!data.items || data.items.length === 0) {
+       // Silent fail or minimal feedback
+       console.log('No results from Google Books');
+    }
     searchResults.value = data.items || [];
-  } catch (e) {
+  } catch (e: any) {
     errorMsg.value = 'Failed to connect to Archive Index.';
     console.error('Search failed', e);
   } finally {
@@ -120,12 +128,16 @@ const transmitRequest = async (event: MouseEvent) => {
 };
 
 const scanLibrary = async () => {
-  if (isScanning.value || !absService) return;
+  if (isScanning.value || !props.absService) {
+    if (!props.absService) scanFeedback.value = "Service Offline";
+    return;
+  }
+  
   isScanning.value = true;
   scanFeedback.value = '';
   
   try {
-    const success = await absService.scanLibrary();
+    const success = await props.absService.scanLibrary();
     if (success) {
       scanFeedback.value = 'Scan Initiated';
       setTimeout(() => scanFeedback.value = '', 3000);

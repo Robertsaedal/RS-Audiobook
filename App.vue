@@ -215,7 +215,10 @@ const expandMiniPlayer = () => {
 
 const handleSelectSeriesFromPlayer = (seriesId: string) => {
   initialSeriesId.value = seriesId;
-  closePlayer(true);
+  // Race Condition Fix: Force reset URL history stack to clean slate to avoid 'Back' button traps
+  // This removes #player or #player-info from history stack effectively
+  window.history.replaceState({ view: 'library' }, '', window.location.pathname);
+  currentView.value = 'library';
 };
 
 const handleItemUpdated = (updatedItem: ABSLibraryItem) => {

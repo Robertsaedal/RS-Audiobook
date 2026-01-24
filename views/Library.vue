@@ -619,7 +619,8 @@ const isHomeEmpty = computed(() => currentlyReadingRaw.value.length === 0 && rec
           <div v-else-if="activeTab === 'SERIES' && absService" class="h-full flex flex-col overflow-hidden">
             <SeriesShelf :absService="absService" :sortMethod="seriesSortMethod" :desc="desc" :search="''" @select-series="handleSelectSeries" />
           </div>
-          <div v-else-if="activeTab === 'REQUEST'" class="h-full flex flex-col overflow-hidden"><RequestPortal /></div>
+          <!-- PASS SERVICE PROP HERE -->
+          <div v-else-if="activeTab === 'REQUEST'" class="h-full flex flex-col overflow-hidden"><RequestPortal :absService="absService" /></div>
           <div v-else-if="activeTab === 'STATS' && absService" class="h-full flex flex-col overflow-hidden"><StatsView :absService="absService" :progressMap="activeProgressMap" /></div>
         </template>
       </template>

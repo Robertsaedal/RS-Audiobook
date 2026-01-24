@@ -217,6 +217,10 @@ watch(isFinished, (newVal) => {
               :style="{ width: progressPercentage + '%', backgroundColor: colorLoaded ? 'var(--card-accent)' : undefined, boxShadow: colorLoaded ? '0 0 10px var(--card-accent)' : undefined }"
             />
          </div>
+         <!-- Percentage Text Overlay -->
+         <span class="absolute right-0 -top-3 text-[8px] font-black text-purple-200 drop-shadow-md">
+            {{ Math.round(progressPercentage) }}%
+         </span>
       </div>
     </div>
     

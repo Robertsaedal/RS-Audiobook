@@ -215,11 +215,12 @@ const derivedSeriesId = computed(() => {
   return null;
 });
 
-const handleSeriesClick = (e: Event) => {
+const handleSeriesClick = (e: Event, explicitId?: string) => {
   e.stopPropagation(); 
-  if (derivedSeriesId.value) {
-    emit('select-series', derivedSeriesId.value);
-    closeInfoOverlay();
+  // Race Condition Fix: Emit immediately without manual back(), let App.vue handle global state reset
+  const targetId = explicitId || derivedSeriesId.value;
+  if (targetId) {
+    emit('select-series', targetId);
   }
 };
 
@@ -361,7 +362,7 @@ const infoRows = computed(() => {
             </div>
             <button 
               v-if="metadata.seriesName" 
-              @click="handleSeriesClick" 
+              @click="handleSeriesClick($event)" 
               class="group flex items-center justify-center gap-2 mx-auto px-4 py-1.5 rounded-full bg-purple-600 border border-purple-500/50 hover:bg-purple-500 transition-all active:scale-95 shadow-lg shadow-purple-900/20 tap-effect"
             >
               <Layers :size="12" class="text-purple-200" />
@@ -500,7 +501,7 @@ const infoRows = computed(() => {
                       ? 'bg-purple-600 border border-purple-500/50 hover:bg-purple-500 cursor-pointer group active:scale-95 shadow-lg shadow-purple-900/20' 
                       : 'bg-white/5 border border-white/5'
                   ]"
-                  @click="row.isClickable ? handleSeriesClick($event) : null"
+                  @click="row.isClickable ? handleSeriesClick($event, row.actionId) : null"
                 >
                 <div class="flex items-center gap-2 mb-1" :class="row.isClickable ? 'text-purple-200' : 'text-neutral-500'">
                   <component :is="row.icon" :size="12" />
