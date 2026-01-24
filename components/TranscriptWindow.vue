@@ -142,11 +142,9 @@ watch(() => props.item.id, loadTranscript);
            <div class="w-full h-1 bg-white/10 rounded-full overflow-hidden">
                <div 
                   class="h-full transition-all duration-300 ease-out rounded-full"
-                  :class="[
-                    queueStatus === 'retrying' ? 'bg-amber-500' : 'bg-purple-500 shadow-[0_0_10px_rgba(168,85,247,0.5)]',
-                    queueStatus === 'processing' ? 'animate-pulse' : ''
-                  ]"
+                  :class="queueStatus === 'retrying' ? 'bg-amber-500' : 'bg-purple-500 shadow-[0_0_10px_rgba(168,85,247,0.5)]'"
                   :style="{ width: queueStatus === 'processing' ? '60%' : '100%' }"
+                  :class="queueStatus === 'processing' ? 'animate-pulse' : ''"
                ></div>
            </div>
         </div>

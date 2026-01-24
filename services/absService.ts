@@ -92,133 +92,77 @@ export class ABSService {
     }
   }
 
-  private static async fetchWithRetry(url: string, options: RequestInit, retries = 3, timeout = 60000): Promise<Response> {
-    console.log(`[Network] Starting Request: ${url}`);
+  private static async fetchWithRetry(url: string, options: RequestInit, retries = 3, timeout = 10000): Promise<Response> {
     let lastError: Error | null = null;
     
-    // CORS FIX: Removed custom Cache-Control headers AND cache: 'no-store'.
-    // We rely SOLELY on the URL timestamp (_cb) to bypass cache.
-    // 'no-store' can trigger strict CORS preflight checks that fail on some servers.
+    // CORS FIX: Removed custom Cache-Control headers.
+    // We now rely on the URL timestamp (_cb) below AND cache: 'no-store' to bypass cache.
     const headers = { ...options.headers };
 
     // Append Cache Buster to URL automatically
     const separator = url.includes('?') ? '&' : '?';
     const cleanUrl = `${url}${separator}_cb=${Date.now()}`;
 
+    // Force browser to ignore internal cache, vital for mobile
     const newOptions = { 
       ...options, 
-      headers
-      // cache: 'default' // Let browser handle it, query param busts it anyway
+      headers, 
+      cache: 'no-store' as RequestCache 
     };
 
     for (let i = 0; i < retries; i++) {
-      console.log(`[Network] Attempt ${i + 1}/${retries} for ${url}`);
-      
       const controller = new AbortController();
-      // Only set timeout if not keepalive
-      const id = options.keepalive ? null : setTimeout(() => {
-        console.error(`[Network] TIMEOUT REACHED (${timeout}ms) for ${url}`);
-        controller.abort(new Error("Network timeout: Server took too long to respond"));
-      }, timeout);
-      
+      // Only set timeout if not keepalive, as keepalive requests run in background
+      const id = options.keepalive ? null : setTimeout(() => controller.abort(), timeout);
       try {
         const response = await fetch(cleanUrl, { ...newOptions, signal: controller.signal });
         if (id) clearTimeout(id);
         
-        console.log(`[Network] Response ${response.status} ${response.statusText} for ${url}`);
-
         const contentType = response.headers.get("content-type");
         if (contentType && contentType.includes("text/html") && !url.includes('/login')) {
-          console.error(`[Network] Invalid Content-Type: Received HTML instead of JSON for ${url}`);
           throw new TypeError("Authorization check failed: Server returned HTML.");
         }
 
         if (response.ok || (response.status >= 400 && response.status < 500)) return response;
-        
-        console.error(`[Network] Server Error: ${response.status}`);
         throw new Error(`SERVER_ERROR_${response.status}`);
       } catch (e: any) {
         if (id) clearTimeout(id);
         lastError = e;
-        
-        if (e.name === 'AbortError') {
-             console.warn(`[Network] Request aborted/timed out: ${url}`);
-        } else {
-             console.error(`[Network] Exception during fetch for ${url}:`, e);
-        }
-
+        // Don't retry keepalive requests or if explicitly aborted
         if (options.keepalive || i === retries - 1) break;
-        
-        const delay = 1000 * (i + 1);
-        console.log(`[Network] Retrying in ${delay}ms...`);
-        await new Promise(resolve => setTimeout(resolve, delay)); 
+        await new Promise(resolve => setTimeout(resolve, 500 * (i + 1)));
       }
     }
-    
-    console.error(`[Network] FAILED after ${retries} attempts: ${url}`);
     throw lastError || new Error('FAILED_AFTER_RETRIES');
   }
 
   static async login(serverUrl: string, username: string, password: string): Promise<any> {
-    console.log(`[Login] Initiating login for user '${username}' at '${serverUrl}'`);
-    
     const cleanUrl = this.normalizeUrl(serverUrl);
     const loginUrl = `${cleanUrl}/login`;
-    
-    console.log(`[Login] Normalized Login URL: ${loginUrl}`);
-
-    try {
-        const response = await this.fetchWithRetry(loginUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username: username.trim(), password: password || '' }),
-        });
-        
-        console.log(`[Login] Response Status: ${response.status}`);
-        const data = await response.json();
-        
-        if (!response.ok) {
-            console.error(`[Login] Failed with status ${response.status}`, data);
-            throw new Error(data || `Login failed: ${response.status}`);
-        }
-        
-        console.log(`[Login] Success! Token received.`);
-        return data;
-    } catch (e) {
-        console.error(`[Login] CRITICAL FAILURE:`, e);
-        throw e;
-    }
+    const response = await this.fetchWithRetry(loginUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: username.trim(), password: password || '' }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data || `Login failed: ${response.status}`);
+    return data;
   }
 
   static async authorize(serverUrl: string, token: string): Promise<any> {
-    console.log(`[Auth] Authorizing token at ${serverUrl}`);
     const cleanUrl = this.normalizeUrl(serverUrl);
     const authUrl = `${cleanUrl}/api/authorize`;
     const cleanToken = token.replace(/^Bearer\s+/i, '').trim();
-    
-    try {
-      const response = await this.fetchWithRetry(authUrl, {
-        method: 'POST',
-        headers: { 
-          'Authorization': `Bearer ${cleanToken}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      console.log(`[Auth] Response Status: ${response.status}`);
-      const data = await response.json();
-      
-      if (!response.ok) {
-          console.error(`[Auth] Failed:`, data);
-          throw new Error(data || 'Authorization failed');
+    const response = await this.fetchWithRetry(authUrl, {
+      method: 'POST',
+      headers: { 
+        'Authorization': `Bearer ${cleanToken}`,
+        'Content-Type': 'application/json'
       }
-      
-      console.log(`[Auth] Success!`);
-      return data;
-    } catch (e) {
-      console.error(`[Auth] CRITICAL FAILURE:`, e);
-      throw e;
-    }
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data || 'Authorization failed');
+    return data;
   }
 
   private async fetchApi(endpoint: string, options: RequestInit = {}) {
