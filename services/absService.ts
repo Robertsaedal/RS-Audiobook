@@ -46,7 +46,8 @@ export class ABSService {
     this.socket = io(this.serverUrl, {
       auth: { token: this.token },
       path: '/socket.io',
-      transports: ['polling'],
+      transports: ['websocket'], // Fixed: Force WebSocket only
+      upgrade: false, // Fixed: Disable polling upgrade mechanism
       autoConnect: true,
       reconnection: true,
       timeout: 10000,
@@ -55,7 +56,7 @@ export class ABSService {
 
     // CRITICAL: The server expects an explicit 'auth' event after connection.
     this.socket.on('connect', () => {
-      console.log('[ABSService] Socket connected (Polling), authenticating...');
+      console.log('[ABSService] Socket connected (WebSocket), authenticating...');
       this.socketErrorCount = 0; // Reset on successful connect
       this.emitAuth();
     });
