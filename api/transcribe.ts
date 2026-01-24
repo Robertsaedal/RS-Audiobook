@@ -1,11 +1,5 @@
 
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { GoogleAIFileManager } from "@google/generative-ai/server";
-import fs from 'fs';
-import path from 'path';
-import os from 'os';
-import { pipeline } from 'stream/promises';
-import { Readable } from 'stream';
 
 export const config = {
   maxDuration: 300,
@@ -36,11 +30,7 @@ export default async function handler(req: any, res: any) {
     return res.status(400).json({ error: 'Missing downloadUrl' });
   }
 
-  let tempFilePath: string | null = null;
-  let fileUri: string | null = null;
-  let fileName: string | null = null;
-  
-  const fileManager = new GoogleAIFileManager(apiKey);
+  let uploadedFileVal: any = null;
 
   try {
     res.writeHead(200, {
@@ -51,33 +41,70 @@ export default async function handler(req: any, res: any) {
     });
 
     res.write("WEBVTT\n\n");
-    res.write("NOTE Status: Initializing...\n\n");
+    res.write("NOTE Status: Initializing connection...\n\n");
 
-    // 1. Stream Download to /tmp
-    res.write("NOTE Status: Buffering audio to server...\n\n");
+    // 1. Fetch Audio Stream
+    res.write("NOTE Status: Connecting to Audio Source...\n\n");
     const audioResponse = await fetch(downloadUrl);
     if (!audioResponse.ok) throw new Error(`Download failed: ${audioResponse.statusText}`);
-    if (!audioResponse.body) throw new Error("No audio body");
-
-    tempFilePath = path.join(os.tmpdir(), `audio_${Date.now()}.mp3`);
-    const fileStream = fs.createWriteStream(tempFilePath);
     
-    // @ts-ignore - Readable.fromWeb matches web stream signatures in Node 18+
-    await pipeline(Readable.fromWeb(audioResponse.body), fileStream);
+    const contentLength = audioResponse.headers.get('content-length');
+    const mimeType = audioResponse.headers.get('content-type') || 'audio/mp3';
 
-    // 2. Upload to Gemini
-    res.write("NOTE Status: Uploading to Gemini Cache...\n\n");
-    
-    const uploadResult = await fileManager.uploadFile(tempFilePath, {
-      mimeType: "audio/mp3",
-      displayName: "Audiobook Segment"
+    // 2. Init Gemini Resumable Upload
+    // We use the raw REST API to pipe the stream directly, avoiding local disk usage.
+    res.write("NOTE Status: Establishing Gemini Uplink...\n\n");
+    const baseUrl = "https://generativelanguage.googleapis.com/upload/v1beta/files";
+    const startRes = await fetch(`${baseUrl}?key=${apiKey}`, {
+        method: 'POST',
+        headers: {
+            'X-Goog-Upload-Protocol': 'resumable',
+            'X-Goog-Upload-Command': 'start',
+            'X-Goog-Upload-Header-Content-Length': contentLength || '',
+            'X-Goog-Upload-Header-Content-Type': mimeType,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ file: { display_name: 'Streamed Audio' } })
     });
+
+    if (!startRes.ok) {
+        const errText = await startRes.text();
+        throw new Error(`Gemini Upload Init Failed: ${startRes.status} - ${errText}`);
+    }
     
-    fileUri = uploadResult.file.uri;
-    fileName = uploadResult.file.name;
+    const uploadUrl = startRes.headers.get('x-goog-upload-url');
+    if (!uploadUrl) throw new Error("No upload URL received from Gemini");
+
+    // 3. Stream Data directly to Gemini
+    res.write("NOTE Status: Streaming Audio to Cloud...\n\n");
     
-    // 3. Generate
-    res.write("NOTE Status: Generating transcript...\n\n");
+    const uploadHeaders: any = {
+        'X-Goog-Upload-Command': 'upload, finalize',
+        'X-Goog-Upload-Offset': '0'
+    };
+    if (contentLength) {
+        uploadHeaders['Content-Length'] = contentLength;
+    }
+
+    const uploadRes = await fetch(uploadUrl, {
+        method: 'POST',
+        headers: uploadHeaders,
+        body: audioResponse.body,
+        // @ts-ignore - Required for Node.js fetch streaming to work efficiently
+        duplex: 'half' 
+    });
+
+    if (!uploadRes.ok) {
+        const errText = await uploadRes.text();
+        throw new Error(`Gemini Stream Upload Failed: ${uploadRes.status} - ${errText}`);
+    }
+    
+    const uploadData = await uploadRes.json();
+    uploadedFileVal = uploadData.file;
+    const fileUri = uploadData.file.uri;
+
+    // 4. Generate Transcript
+    res.write("NOTE Status: Transcribing...\n\n");
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
@@ -92,7 +119,7 @@ export default async function handler(req: any, res: any) {
     const result = await model.generateContentStream([
       {
         fileData: {
-          mimeType: uploadResult.file.mimeType,
+          mimeType: uploadData.file.mimeType,
           fileUri: fileUri
         }
       },
@@ -103,28 +130,24 @@ export default async function handler(req: any, res: any) {
         const text = chunk.text();
         if (text) res.write(text);
     }
-    
-    res.end();
 
   } catch (error: any) {
     console.error('[API Error]', error);
     if (!res.writableEnded) {
         res.write(`\nNOTE Error: ${error.message || 'Processing Failed'}\n`);
-        res.end();
     }
   } finally {
-    // Cleanup Temp File
-    if (tempFilePath && fs.existsSync(tempFilePath)) {
-        fs.unlink(tempFilePath, (err) => { if(err) console.error("Temp delete failed", err); });
-    }
-    // Cleanup Gemini File (Best Practice)
-    if (fileName) {
+    // Cleanup Gemini File
+    if (uploadedFileVal && uploadedFileVal.name) {
         try {
-            await fileManager.deleteFile(fileName);
-            console.log("Gemini file cleaned up");
+            await fetch(`https://generativelanguage.googleapis.com/v1beta/${uploadedFileVal.name}?key=${apiKey}`, {
+                method: 'DELETE'
+            });
+            console.log(`[API] Cleaned up Gemini file: ${uploadedFileVal.name}`);
         } catch (e) {
-            console.warn("Failed to cleanup Gemini file", e);
+            console.warn("[API] Failed to cleanup Gemini file", e);
         }
     }
+    res.end();
   }
 }
