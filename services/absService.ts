@@ -77,19 +77,19 @@ export class ABSService {
   private static async fetchWithRetry(url: string, options: RequestInit, retries = 3, timeout = 10000): Promise<Response> {
     let lastError: Error | null = null;
     
-    // Add No-Cache Headers to all requests to ensure freshness
-    const headers = new Headers(options.headers || {});
-    headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
-    headers.set('Pragma', 'no-cache');
-    headers.set('Expires', '0');
+    // CORS FIX: Removed custom Cache-Control headers.
+    // We now rely solely on the URL timestamp (_cb) below to bypass cache.
+    const headers = { ...options.headers };
 
-    const newOptions = { ...options, headers };
+    // Append Cache Buster to URL automatically
+    const separator = url.includes('?') ? '&' : '?';
+    const cleanUrl = `${url}${separator}_cb=${Date.now()}`;
 
     for (let i = 0; i < retries; i++) {
       const controller = new AbortController();
       const id = setTimeout(() => controller.abort(), timeout);
       try {
-        const response = await fetch(url, { ...newOptions, signal: controller.signal });
+        const response = await fetch(cleanUrl, { ...options, headers, signal: controller.signal });
         clearTimeout(id);
         
         const contentType = response.headers.get("content-type");
@@ -174,7 +174,7 @@ export class ABSService {
 
   async getLibraryItem(itemId: string): Promise<ABSLibraryItem | null> {
     if (!this.libraryId) return null;
-    const data = await this.fetchApi(`/libraries/${this.libraryId}/items/${itemId}?include=progress,userProgress,metadata,series,media,authors&expanded=1&_cb=${Date.now()}`);
+    const data = await this.fetchApi(`/libraries/${this.libraryId}/items/${itemId}?include=progress,userProgress,metadata,series,media,authors&expanded=1`);
     return data;
   }
 
@@ -206,7 +206,6 @@ export class ABSService {
     
     query.append('include', 'progress,userProgress,metadata,series,media');
     query.append('expanded', '1');
-    query.append('_cb', Date.now().toString());
 
     const data = await this.fetchApi(`/libraries/${this.libraryId}/items?${query.toString()}`);
     const results = data?.results || data?.items || (Array.isArray(data) ? data : []);
@@ -222,7 +221,6 @@ export class ABSService {
     if (params?.limit) query.append('limit', params.limit.toString());
     query.append('include', 'progress,userProgress,metadata,series,media');
     query.append('expanded', '1');
-    query.append('_cb', Date.now().toString());
 
     const url = `/libraries/${this.libraryId}/personalized?${query.toString()}`;
 
@@ -243,13 +241,12 @@ export class ABSService {
   }
 
   async getItemsInProgress(): Promise<ABSLibraryItem[]> {
-    // Explicitly add timestamp to prevent caching
-    const data = await this.fetchApi(`/me/items-in-progress?include=progress,userProgress,metadata,series,media&expanded=1&_cb=${Date.now()}`);
+    const data = await this.fetchApi(`/me/items-in-progress?include=progress,userProgress,metadata,series,media&expanded=1`);
     return Array.isArray(data) ? data : (data?.results || []);
   }
 
   async getAllUserProgress(): Promise<ABSProgress[]> {
-    const data = await this.fetchApi(`/me/progress?_cb=${Date.now()}`);
+    const data = await this.fetchApi(`/me/progress`);
     return data?.results || data?.progress || (Array.isArray(data) ? data : []);
   }
 
@@ -273,7 +270,6 @@ export class ABSService {
     if (params.search) query.append('search', params.search);
 
     query.append('include', 'books'); 
-    query.append('_cb', Date.now().toString());
 
     const data = await this.fetchApi(`/libraries/${this.libraryId}/series?${query.toString()}`);
     const results = data?.results || data?.series || data?.items || (Array.isArray(data) ? data : []);
@@ -306,7 +302,7 @@ export class ABSService {
     days: Record<string, number>;
     recentSessions: any[];
   } | null> {
-    const data = await this.fetchApi(`/me/listening-stats?_cb=${Date.now()}`);
+    const data = await this.fetchApi(`/me/listening-stats`);
     if (!data) return { totalTime: 0, days: {}, recentSessions: [] }; 
     return data;
   }
@@ -334,7 +330,7 @@ export class ABSService {
 
   async getSeries(seriesId: string): Promise<ABSSeries | null> {
     if (!this.libraryId) return null;
-    const data = await this.fetchApi(`/libraries/${this.libraryId}/series/${seriesId}?include=books,progress,rssfeed&_cb=${Date.now()}`);
+    const data = await this.fetchApi(`/libraries/${this.libraryId}/series/${seriesId}?include=books,progress,rssfeed`);
     if (!data) return null;
     return data;
   }
@@ -383,7 +379,7 @@ export class ABSService {
   }
 
   async getProgress(itemId: string): Promise<ABSProgress | null> {
-    return this.fetchApi(`/me/progress/${itemId}?_cb=${Date.now()}`);
+    return this.fetchApi(`/me/progress/${itemId}`);
   }
 
   async saveProgress(itemId: string, currentTime: number, duration: number): Promise<void> {
@@ -420,7 +416,9 @@ export class ABSService {
 
   getCoverUrl(itemId: string): string {
     if (!itemId) return '';
-    return `${this.serverUrl}/api/items/${itemId}/cover?token=${this.token}`;
+    // Append timestamp to cover URL to attempt to break aggressive caching if cover changes, 
+    // though less critical than data APIs.
+    return `${this.serverUrl}/api/items/${itemId}/cover?token=${this.token}&_cb=${Date.now()}`;
   }
 
   getDownloadUrl(itemId: string): string {
