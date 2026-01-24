@@ -22,6 +22,13 @@ const getProgress = (item: ABSLibraryItem) => {
   }
   return item.userProgress?.progress || 0;
 };
+
+// Calculate clamped position for the pill so it doesn't fall off edges
+const getPillPosition = (item: ABSLibraryItem) => {
+  const p = getProgress(item) * 100;
+  // Clamp between 10% and 90% to keep the pill entirely visible
+  return Math.max(10, Math.min(90, p));
+};
 </script>
 
 <template>
@@ -45,19 +52,25 @@ const getProgress = (item: ABSLibraryItem) => {
             loading="lazy"
           />
           
-          <!-- Progress Overlay -->
-          <div class="absolute bottom-0 left-0 right-0 h-1 bg-neutral-800/60 z-10">
+          <!-- Progress Overlay Container -->
+          <div class="absolute bottom-0 left-0 right-0 h-1.5 bg-neutral-800/80 z-10 backdrop-blur-sm">
+            <!-- The Bar -->
             <div 
-              class="h-full bg-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.6)] transition-all duration-300"
+              class="h-full bg-purple-500 shadow-[0_0_10px_rgba(168,85,247,0.6)] transition-all duration-300"
               :style="{ width: getProgress(item) * 100 + '%' }"
             />
-          </div>
-          
-          <!-- Percentage Text (New Addition) -->
-          <div class="absolute bottom-2 right-2 z-20">
-             <span class="text-[8px] font-black text-purple-400 drop-shadow-md bg-black/60 px-1.5 py-0.5 rounded-full backdrop-blur-sm">
-                {{ Math.round(getProgress(item) * 100) }}%
-             </span>
+            
+            <!-- Dynamic Percentage Pill -->
+            <div 
+              class="absolute bottom-2.5 -translate-x-1/2 z-20 transition-all duration-300"
+              :style="{ left: getPillPosition(item) + '%' }"
+            >
+               <div class="bg-purple-500 text-white text-[8px] font-black px-2 py-0.5 rounded-full shadow-lg min-w-[28px] text-center border border-white/10 tracking-tight">
+                  {{ Math.round(getProgress(item) * 100) }}%
+               </div>
+               <!-- Tiny Triangle Pointer -->
+               <div class="w-0 h-0 border-l-[3px] border-l-transparent border-r-[3px] border-r-transparent border-t-[4px] border-t-purple-500 mx-auto mt-[-1px]"></div>
+            </div>
           </div>
 
           <!-- Hover Play State -->

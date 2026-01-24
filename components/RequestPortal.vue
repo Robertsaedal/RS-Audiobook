@@ -34,9 +34,17 @@ const searchBooks = async () => {
 
   isSearching.value = true;
   errorMsg.value = '';
+  
   try {
     const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(searchTerm.value)}&maxResults=6`);
+    
+    // Explicit 429 Handling
+    if (res.status === 429) {
+      throw new Error('Search is resting. Please try again in a few seconds.');
+    }
+
     if (!res.ok) throw new Error('Index Connection Failed');
+    
     const data = await res.json();
     
     if (!data.items || data.items.length === 0) {
@@ -46,8 +54,13 @@ const searchBooks = async () => {
        searchResults.value = data.items;
     }
   } catch (e: any) {
-    errorMsg.value = 'Failed to connect to Archive Index.';
+    if (e.message.includes('Search is resting')) {
+      errorMsg.value = e.message;
+    } else {
+      errorMsg.value = 'Failed to connect to Archive Index.';
+    }
     console.error('Search failed', e);
+    searchResults.value = [];
   } finally {
     isSearching.value = false;
   }
@@ -55,7 +68,8 @@ const searchBooks = async () => {
 
 watch(searchTerm, () => {
   if (debounceTimeout) clearTimeout(debounceTimeout);
-  debounceTimeout = setTimeout(searchBooks, 500);
+  // Increased debounce to 600ms to avoid 429 errors
+  debounceTimeout = setTimeout(searchBooks, 600);
 });
 
 const selectBook = (book: any) => {
@@ -222,6 +236,14 @@ const reset = () => {
             <Search class="absolute left-6 top-1/2 -translate-y-1/2 text-neutral-500 group-focus-within:text-purple-500 transition-colors" />
             <Loader2 v-if="isSearching" class="absolute right-8 top-1/2 -translate-y-1/2 text-purple-500 animate-spin" :size="20" />
           </div>
+
+          <!-- Error Toast -->
+          <Transition name="fade">
+            <div v-if="errorMsg" class="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-xl flex items-center gap-3">
+               <AlertTriangle :size="16" />
+               <span class="text-[10px] font-bold uppercase tracking-wide">{{ errorMsg }}</span>
+            </div>
+          </Transition>
 
           <!-- Live Results Dropdown -->
           <Transition name="dropdown">
