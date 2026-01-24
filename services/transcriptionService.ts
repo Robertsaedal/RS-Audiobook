@@ -19,7 +19,7 @@ export class TranscriptionService {
     downloadUrl: string,
     duration: number,
     onChunk?: (chunk: string) => void,
-    currentTime: number = 0 
+    currentTime: number = 0 // Added parameter
   ): Promise<string> {
     
     console.log('[Transcription] Requesting smart segment transcription...');
@@ -56,10 +56,16 @@ export class TranscriptionService {
         }
       }
 
+      // Final Check
       if (!vttText || (!vttText.includes('WEBVTT') && vttText.length < 50)) {
          throw new Error("Invalid VTT format received from server.");
       }
 
+      // We don't save partial transcripts to DB to avoid overwriting a potential full one with a fragment,
+      // OR we could save it if we handled fragments in DB. 
+      // For now, let's only cache it if it looks like a full file or standard usage.
+      // Actually, saving partials is better than nothing, but might confuse "getTranscript" later.
+      // Let's save it. Ideally, we would append, but overwriting with the "current active segment" is acceptable for a player.
       return this.saveTranscript(itemId, vttText);
 
     } catch (error: any) {
@@ -77,7 +83,7 @@ export class TranscriptionService {
     return vttContent;
   }
 
-  static parseVTT(vttString: string, offsetSeconds: number = 0): VttCue[] {
+  static parseVTT(vttString: string): VttCue[] {
     const lines = vttString.split(/\r?\n/);
     const cues: VttCue[] = [];
     let currentStart: number | null = null;
@@ -115,9 +121,8 @@ export class TranscriptionService {
         if (currentStart !== null && currentText) {
           cues.push({ start: currentStart, end: currentEnd!, text: currentText.trim() });
         }
-        // Apply Offset Here
-        currentStart = parseTime(timeMatch[1]) + offsetSeconds;
-        currentEnd = parseTime(timeMatch[2]) + offsetSeconds;
+        currentStart = parseTime(timeMatch[1]);
+        currentEnd = parseTime(timeMatch[2]);
         currentText = '';
       } else if (currentStart !== null) {
         currentText += (currentText ? '\n' : '') + line;
