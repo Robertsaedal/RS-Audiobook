@@ -24,7 +24,7 @@ export class TranscriptionService {
     currentTime: number = 0 
   ): Promise<string> {
     
-    console.log('[Transcription] Initiating stream request...');
+    console.log(`[Transcription] Initiating stream request for ${itemId} at ${currentTime}s...`);
 
     try {
       const response = await fetch('/api/transcribe', {
@@ -53,7 +53,7 @@ export class TranscriptionService {
         
         if (value) {
           const chunk = decoder.decode(value, { stream: true });
-          // Only accumulate non-heartbeat content
+          // Only accumulate non-heartbeat content (heartbeats start with :)
           if (!chunk.startsWith(':')) {
              fullText += chunk;
           }
@@ -61,12 +61,21 @@ export class TranscriptionService {
         }
       }
 
-      // Final cleanup of any lingering markdown artifacts before saving
-      const cleaned = fullText.replace(/```json/g, '').replace(/```/g, '').trim();
+      // Cleanup markdown artifacts if the model included them despite instructions
+      const cleaned = fullText
+        .replace(/```json/g, '')
+        .replace(/```/g, '')
+        .replace(/^[:\s]+/, '')
+        .trim();
+        
+      if (!cleaned) {
+        throw new Error("Received empty response from transcription artifact.");
+      }
+
       return this.saveTranscript(itemId, cleaned);
 
     } catch (error: any) {
-      console.error("Transcription generation failed:", error);
+      console.error("[Transcription Service] Failure:", error);
       throw error;
     }
   }
@@ -81,26 +90,23 @@ export class TranscriptionService {
   }
 
   /**
-   * Parses the raw LLM output into structured cues.
-   * Uses a robust regex to find all JSON objects in the string,
-   * which handles markdown blocks, heartbeat comments, and unexpected text.
+   * Robust parser that extracts JSON objects from a potentially messy text stream.
    */
   static parseTranscript(rawContent: string, offsetSeconds: number = 0): TranscriptCue[] {
     const cues: TranscriptCue[] = [];
     
-    // Find all JSON objects {...} in the string
-    // This is much safer than line-by-line parsing for LLM outputs
+    // Non-greedy search for top-level JSON objects
     const jsonObjectRegex = /{[^]*?}/g;
     const matches = rawContent.match(jsonObjectRegex);
 
     if (!matches) {
-      console.warn("[Transcription] No valid JSON cues found in raw content.");
+      console.warn("[Transcription] No valid artifact segments found in data.");
       return [];
     }
 
     const parseTime = (timeStr: string) => {
       if (!timeStr) return 0;
-      const parts = timeStr.split(':');
+      const parts = timeStr.trim().split(':');
       let h = 0, m = 0, s = 0, ms = 0;
       
       try {
@@ -109,12 +115,12 @@ export class TranscriptionService {
           m = parseInt(parts[1], 10);
           const secParts = parts[2].split('.');
           s = parseInt(secParts[0], 10);
-          ms = parseInt(secParts[1] || '0', 10);
+          ms = parseInt(secParts[1]?.substring(0, 3) || '0', 10);
         } else if (parts.length === 2) {
           m = parseInt(parts[0], 10);
           const secParts = parts[1].split('.');
           s = parseInt(secParts[0], 10);
-          ms = parseInt(secParts[1] || '0', 10);
+          ms = parseInt(secParts[1]?.substring(0, 3) || '0', 10);
         }
       } catch (e) { return 0; }
 
@@ -125,7 +131,7 @@ export class TranscriptionService {
       try {
         const obj = JSON.parse(match);
         
-        // Validation: Must have at least a text or noise field
+        // Ensure the object has at least content or noise
         if (obj.text !== undefined || obj.background_noise !== undefined) { 
             cues.push({ 
                 start: parseTime(obj.start) + offsetSeconds, 
@@ -136,11 +142,12 @@ export class TranscriptionService {
             });
         }
       } catch (e) {
-        // Skip malformed JSON fragments
+        // Log individual object parsing failures for debugging
+        console.debug("[Transcription] Segment parse error:", e);
       }
     }
 
-    // Sort by start time just in case the model reordered them
+    // Sort by timeline to ensure smooth UI flow
     return cues.sort((a, b) => a.start - b.start);
   }
 }
