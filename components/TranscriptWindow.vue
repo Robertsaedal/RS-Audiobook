@@ -32,8 +32,8 @@ const activeCue = computed(() => activeCueIndex.value !== -1 ? cues.value[active
 
 const progressLabel = computed(() => {
   if (processingProgress.value < 20) return 'Initializing Gemini...';
-  if (processingProgress.value < 80) return 'Transcribing Audio...';
-  return 'Formatting Timestamps...';
+  if (processingProgress.value < 80) return 'Connecting to Stream...';
+  return 'Streaming Text...';
 });
 
 const startProgressSimulation = () => {
@@ -71,28 +71,49 @@ const loadTranscript = async () => {
 const generateTranscript = async () => {
   isLoading.value = true;
   errorMsg.value = null;
+  cues.value = [];
   startProgressSimulation();
+
+  let accumulatedVtt = '';
+  let hasStoppedLoading = false;
 
   try {
     const downloadUrl = props.absService.getDownloadUrl(props.item.id);
     const duration = props.item.media.duration;
     
-    // Pass duration to service
-    const vtt = await TranscriptionService.generateTranscript(props.item.id, downloadUrl, duration);
+    // Pass duration and streaming callback to service
+    const vtt = await TranscriptionService.generateTranscript(
+      props.item.id, 
+      downloadUrl, 
+      duration,
+      (chunk) => {
+        accumulatedVtt += chunk;
+        
+        // Once we get any data, remove the full screen loading state so user sees text streaming
+        if (!hasStoppedLoading && accumulatedVtt.length > 20) {
+           stopProgressSimulation();
+           isLoading.value = false; 
+           hasTranscript.value = true;
+           hasStoppedLoading = true;
+        }
+
+        // Parse whatever we have so far
+        // Note: This might parse incomplete lines at the end, but the next chunk will fix it.
+        cues.value = TranscriptionService.parseVTT(accumulatedVtt);
+      }
+    );
     
+    // Final parse to ensure everything is correct
     cues.value = TranscriptionService.parseVTT(vtt);
     hasTranscript.value = true;
-    stopProgressSimulation();
+
   } catch (e: any) {
     console.error("Transcription Failed", e);
     errorMsg.value = e.message || "Gemini connection failed.";
-    if (progressInterval) clearInterval(progressInterval);
-    processingProgress.value = 0;
+    hasTranscript.value = false;
   } finally {
-    // Small delay to allow bar to hit 100% visually
-    setTimeout(() => {
-        isLoading.value = false;
-    }, 600);
+    stopProgressSimulation();
+    isLoading.value = false;
   }
 };
 
@@ -148,7 +169,7 @@ watch(() => props.item.id, loadTranscript, { immediate: true });
     <!-- Content Area -->
     <div ref="scrollContainer" class="flex-1 overflow-y-auto custom-scrollbar p-6 relative">
       
-      <!-- Loading State -->
+      <!-- Loading State (Blocking Overlay) -->
       <div v-if="isLoading" class="absolute inset-0 flex flex-col items-center justify-center gap-6 z-20 bg-black/80 backdrop-blur-md">
         <div class="relative mb-2">
           <div class="absolute inset-0 bg-purple-500/20 blur-xl rounded-full animate-pulse" />
@@ -199,8 +220,14 @@ watch(() => props.item.id, loadTranscript, { immediate: true });
         </button>
       </div>
 
-      <!-- Transcript Lines -->
+      <!-- Transcript Lines (Visible while streaming) -->
       <div v-if="hasTranscript" class="space-y-4 py-20 flex flex-col items-center min-h-full justify-center">
+        <!-- Live Generation Indicator at bottom if actively accumulating and less than full -->
+        <div v-if="cues.length === 0" class="flex flex-col items-center gap-2 animate-pulse text-purple-400">
+           <Sparkles :size="16" />
+           <span class="text-[8px] font-black uppercase tracking-widest">Generating Text...</span>
+        </div>
+
         <div 
           v-for="(cue, index) in cues" 
           :key="index"

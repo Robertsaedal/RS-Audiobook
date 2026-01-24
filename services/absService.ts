@@ -94,10 +94,11 @@ export class ABSService {
 
     for (let i = 0; i < retries; i++) {
       const controller = new AbortController();
-      const id = setTimeout(() => controller.abort(), timeout);
+      // Only set timeout if not keepalive, as keepalive requests run in background
+      const id = options.keepalive ? null : setTimeout(() => controller.abort(), timeout);
       try {
         const response = await fetch(cleanUrl, { ...newOptions, signal: controller.signal });
-        clearTimeout(id);
+        if (id) clearTimeout(id);
         
         const contentType = response.headers.get("content-type");
         if (contentType && contentType.includes("text/html") && !url.includes('/login')) {
@@ -107,9 +108,11 @@ export class ABSService {
         if (response.ok || (response.status >= 400 && response.status < 500)) return response;
         throw new Error(`SERVER_ERROR_${response.status}`);
       } catch (e: any) {
-        clearTimeout(id);
+        if (id) clearTimeout(id);
         lastError = e;
-        if (i < retries - 1) await new Promise(resolve => setTimeout(resolve, 500 * (i + 1)));
+        // Don't retry keepalive requests or if explicitly aborted
+        if (options.keepalive || i === retries - 1) break;
+        await new Promise(resolve => setTimeout(resolve, 500 * (i + 1)));
       }
     }
     throw lastError || new Error('FAILED_AFTER_RETRIES');
@@ -253,8 +256,25 @@ export class ABSService {
   }
 
   async getAllUserProgress(): Promise<ABSProgress[]> {
-    const data = await this.fetchApi(`/me/progress`);
-    return data?.results || data?.progress || (Array.isArray(data) ? data : []);
+    // FIX: /me/progress endpoint often returns 404 on some server configurations.
+    // We rely on /me/items-in-progress to get accurate, fresh sync data for active items.
+    try {
+      const items = await this.getItemsInProgress();
+      return items
+        .filter(item => item.userProgress)
+        .map(item => ({
+          itemId: item.id,
+          currentTime: item.userProgress!.currentTime,
+          duration: item.userProgress!.duration,
+          progress: item.userProgress!.progress,
+          isFinished: item.userProgress!.isFinished,
+          lastUpdate: item.userProgress!.lastUpdate,
+          hideFromContinueListening: item.userProgress!.hideFromContinueListening
+        }));
+    } catch (error) {
+      console.warn('[ABSService] Failed to fetch user progress via items-in-progress fallback', error);
+      return [];
+    }
   }
 
   async getLibrarySeriesPaged(params: LibraryQueryParams): Promise<{ results: ABSSeries[], total: number }> {
@@ -393,14 +413,16 @@ export class ABSService {
     const progress = duration > 0 ? currentTime / duration : 0;
     await this.fetchApi(`/me/progress/${itemId}`, {
       method: 'PATCH',
-      body: JSON.stringify({ currentTime, duration, progress, isFinished: progress >= 0.99 })
+      body: JSON.stringify({ currentTime, duration, progress, isFinished: progress >= 0.99 }),
+      keepalive: true // Ensure save completes
     });
   }
 
   async updateProgress(itemId: string, payload: { isFinished: boolean }): Promise<void> {
     await this.fetchApi(`/me/progress/${itemId}`, {
       method: 'PATCH',
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      keepalive: true
     });
   }
 
@@ -414,11 +436,21 @@ export class ABSService {
   }
 
   async syncSession(sessionId: string, timeListened: number, currentTime: number): Promise<void> {
-    await this.fetchApi(`/session/${sessionId}/sync`, { method: 'POST', body: JSON.stringify({ timeListened, currentTime }) });
+    // Keepalive ensures sync packets aren't killed on page unload/sleep
+    await this.fetchApi(`/session/${sessionId}/sync`, { 
+      method: 'POST', 
+      body: JSON.stringify({ timeListened, currentTime }),
+      keepalive: true
+    });
   }
 
   async closeSession(sessionId: string, syncData?: { timeListened: number, currentTime: number }): Promise<void> {
-    await this.fetchApi(`/session/${sessionId}/close`, { method: 'POST', body: syncData ? JSON.stringify(syncData) : undefined });
+    // Critical: Use keepalive to ensure close session fires even if tab is closed immediately
+    await this.fetchApi(`/session/${sessionId}/close`, { 
+      method: 'POST', 
+      body: syncData ? JSON.stringify(syncData) : undefined,
+      keepalive: true
+    });
   }
 
   getCoverUrl(itemId: string): string {

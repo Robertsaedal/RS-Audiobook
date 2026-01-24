@@ -17,13 +17,13 @@ export class TranscriptionService {
   static async generateTranscript(
     itemId: string, 
     downloadUrl: string,
-    duration: number
+    duration: number,
+    onChunk?: (chunk: string) => void
   ): Promise<string> {
     
-    console.log('[Transcription] Requesting server-side processing...');
+    console.log('[Transcription] Requesting server-side streaming...');
 
     try {
-      // Call our Vercel Serverless Function
       const response = await fetch('/api/transcribe', {
         method: 'POST',
         headers: {
@@ -37,14 +37,26 @@ export class TranscriptionService {
         throw new Error(errData.error || `Server Error: ${response.status}`);
       }
 
-      const data = await response.json();
-      const vttText = data.vtt;
+      if (!response.body) throw new Error("No response body available for streaming");
 
-      if (!vttText || !vttText.includes('WEBVTT')) {
-         // Fallback loose check
-         if (vttText && vttText.includes('WEBVTT')) {
-             return this.saveTranscript(itemId, vttText);
-         }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      let vttText = '';
+      let done = false;
+
+      while (!done) {
+        const { value, done: doneReading } = await reader.read();
+        done = doneReading;
+        
+        if (value) {
+          const chunk = decoder.decode(value, { stream: true });
+          vttText += chunk;
+          if (onChunk) onChunk(chunk);
+        }
+      }
+
+      // Final Check
+      if (!vttText || (!vttText.includes('WEBVTT') && vttText.length < 50)) {
          throw new Error("Invalid VTT format received from server.");
       }
 

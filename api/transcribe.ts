@@ -54,6 +54,8 @@ export default async function handler(req: any, res: any) {
 
   // Generate a random temp filename
   const tempFilePath = path.join(os.tmpdir(), `audio-${Date.now()}-${Math.random().toString(36).substring(7)}.mp3`);
+  let fileUri = '';
+  let fileName = '';
 
   try {
     // 2. Download Audio
@@ -71,42 +73,50 @@ export default async function handler(req: any, res: any) {
       mimeType: "audio/mp3",
       displayName: "Audiobook Segment",
     });
+    
+    fileUri = uploadResult.file.uri;
+    fileName = uploadResult.file.name;
 
     // OPTIMIZATION: Delete local file immediately after upload to free space
     if (fs.existsSync(tempFilePath)) {
         fs.unlinkSync(tempFilePath);
     }
 
-    // 5. Generate Content
-    console.log('[API] Generating Transcript...');
+    // 5. Generate Content Stream
+    console.log('[API] Generating Transcript Stream...');
     
     const promptText = `The total duration of this audio is ${duration || 'unknown'} seconds. 
     Transcribe the audio into WebVTT format, including precise timestamp cues. 
     Output ONLY the WEBVTT content. No markdown, no notes. Start directly with WEBVTT.
     Please ensure the WebVTT timestamps reflect this total length.`;
 
-    const result = await model.generateContent([
+    const result = await model.generateContentStream([
       {
         fileData: {
           mimeType: uploadResult.file.mimeType,
-          fileUri: uploadResult.file.uri
+          fileUri: fileUri
         }
       },
       { text: promptText }
     ]);
 
-    const vttText = result.response.text();
+    // Set streaming headers
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Transfer-Encoding', 'chunked');
 
-    // 6. Cleanup Gemini File (Best Effort)
+    for await (const chunk of result.stream) {
+        const chunkText = chunk.text();
+        res.write(chunkText);
+    }
+    
+    // Cleanup Gemini File (Best Effort)
     try {
-       // Note: Deleting the file from Gemini immediately might cause issues if generation is still streaming/processing internally,
-       // but typically once generateContent returns, we are done.
-       await fileManager.deleteFile(uploadResult.file.name);
+       await fileManager.deleteFile(fileName);
     } catch (cleanupErr) {
       console.warn("Gemini Cleanup warning:", cleanupErr);
     }
 
-    return res.status(200).json({ vtt: vttText });
+    res.end();
 
   } catch (error: any) {
     console.error('[API Error]', error);
@@ -114,8 +124,15 @@ export default async function handler(req: any, res: any) {
     if (fs.existsSync(tempFilePath)) {
       try { fs.unlinkSync(tempFilePath); } catch(e) {}
     }
-    return res.status(500).json({ 
-      error: error.message || 'Transcription processing failed' 
-    });
+    
+    // If headers haven't been sent, send JSON error. 
+    // If streaming started, the stream will just end abruptly (client handles).
+    if (!res.headersSent) {
+        return res.status(500).json({ 
+            error: error.message || 'Transcription processing failed' 
+        });
+    } else {
+        res.end();
+    }
   }
 }
