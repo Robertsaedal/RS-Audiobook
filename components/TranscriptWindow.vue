@@ -84,7 +84,7 @@ const generateTranscript = async () => {
     const downloadUrl = props.absService.getDownloadUrl(props.item.id);
     const duration = props.item.media.duration;
     
-    // Pass duration and streaming callback to service
+    // Pass duration, streaming callback, and CURRENT TIME to service
     const vtt = await TranscriptionService.generateTranscript(
       props.item.id, 
       downloadUrl, 
@@ -121,7 +121,8 @@ const generateTranscript = async () => {
         if (newCues.length > 0) {
             cues.value = newCues;
         }
-      }
+      },
+      props.currentTime // Explicitly pass current time for chunking
     );
     
     // Final parse to ensure everything is correct
@@ -237,7 +238,7 @@ watch(() => props.item.id, loadTranscript, { immediate: true });
           class="px-6 py-3 bg-purple-600 hover:bg-purple-500 text-white font-black uppercase tracking-[0.15em] text-[9px] rounded-full shadow-[0_0_20px_rgba(168,85,247,0.3)] transition-all active:scale-95 flex items-center gap-2"
         >
           <Sparkles :size="12" />
-          <span>Generate</span>
+          <span>Generate Segment</span>
         </button>
       </div>
 
