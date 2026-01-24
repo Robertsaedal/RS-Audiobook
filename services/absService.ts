@@ -39,7 +39,7 @@ export class ABSService {
     this.socket = io(this.serverUrl, {
       auth: { token: this.token },
       path: '/socket.io',
-      transports: ['websocket'],
+      transports: ['polling'],
       autoConnect: true,
       reconnection: true,
       timeout: 10000,
@@ -47,12 +47,12 @@ export class ABSService {
 
     // CRITICAL: The server expects an explicit 'auth' event after connection.
     this.socket.on('connect', () => {
-      console.log('[ABSService] Socket connected, authenticating...');
+      console.log('[ABSService] Socket connected (Polling), authenticating...');
       this.emitAuth();
     });
 
     this.socket.on('connect_error', (err) => {
-      console.warn('[ABSService] Socket connection error:', err.message);
+      console.warn('[ABSService] Live updates disabled (using polling mode).', err.message);
     });
   }
 

@@ -54,7 +54,6 @@ export default async function handler(req: any, res: any) {
 
   // Generate a random temp filename
   const tempFilePath = path.join(os.tmpdir(), `audio-${Date.now()}-${Math.random().toString(36).substring(7)}.mp3`);
-  let fileUri = '';
   let fileName = '';
 
   try {
@@ -74,8 +73,8 @@ export default async function handler(req: any, res: any) {
       displayName: "Audiobook Segment",
     });
     
-    fileUri = uploadResult.file.uri;
     fileName = uploadResult.file.name;
+    const fileUri = uploadResult.file.uri;
 
     // OPTIMIZATION: Delete local file immediately after upload to free space
     if (fs.existsSync(tempFilePath)) {
@@ -106,7 +105,9 @@ export default async function handler(req: any, res: any) {
 
     for await (const chunk of result.stream) {
         const chunkText = chunk.text();
-        res.write(chunkText);
+        if (chunkText) {
+            res.write(chunkText);
+        }
     }
     
     // Cleanup Gemini File (Best Effort)

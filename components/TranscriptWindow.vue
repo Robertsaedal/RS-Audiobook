@@ -23,6 +23,7 @@ const errorMsg = ref<string | null>(null);
 const hasTranscript = ref(false);
 const activeCueIndex = ref(-1);
 const scrollContainer = ref<HTMLElement | null>(null);
+const customStatusText = ref<string | null>(null);
 
 // Progress State
 const processingProgress = ref(0);
@@ -31,13 +32,15 @@ let progressInterval: any = null;
 const activeCue = computed(() => activeCueIndex.value !== -1 ? cues.value[activeCueIndex.value] : null);
 
 const progressLabel = computed(() => {
+  if (customStatusText.value) return customStatusText.value;
   if (processingProgress.value < 20) return 'Initializing Gemini...';
-  if (processingProgress.value < 80) return 'Connecting to Stream...';
-  return 'Streaming Text...';
+  if (processingProgress.value < 80) return 'Processing Audio...';
+  return 'Finalizing...';
 });
 
 const startProgressSimulation = () => {
   processingProgress.value = 0;
+  customStatusText.value = null;
   if (progressInterval) clearInterval(progressInterval);
   
   progressInterval = setInterval(() => {
@@ -87,10 +90,13 @@ const generateTranscript = async () => {
       downloadUrl, 
       duration,
       (chunk) => {
+        // Update status on first chunk or continuous chunks
+        customStatusText.value = 'Receiving data...';
+        
         accumulatedVtt += chunk;
         
-        // Once we get any data, remove the full screen loading state so user sees text streaming
-        if (!hasStoppedLoading && accumulatedVtt.length > 20) {
+        // Once we get meaningful data, remove the full screen loading state
+        if (!hasStoppedLoading && accumulatedVtt.length > 50) {
            stopProgressSimulation();
            isLoading.value = false; 
            hasTranscript.value = true;
@@ -98,7 +104,6 @@ const generateTranscript = async () => {
         }
 
         // Parse whatever we have so far
-        // Note: This might parse incomplete lines at the end, but the next chunk will fix it.
         cues.value = TranscriptionService.parseVTT(accumulatedVtt);
       }
     );
