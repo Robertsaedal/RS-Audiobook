@@ -92,7 +92,7 @@ export class ABSService {
     }
   }
 
-  private static async fetchWithRetry(url: string, options: RequestInit, retries = 3, timeout = 10000): Promise<Response> {
+  private static async fetchWithRetry(url: string, options: RequestInit, retries = 3, timeout = 30000): Promise<Response> {
     let lastError: Error | null = null;
     
     // CORS FIX: Removed custom Cache-Control headers.
@@ -113,7 +113,9 @@ export class ABSService {
     for (let i = 0; i < retries; i++) {
       const controller = new AbortController();
       // Only set timeout if not keepalive, as keepalive requests run in background
-      const id = options.keepalive ? null : setTimeout(() => controller.abort(), timeout);
+      // Providing a reason to abort() helps debug "signal aborted" errors
+      const id = options.keepalive ? null : setTimeout(() => controller.abort(new Error("Network timeout: Server took too long to respond")), timeout);
+      
       try {
         const response = await fetch(cleanUrl, { ...newOptions, signal: controller.signal });
         if (id) clearTimeout(id);
@@ -128,9 +130,15 @@ export class ABSService {
       } catch (e: any) {
         if (id) clearTimeout(id);
         lastError = e;
+        
+        // Handle explicit aborts (timeouts) or user cancellation
+        if (e.name === 'AbortError') {
+             console.warn(`[Fetch] Request aborted/timed out: ${url}`);
+        }
+
         // Don't retry keepalive requests or if explicitly aborted
         if (options.keepalive || i === retries - 1) break;
-        await new Promise(resolve => setTimeout(resolve, 500 * (i + 1)));
+        await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1))); // Increased backoff
       }
     }
     throw lastError || new Error('FAILED_AFTER_RETRIES');
