@@ -3,7 +3,7 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import { ABSService } from '../services/absService';
 import { ABSProgress } from '../types';
-import { AlertCircle, PlayCircle, Trophy, ChevronLeft, ChevronRight, Clock, Calendar, BarChart2 } from 'lucide-vue-next';
+import { AlertCircle, Trophy, ChevronLeft, ChevronRight, Clock, Calendar, BarChart2 } from 'lucide-vue-next';
 
 const props = defineProps<{
   absService: ABSService,
@@ -124,18 +124,6 @@ const maxChartValue = computed(() => {
 });
 
 const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-const displaySessions = computed(() => {
-    // ABS API sometimes returns sessions in 'recentSessions' or 'items' depending on version
-    return stats.value?.items || stats.value?.recentSessions || [];
-});
-
-const formatTooltipDuration = (seconds: number) => {
-  if (seconds === 0) return 'No data';
-  if (seconds < 60) return `${Math.round(seconds)}s`;
-  if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
-  return `${(seconds / 3600).toFixed(1)}h`;
-};
 
 const fetchStats = async () => {
   if (!props.absService) return;
@@ -292,35 +280,6 @@ onMounted(() => {
                 </span>
               </div>
            </div>
-        </div>
-
-        <!-- Activity History -->
-        <div class="space-y-4 mt-8">
-            <div class="flex items-center gap-3 text-neutral-500 px-2 pb-2">
-                <PlayCircle :size="18" class="text-purple-500" />
-                <span class="text-[9px] font-black uppercase tracking-[0.3em] text-white">Recent Activity</span>
-            </div>
-            
-            <div v-if="displaySessions.length > 0" class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div v-for="(session, index) in displaySessions.slice(0, 10)" :key="index" class="bg-neutral-900/30 border border-white/5 rounded-2xl p-4 flex items-center justify-between hover:border-white/10 transition-colors">
-                    <div class="flex items-center gap-4 truncate">
-                        <div class="w-10 h-10 rounded-full bg-neutral-800 flex items-center justify-center text-[10px] font-mono font-bold text-neutral-500 shrink-0">
-                            {{ (index + 1) }}
-                        </div>
-                        <div class="flex flex-col truncate">
-                            <span class="text-sm font-bold text-white truncate">{{ session.mediaMetadata?.title || session.title || 'Unknown Title' }}</span>
-                            <span class="text-[10px] text-neutral-600 uppercase tracking-wider truncate">{{ session.mediaMetadata?.author || session.author || 'Unknown Creator' }}</span>
-                        </div>
-                    </div>
-                    <div class="text-right pl-4 shrink-0">
-                         <span class="text-xs font-mono font-bold text-purple-400 block">{{ formatTooltipDuration(session.timeListening || session.totalTime || 0) }}</span>
-                         <span class="text-[8px] text-neutral-700 uppercase">{{ session.updatedAt ? new Date(session.updatedAt).toLocaleDateString() : '' }}</span>
-                    </div>
-                </div>
-            </div>
-            <div v-else class="text-center py-10 opacity-30">
-                <p class="text-[9px] font-black uppercase tracking-[0.4em]">No recent artifact activity recorded</p>
-            </div>
         </div>
 
       </div>
