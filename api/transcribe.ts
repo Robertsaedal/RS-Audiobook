@@ -95,10 +95,43 @@ export default async function handler(req: any, res: any) {
     }
     if (!audioRes.body) throw new Error("No response body received from upstream");
 
-    // NOTE: Headers delayed until after AI generation starts successfully
+    // DETECT MIME TYPE & EXTENSION ROBUSTLY
+    const urlPath = new URL(downloadUrl).pathname;
+    const urlExt = path.extname(urlPath).toLowerCase().replace('.', '');
+    
+    // Default fallback
+    let mimeType = 'audio/mp3';
+    let extension = 'mp3';
 
-    // 4. Download to Temp File
-    tempFilePath = path.join(os.tmpdir(), `audio-${Date.now()}.mp3`);
+    // Map common audiobook formats
+    if (urlExt === 'm4b' || urlExt === 'm4a' || urlExt === 'mp4') {
+        mimeType = 'audio/mp4';
+        extension = 'm4a'; // Generic container extension
+    } else if (urlExt === 'flac') {
+        mimeType = 'audio/flac';
+        extension = 'flac';
+    } else if (urlExt === 'wav') {
+        mimeType = 'audio/wav';
+        extension = 'wav';
+    } else if (urlExt === 'ogg' || urlExt === 'oga') {
+        mimeType = 'audio/ogg';
+        extension = 'ogg';
+    } else if (urlExt === 'mp3') {
+        mimeType = 'audio/mp3';
+        extension = 'mp3';
+    } else {
+        // Fallback to header if extension is obscure
+        const headerType = audioRes.headers.get('content-type');
+        if (headerType && headerType !== 'application/octet-stream') {
+            mimeType = headerType;
+            if (mimeType.includes('mp4') || mimeType.includes('m4a')) extension = 'm4a';
+        }
+    }
+
+    console.log(`[Transcribe] Detected Mime: ${mimeType}, Ext: ${extension} (URL Ext: ${urlExt})`);
+
+    // 4. Download to Temp File with correct extension
+    tempFilePath = path.join(os.tmpdir(), `audio-${Date.now()}.${extension}`);
     const fileStream = createWriteStream(tempFilePath);
     // @ts-ignore
     await pipeline(audioRes.body, fileStream);
@@ -108,7 +141,7 @@ export default async function handler(req: any, res: any) {
     uploadResult = await ai.files.upload({
         file: tempFilePath,
         config: {
-            mimeType: "audio/mp3",
+            mimeType: mimeType, 
             displayName: "Audio Segment",
         }
     });
@@ -128,7 +161,6 @@ export default async function handler(req: any, res: any) {
 
     // 7. Generate Stream with Retry Logic
     let responseStream;
-    // Updated model to gemini-2.5-flash as requested
     const modelName = 'gemini-2.5-flash';
 
     const generate = async () => {
@@ -139,10 +171,15 @@ export default async function handler(req: any, res: any) {
                     role: 'user',
                     parts: [
                         { 
-                           text: `You are a professional transcriber.
-                           Task: Transcribe the audio file precisely and concisely.
-                           Format: Output strictly JSONL (JSON Lines). Each line must be a valid JSON object.
-                           Do NOT use markdown code blocks. Do NOT output an array.
+                           text: `You are a professional transcriber for a Fantasy/Fiction Audiobook.
+                           Task: Transcribe the audio exactly as spoken.
+                           
+                           CRITICAL RULES:
+                           1. CONTEXT: This is a FANTASY novel. Expect names, lore, and narrative storytelling.
+                           2. ANTI-HALLUCINATION: If the audio is silent, unintelligible, noise, or music, OUTPUT NOTHING. 
+                           3. DO NOT output placeholder text like "tech startup", "interview", "youtube intro", or generic conversations. This is a common error; avoid it.
+                           4. Format: Strictly JSONL (JSON Lines). One object per line.
+                           
                            Schema: {"start": "HH:MM:SS.mmm", "end": "HH:MM:SS.mmm", "speaker": "Speaker Name", "text": "Content"}
                            Speaker Diarization: Enabled.` 
                         },
@@ -154,7 +191,10 @@ export default async function handler(req: any, res: any) {
                         }
                     ]
                 }
-            ]
+            ],
+            config: {
+                temperature: 0.1, // Low temperature to minimize hallucinations
+            }
         });
     };
 
