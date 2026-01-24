@@ -16,6 +16,8 @@ export const config = {
 // 1MB Chunk = ~1-2 mins of audio. 
 const CHUNK_SIZE_BYTES = 1024 * 1024; 
 
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 export default async function handler(req: any, res: any) {
   // 1. CORS Headers
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -48,7 +50,7 @@ export default async function handler(req: any, res: any) {
   let uploadResult: any = null;
 
   try {
-    // 3. Pre-Calculation & Fetching (Before Headers)
+    // 3. Pre-Calculation & Fetching
     
     let startByte = 0;
     let endByte = CHUNK_SIZE_BYTES;
@@ -93,16 +95,7 @@ export default async function handler(req: any, res: any) {
     }
     if (!audioRes.body) throw new Error("No response body received from upstream");
 
-    // ---------------------------------------------------------
-    // If we reach here, we have the stream. Send Heartbeat headers.
-    // ---------------------------------------------------------
-    res.writeHead(200, {
-        'Content-Type': 'text/plain; charset=utf-8',
-        'Transfer-Encoding': 'chunked',
-        'X-Content-Type-Options': 'nosniff'
-    });
-
-    res.write(': status: downloading_audio\n');
+    // NOTE: Headers delayed until after AI generation starts successfully
 
     // 4. Download to Temp File
     tempFilePath = path.join(os.tmpdir(), `audio-${Date.now()}.mp3`);
@@ -111,9 +104,7 @@ export default async function handler(req: any, res: any) {
     await pipeline(audioRes.body, fileStream);
 
     // 5. Upload to Google
-    res.write(': status: uploading_to_gemini\n');
-    
-    // In @google/genai, upload returns the File object directly, not { file: File }
+    // In @google/genai, upload returns the File object directly
     uploadResult = await ai.files.upload({
         file: tempFilePath,
         config: {
@@ -126,8 +117,7 @@ export default async function handler(req: any, res: any) {
     let file = await ai.files.get({ name: uploadResult.name });
     let attempts = 0;
     while (file.state === 'PROCESSING' && attempts < 30) {
-        res.write(': status: processing_file\n');
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        await sleep(1000);
         file = await ai.files.get({ name: uploadResult.name });
         attempts++;
     }
@@ -136,32 +126,62 @@ export default async function handler(req: any, res: any) {
         throw new Error("Google AI File Processing Failed");
     }
 
-    // 7. Generate Stream
-    res.write(': status: generating_transcript\n');
+    // 7. Generate Stream with Retry Logic
+    let responseStream;
+    const modelName = 'gemini-1.5-flash';
 
-    const responseStream = await ai.models.generateContentStream({
-      model: 'gemini-2.0-flash-exp',
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            { 
-               text: `You are a professional transcriber.
-               Task: Transcribe the audio file precisely.
-               Format: Output strictly JSONL (JSON Lines). Each line must be a valid JSON object.
-               Do NOT use markdown code blocks. Do NOT output an array.
-               Schema: {"start": "HH:MM:SS.mmm", "end": "HH:MM:SS.mmm", "speaker": "Speaker Name", "text": "Content"}
-               Speaker Diarization: Enabled.` 
-            },
-            { 
-               fileData: { 
-                   mimeType: file.mimeType, 
-                   fileUri: file.uri 
-               } 
+    const generate = async () => {
+        return await ai.models.generateContentStream({
+            model: modelName,
+            contents: [
+                {
+                    role: 'user',
+                    parts: [
+                        { 
+                           text: `You are a professional transcriber.
+                           Task: Transcribe the audio file precisely and concisely.
+                           Format: Output strictly JSONL (JSON Lines). Each line must be a valid JSON object.
+                           Do NOT use markdown code blocks. Do NOT output an array.
+                           Schema: {"start": "HH:MM:SS.mmm", "end": "HH:MM:SS.mmm", "speaker": "Speaker Name", "text": "Content"}
+                           Speaker Diarization: Enabled.` 
+                        },
+                        { 
+                           fileData: { 
+                               mimeType: file.mimeType, 
+                               fileUri: file.uri 
+                           } 
+                        }
+                    ]
+                }
+            ]
+        });
+    };
+
+    try {
+        responseStream = await generate();
+    } catch (e: any) {
+        const isQuota = e.message?.includes('429') || e.status === 429 || e.message?.includes('Resource has been exhausted');
+        
+        if (isQuota) {
+            console.warn("[Transcribe] Quota exceeded (429). Backing off for 15s...");
+            await sleep(15000); // 15s Backoff
+            try {
+                responseStream = await generate();
+            } catch (retryE: any) {
+                 console.error("[Transcribe] Retry failed.", retryE);
+                 // Return friendly 429 JSON for frontend to handle
+                 return res.status(429).json({ error: "Quota full, please wait 30 seconds before next chunk" });
             }
-          ]
+        } else {
+            throw e;
         }
-      ]
+    }
+
+    // Send Success Headers
+    res.writeHead(200, {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Transfer-Encoding': 'chunked',
+        'X-Content-Type-Options': 'nosniff'
     });
 
     for await (const chunk of responseStream) {
@@ -174,9 +194,15 @@ export default async function handler(req: any, res: any) {
     // If headers haven't been sent, we can send a proper JSON error
     if (!res.headersSent) {
         const isTimeout = error.name === 'AbortError';
+        const isQuota = error.status === 429 || error.message?.includes('429');
+
+        if (isQuota) {
+             return res.status(429).json({ error: "Quota full, please wait 30 seconds before next chunk" });
+        }
+
         return res.status(500).json({ 
             error: isTimeout ? 'Upstream request timed out (15s)' : error.message, 
-            stage: 'fetching-audio' 
+            stage: 'processing' 
         });
     } else {
         // Headers already sent, must write error to stream so client detects it
@@ -198,6 +224,8 @@ export default async function handler(req: any, res: any) {
             console.error(`[Cleanup] Failed to delete remote file: ${uploadResult.name}`, e);
         }
     }
-    res.end();
+    if (!res.writableEnded) {
+        res.end();
+    }
   }
 }
