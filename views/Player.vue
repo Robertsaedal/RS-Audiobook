@@ -1,3 +1,4 @@
+
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { AuthState, ABSLibraryItem } from '../types';
@@ -359,17 +360,18 @@ const infoRows = computed(() => {
               </div>
               <p class="text-sm md:text-lg font-bold text-neutral-500 line-clamp-1">{{ metadata.authorName }}</p>
             </div>
-            <!-- Updated Series Pill -->
+            
+            <!-- TRANSPARENT SERIES PILL WITH GLOW -->
             <button 
               v-if="metadata.seriesName" 
               @click="handleSeriesClick($event)" 
-              class="group flex items-center justify-center gap-2 mx-auto px-4 py-1.5 rounded-full bg-purple-600 transition-all active:scale-95 shadow-md tap-effect"
+              class="group flex items-center justify-center gap-2 mx-auto px-4 py-1.5 rounded-full bg-purple-500/10 backdrop-blur-md border border-purple-500 text-white transition-all active:scale-95 shadow-[0_0_15px_rgba(168,85,247,0.5)] tap-effect hover:bg-purple-500/20 hover:shadow-[0_0_25px_rgba(168,85,247,0.8)]"
             >
-              <Layers :size="12" class="text-white" />
-              <span class="text-white font-black text-[10px] md:text-xs uppercase tracking-wider">
+              <Layers :size="12" class="text-purple-300 group-hover:text-white transition-colors" />
+              <span class="text-purple-100 font-black text-[10px] md:text-xs uppercase tracking-wider group-hover:text-white transition-colors">
                 {{ metadata.seriesName }} {{ metadata.seriesSequence ? `#${metadata.seriesSequence}` : '' }}
               </span>
-              <ArrowRight :size="12" class="text-white transition-transform group-hover:translate-x-1" />
+              <ArrowRight :size="12" class="text-purple-300 transition-transform group-hover:translate-x-1 group-hover:text-white" />
             </button>
           </div>
         </div>
@@ -420,10 +422,10 @@ const infoRows = computed(() => {
               <RotateCcw :size="26" />
             </button>
 
-            <!-- Play/Pause Main - SOLID PURPLE MATCHING SERIES PILL -->
+            <!-- Play/Pause Main - TRANSPARENT GLASS WITH GLOW OUTLINE -->
             <button 
               @click="togglePlay" 
-              class="w-20 h-20 md:w-24 md:h-24 rounded-full bg-purple-600 text-white flex items-center justify-center shadow-[0_0_30px_rgba(147,51,234,0.5)] active:scale-95 transition-all group relative tap-effect hover:scale-105 hover:bg-purple-500 hover:shadow-[0_0_40px_rgba(147,51,234,0.7)]"
+              class="w-20 h-20 md:w-24 md:h-24 rounded-full bg-purple-500/10 backdrop-blur-md border border-purple-500 text-white flex items-center justify-center shadow-[0_0_30px_rgba(168,85,247,0.5)] active:scale-95 transition-all group relative tap-effect hover:scale-105 hover:bg-purple-500/20 hover:border-purple-400 hover:shadow-[0_0_50px_rgba(168,85,247,0.8)]"
             >
               <div v-if="state.isLoading" class="absolute inset-0 bg-white/20 rounded-full animate-ping" />
               <Pause v-if="state.isPlaying" :size="42" fill="currentColor" />
@@ -477,8 +479,7 @@ const infoRows = computed(() => {
                  <button @click="setPlaybackRate(2.0)" class="flex-1 py-1.5 text-[10px] font-black text-neutral-400 hover:text-white hover:bg-white/10 rounded transition-colors" :class="{ 'text-white bg-white/10': state.playbackRate === 2.0 }">2.0</button>
                </div>
                
-               <!-- Fine Tune (Hidden Overlay on Hover? Or just accessible via clicks) -->
-               <!-- Keeping it simple with presets + stepper buttons might be too crowded. Let's add +/- to corners? -->
+               <!-- Fine Tune -->
                <button @click="setPlaybackRate(Math.max(0.5, state.playbackRate - 0.1))" class="absolute left-2 top-1/2 -translate-y-1/2 p-2 text-neutral-600 hover:text-white active:scale-90 transition-all"><Minus :size="14" /></button>
                <button @click="setPlaybackRate(Math.min(3.0, state.playbackRate + 0.1))" class="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-neutral-600 hover:text-white active:scale-90 transition-all"><Plus :size="14" /></button>
             </div>
