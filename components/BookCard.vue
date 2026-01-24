@@ -1,3 +1,4 @@
+
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { ABSLibraryItem, ABSProgress } from '../types';
@@ -77,6 +78,13 @@ const displaySequence = computed(() => {
     if (s.sequence !== undefined && s.sequence !== null) return s.sequence;
   }
   return null;
+});
+
+// Clamped position for the pill so it doesn't fall off edges of the card
+const pillPosition = computed(() => {
+  const p = progressPercentage.value;
+  // Clamp between 10% and 90% to keep the pill entirely visible
+  return Math.max(10, Math.min(90, p));
 });
 
 const initVisuals = async () => {
@@ -209,18 +217,32 @@ watch(isFinished, (newVal) => {
         </div>
       </div>
 
-      <!-- Progress Bar (Hidden if downloading) -->
+      <!-- Progress Bar with Dynamic Pill (Hidden if downloading) -->
       <div v-if="!hideProgress && !isFinished && progressPercentage > 0 && !downloadProgress && isVisible" class="absolute bottom-3 left-3 right-3 z-30 flex flex-col pointer-events-none">
          <div class="relative w-full h-1.5 bg-purple-950/40 backdrop-blur-sm rounded-full">
             <div 
               class="h-full bg-purple-500 rounded-full shadow-[0_0_10px_rgba(168,85,247,0.4)] transition-all duration-300 relative" 
               :style="{ width: progressPercentage + '%', backgroundColor: colorLoaded ? 'var(--card-accent)' : undefined, boxShadow: colorLoaded ? '0 0 10px var(--card-accent)' : undefined }"
             />
+            
+            <!-- Dynamic Percentage Pill -->
+            <div 
+              class="absolute bottom-2.5 -translate-x-1/2 z-20 transition-all duration-300"
+              :style="{ left: pillPosition + '%' }"
+            >
+               <div 
+                 class="bg-purple-500 text-white text-[8px] font-black px-2 py-0.5 rounded-full shadow-lg min-w-[28px] text-center border border-white/10 tracking-tight"
+                 :style="{ backgroundColor: colorLoaded ? 'var(--card-accent)' : undefined }"
+               >
+                  {{ Math.round(progressPercentage) }}%
+               </div>
+               <!-- Tiny Triangle Pointer -->
+               <div 
+                 class="w-0 h-0 border-l-[3px] border-l-transparent border-r-[3px] border-r-transparent border-t-[4px] border-t-purple-500 mx-auto mt-[-1px]"
+                 :style="{ borderTopColor: colorLoaded ? 'var(--card-accent)' : undefined }"
+               ></div>
+            </div>
          </div>
-         <!-- Percentage Text Overlay -->
-         <span class="absolute right-0 -top-3 text-[8px] font-black text-purple-200 drop-shadow-md">
-            {{ Math.round(progressPercentage) }}%
-         </span>
       </div>
     </div>
     

@@ -8,7 +8,7 @@ import { OfflineManager, downloadQueue } from '../services/offlineManager'; // I
 import ChapterEditor from '../components/ChapterEditor.vue';
 import { 
   ChevronDown, Play, Pause, Info, X, SkipBack, SkipForward,
-  RotateCcw, RotateCw, ChevronRight, Moon, Plus, Minus, Mic, Clock, Layers, Download, CheckCircle, Calendar, ArrowRight, Heart
+  RotateCcw, RotateCw, ChevronRight, Moon, Plus, Minus, Mic, Clock, Layers, Download, CheckCircle, Calendar, ArrowRight, Heart, Gauge
 } from 'lucide-vue-next';
 
 const props = defineProps<{
@@ -382,8 +382,9 @@ const infoRows = computed(() => {
                  <span class="text-base md:text-lg font-extrabold font-mono-timer tracking-tighter text-white">{{ secondsToTimestamp(state.currentTime - (currentChapter?.start || 0)) }}</span>
                </div>
                
+               <!-- Center info (Sleep Timer Active) -->
                <div v-if="liveSleepCountdownText" class="absolute left-1/2 -translate-x-1/2 bottom-0 flex items-center justify-center">
-                 <span class="text-base md:text-lg font-black font-mono-timer tracking-tighter text-purple-400 whitespace-nowrap shadow-aether-glow">{{ liveSleepCountdownText }}</span>
+                 <!-- Hidden here to avoid duplication, handled in grid below now -->
                </div>
 
                <div class="flex flex-col items-end">
@@ -399,63 +400,127 @@ const infoRows = computed(() => {
             </div>
           </div>
 
-          <div class="flex items-center justify-center gap-4 md:gap-8">
-            <button @click="skipToPrevChapter" class="p-3 text-neutral-700 hover:text-purple-400 tap-effect"><SkipBack :size="20" /></button>
-            <button @click="seek(state.currentTime - 10)" class="p-3 text-neutral-700 hover:text-white tap-effect"><RotateCcw :size="24" /></button>
+          <!-- ENHANCED CONTROLS ROW -->
+          <div class="flex items-center justify-center gap-6 md:gap-10 w-full px-4">
+            <!-- Prev Chapter -->
+            <button 
+              @click="skipToPrevChapter" 
+              class="p-2 text-neutral-500 hover:text-white transition-colors tap-effect"
+              title="Previous Chapter"
+            >
+              <SkipBack :size="24" />
+            </button>
+
+            <!-- Rewind -->
+            <button 
+              @click="seek(state.currentTime - 10)" 
+              class="w-14 h-14 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-neutral-200 hover:bg-white/10 hover:text-white hover:border-white/20 transition-all tap-effect shadow-lg active:scale-95"
+              title="Rewind 10s"
+            >
+              <RotateCcw :size="26" />
+            </button>
+
+            <!-- Play/Pause Main -->
             <button 
               @click="togglePlay" 
-              class="w-16 h-16 md:w-20 md:h-20 rounded-full bg-purple-600/10 flex items-center justify-center border border-purple-500/30 shadow-[0_0_50px_rgba(168,85,247,0.2)] active:scale-95 transition-all group relative tap-effect"
+              class="w-20 h-20 md:w-24 md:h-24 rounded-full bg-purple-600 text-white flex items-center justify-center shadow-[0_0_50px_rgba(168,85,247,0.5)] active:scale-95 transition-all group relative tap-effect hover:scale-105 hover:bg-purple-500 border border-purple-400/30"
             >
-              <!-- Play Glow Animation -->
-              <div v-if="state.isLoading" class="absolute inset-0 bg-purple-500/20 rounded-full animate-ping" />
-              <Pause v-if="state.isPlaying" :size="28" class="text-purple-500 fill-current" />
-              <Play v-else :size="28" class="text-purple-500 fill-current translate-x-1" />
+              <div v-if="state.isLoading" class="absolute inset-0 bg-white/20 rounded-full animate-ping" />
+              <Pause v-if="state.isPlaying" :size="36" fill="currentColor" />
+              <Play v-else :size="36" fill="currentColor" class="translate-x-1" />
             </button>
-            <button @click="seek(state.currentTime + 30)" class="p-3 text-neutral-700 hover:text-white tap-effect"><RotateCw :size="24" /></button>
-            <button @click="skipToNextChapter" class="p-3 text-neutral-700 hover:text-purple-400 tap-effect"><SkipForward :size="20" /></button>
+
+            <!-- Forward -->
+            <button 
+              @click="seek(state.currentTime + 30)" 
+              class="w-14 h-14 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-neutral-200 hover:bg-white/10 hover:text-white hover:border-white/20 transition-all tap-effect shadow-lg active:scale-95"
+              title="Forward 30s"
+            >
+              <RotateCw :size="26" />
+            </button>
+
+            <!-- Next Chapter -->
+            <button 
+              @click="skipToNextChapter" 
+              class="p-2 text-neutral-500 hover:text-white transition-colors tap-effect"
+              title="Next Chapter"
+            >
+              <SkipForward :size="24" />
+            </button>
           </div>
 
-          <div class="grid grid-cols-2 gap-3 md:gap-4 w-full h-32 md:h-36">
-            <div class="bg-neutral-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-5 md:p-6 flex flex-col justify-between gap-2 relative overflow-hidden">
-               <div class="flex items-center justify-center w-full relative">
-                   <div class="flex items-center gap-2 text-neutral-500"><Clock :size="14" /><span class="text-[9px] font-black uppercase tracking-[0.2em]">Speed</span></div>
+          <!-- BOTTOM GRID: Speed & Sleep -->
+          <div class="grid grid-cols-2 gap-3 md:gap-4 w-full h-36 md:h-40">
+            
+            <!-- SPEED CONTROL CARD -->
+            <div class="bg-neutral-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-5 md:p-6 flex flex-col justify-between relative overflow-hidden group">
+               <!-- Decorative Glow -->
+               <div class="absolute -right-6 -top-6 w-20 h-20 bg-purple-500/10 rounded-full blur-xl group-hover:bg-purple-500/20 transition-colors pointer-events-none"></div>
+
+               <div class="flex items-center gap-2 text-neutral-500 z-10 relative">
+                  <Gauge :size="14" class="text-purple-400" />
+                  <span class="text-[9px] font-black uppercase tracking-[0.2em]">Velocity</span>
                </div>
-               <div class="flex-1 flex flex-col items-center justify-center"><span class="text-2xl md:text-3xl font-black font-mono tracking-tighter text-white">{{ state.playbackRate.toFixed(1) }}x</span></div>
-               <div class="flex items-center gap-4 w-full justify-center">
-                 <button @click="setPlaybackRate(Math.max(0.5, state.playbackRate - 0.1))" class="p-2 bg-white/5 rounded-full text-neutral-400 transition-colors hover:text-white tap-effect"><Minus :size="16" /></button>
-                 <button @click="setPlaybackRate(Math.min(3.0, state.playbackRate + 0.1))" class="p-2 bg-white/5 rounded-full text-neutral-400 transition-colors hover:text-white tap-effect"><Plus :size="16" /></button>
+               
+               <div class="flex-1 flex flex-col items-center justify-center z-10 relative">
+                 <div class="flex items-baseline">
+                   <span class="text-4xl md:text-5xl font-black font-mono tracking-tighter text-white drop-shadow-lg scale-110">{{ state.playbackRate.toFixed(1) }}</span>
+                   <span class="text-lg md:text-xl font-bold text-neutral-600 ml-1">x</span>
+                 </div>
+               </div>
+               
+               <!-- Preset Pill Bar -->
+               <div class="flex items-center justify-between w-full bg-black/40 rounded-lg p-1 z-10 relative border border-white/5">
+                 <button @click="setPlaybackRate(1.0)" class="flex-1 py-1.5 text-[10px] font-black text-neutral-400 hover:text-white hover:bg-white/10 rounded transition-colors" :class="{ 'text-white bg-white/10': state.playbackRate === 1.0 }">1.0</button>
+                 <button @click="setPlaybackRate(1.2)" class="flex-1 py-1.5 text-[10px] font-black text-neutral-400 hover:text-white hover:bg-white/10 rounded transition-colors" :class="{ 'text-white bg-white/10': state.playbackRate === 1.2 }">1.2</button>
+                 <button @click="setPlaybackRate(1.5)" class="flex-1 py-1.5 text-[10px] font-black text-neutral-400 hover:text-white hover:bg-white/10 rounded transition-colors" :class="{ 'text-white bg-white/10': state.playbackRate === 1.5 }">1.5</button>
+                 <button @click="setPlaybackRate(2.0)" class="flex-1 py-1.5 text-[10px] font-black text-neutral-400 hover:text-white hover:bg-white/10 rounded transition-colors" :class="{ 'text-white bg-white/10': state.playbackRate === 2.0 }">2.0</button>
+               </div>
+               
+               <!-- Fine Tune (Hidden Overlay on Hover? Or just accessible via clicks) -->
+               <!-- Keeping it simple with presets + stepper buttons might be too crowded. Let's add +/- to corners? -->
+               <button @click="setPlaybackRate(Math.max(0.5, state.playbackRate - 0.1))" class="absolute left-2 top-1/2 -translate-y-1/2 p-2 text-neutral-600 hover:text-white active:scale-90 transition-all"><Minus :size="14" /></button>
+               <button @click="setPlaybackRate(Math.min(3.0, state.playbackRate + 0.1))" class="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-neutral-600 hover:text-white active:scale-90 transition-all"><Plus :size="14" /></button>
+            </div>
+
+            <!-- SLEEP TIMER CARD -->
+            <div class="bg-neutral-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-5 md:p-6 flex flex-col justify-between relative overflow-hidden group">
+               <!-- Decorative Glow -->
+               <div class="absolute -left-6 -top-6 w-20 h-20 bg-blue-500/10 rounded-full blur-xl group-hover:bg-blue-500/20 transition-colors pointer-events-none"></div>
+
+               <div class="flex items-center justify-between z-10 relative">
+                 <div class="flex items-center gap-2 text-neutral-500">
+                    <Moon :size="14" class="text-blue-400" />
+                    <span class="text-[9px] font-black uppercase tracking-[0.2em]">Sleep</span>
+                 </div>
+                 <div class="w-2 h-2 rounded-full" :class="isSleepActive ? 'bg-blue-500 animate-pulse' : 'bg-neutral-800'"></div>
+               </div>
+               
+               <div class="flex-1 flex flex-col items-center justify-center z-10 relative">
+                 <div v-if="liveSleepCountdownText" class="flex flex-col items-center animate-fade-in">
+                    <span class="text-2xl md:text-3xl font-black font-mono tracking-tighter text-blue-100 drop-shadow-lg">{{ liveSleepCountdownText.split('•')[0] }}</span>
+                    <span v-if="liveSleepCountdownText.includes('•')" class="text-[9px] font-black uppercase tracking-widest text-blue-400 mt-1">{{ liveSleepCountdownText.split('•')[1] }}</span>
+                 </div>
+                 <span v-else class="text-xs font-black uppercase tracking-widest text-neutral-700">Timer Off</span>
+               </div>
+               
+               <!-- Control Pill Bar -->
+               <div class="flex items-center gap-2 w-full z-10 relative">
+                  <!-- Minutes Control -->
+                  <div class="flex-1 flex items-center justify-between bg-black/40 rounded-lg p-1 border border-white/5">
+                     <button @click="adjustSleepTime(-900)" class="w-6 h-6 flex items-center justify-center text-neutral-500 hover:text-white hover:bg-white/10 rounded transition-colors"><Minus :size="12" /></button>
+                     <span class="text-[9px] font-black text-neutral-300">MIN</span>
+                     <button @click="adjustSleepTime(900)" class="w-6 h-6 flex items-center justify-center text-neutral-500 hover:text-white hover:bg-white/10 rounded transition-colors"><Plus :size="12" /></button>
+                  </div>
+                  <!-- Chapter Control -->
+                  <div class="flex-1 flex items-center justify-between bg-black/40 rounded-lg p-1 border border-white/5">
+                     <button @click="adjustSleepChapters(-1)" class="w-6 h-6 flex items-center justify-center text-neutral-500 hover:text-white hover:bg-white/10 rounded transition-colors"><Minus :size="12" /></button>
+                     <span class="text-[9px] font-black text-neutral-300">CH</span>
+                     <button @click="adjustSleepChapters(1)" class="w-6 h-6 flex items-center justify-center text-neutral-500 hover:text-white hover:bg-white/10 rounded transition-colors"><Plus :size="12" /></button>
+                  </div>
                </div>
             </div>
 
-            <div class="bg-neutral-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-5 md:p-6 flex flex-col justify-between gap-2 relative overflow-hidden group">
-               <!-- Centered Header -->
-               <div class="flex justify-center items-center px-1 mb-1 relative">
-                 <div class="flex items-center gap-2 text-neutral-500"><Moon :size="14" /><span class="text-[9px] font-black uppercase tracking-[0.2em]">SLEEP</span></div>
-                 <!-- Updated Status Pill: Removed '2 CH' text -->
-                 <span class="absolute right-0 text-[9px] font-black font-mono truncate max-w-[60px] text-right" :class="isSleepActive ? 'text-purple-400' : 'text-neutral-600'">{{ cardSleepStatus }}</span>
-               </div>
-               
-               <div class="flex-1 flex flex-col justify-end gap-2">
-                 <div class="flex items-center justify-between bg-white/5 rounded-lg h-8 md:h-9 px-2">
-                    <span class="text-[8px] font-bold uppercase text-neutral-500 tracking-widest">Mins</span>
-                    <div class="flex items-center gap-2 h-full">
-                       <button @click="adjustSleepTime(-900)" class="w-6 h-6 flex items-center justify-center bg-white/5 rounded text-neutral-400 hover:text-white transition-colors tap-effect"><Minus :size="12" /></button>
-                       <span class="text-[10px] font-black w-6 text-center text-neutral-200">15</span>
-                       <button @click="adjustSleepTime(900)" class="w-6 h-6 flex items-center justify-center bg-white/5 rounded text-neutral-400 hover:text-white transition-colors tap-effect"><Plus :size="12" /></button>
-                    </div>
-                 </div>
-                 <div class="flex items-center justify-between bg-white/5 rounded-lg h-8 md:h-9 px-2">
-                    <div class="flex items-center gap-2">
-                      <span class="text-[8px] font-bold uppercase text-neutral-500 tracking-widest">CH</span>
-                    </div>
-                    <div class="flex items-center gap-2 h-full">
-                       <button @click="adjustSleepChapters(-1)" class="w-6 h-6 flex items-center justify-center bg-white/5 rounded text-neutral-400 hover:text-white transition-colors tap-effect"><Minus :size="12" /></button>
-                       <span class="text-[10px] font-black w-6 text-center text-neutral-200">{{ state.sleepChapters > 0 ? state.sleepChapters : '-' }}</span>
-                       <button @click="adjustSleepChapters(1)" class="w-6 h-6 flex items-center justify-center bg-white/5 rounded text-neutral-400 hover:text-white transition-colors tap-effect"><Plus :size="12" /></button>
-                    </div>
-                 </div>
-               </div>
-            </div>
           </div>
         </div>
       </div>

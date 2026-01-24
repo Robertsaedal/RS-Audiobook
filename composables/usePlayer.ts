@@ -25,12 +25,16 @@ interface PlayerState {
   accentColor: string; // Dynamic Color
 }
 
+// Initialize rate from storage or default to 1.0
+const storedRate = localStorage.getItem('rs_playback_rate');
+const initialRate = storedRate ? parseFloat(storedRate) : 1.0;
+
 const state = reactive<PlayerState>({
   isPlaying: false,
   currentTime: 0,
   duration: 0,
   bufferedTime: 0,
-  playbackRate: 1.0,
+  playbackRate: initialRate,
   preservesPitch: true, // Always true now
   isLoading: false,
   error: null,
@@ -78,6 +82,9 @@ export function usePlayer() {
     (audioEl as any).preservesPitch = true;
     (audioEl as any).webkitPreservesPitch = true;
     (audioEl as any).mozPreservesPitch = true;
+
+    // Apply persisted rate immediately
+    audioEl.playbackRate = state.playbackRate;
 
     document.body.appendChild(audioEl);
 
@@ -411,8 +418,11 @@ export function usePlayer() {
   };
 
   const setPlaybackRate = (rate: number) => {
-    state.playbackRate = rate;
-    if (audioEl) audioEl.playbackRate = rate;
+    const newRate = parseFloat(Math.max(0.5, Math.min(3.0, rate)).toFixed(2));
+    state.playbackRate = newRate;
+    if (audioEl) audioEl.playbackRate = newRate;
+    // Persist to local storage
+    localStorage.setItem('rs_playback_rate', String(newRate));
   };
 
   // Deprecated/No-op as pitch is now always preserved
