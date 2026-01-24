@@ -34,7 +34,7 @@ export default async function handler(req: any, res: any) {
   }
 
   let uploadedFileVal: any = null;
-  let fileUri: string | null = null;
+  let fileUri: string = "";
 
   try {
     res.writeHead(200, {
