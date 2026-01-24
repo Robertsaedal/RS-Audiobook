@@ -9,16 +9,17 @@ export const config = {
   },
 };
 
-// CRITICAL: Reduced to 3MB to prevent Vercel 504 Timeout errors.
-// 3MB is approx 3-5 mins of audio, sufficient for a segment transcript.
-const CHUNK_SIZE_BYTES = 3 * 1024 * 1024; 
+// CRITICAL: Reduced to 1MB (approx 1 minute of audio) to prevent Vercel 504 Timeout errors.
+// Serverless functions often time out after 10s on Hobby plans. 
+// Small chunks ensure the download+upload+transcribe cycle finishes fast.
+const CHUNK_SIZE_BYTES = 1024 * 1024; 
 
 class ResilientDownloadStream extends PassThrough {
   private url: string;
   private rangeStart: number;
   private rangeEnd: string;
   private totalBytesReceived: number = 0;
-  private maxRetries: number = 5;
+  private maxRetries: number = 3; // Reduced retries to fail fast
   private retryCount: number = 0;
   private activeRequestController: AbortController | null = null;
 
@@ -38,7 +39,7 @@ class ResilientDownloadStream extends PassThrough {
         return;
       }
 
-      console.log(`[Stream] Requesting Range: bytes=${currentStart}-${this.rangeEnd}`);
+      // console.log(`[Stream] Requesting Range: bytes=${currentStart}-${this.rangeEnd}`);
       
       this.activeRequestController = new AbortController();
       
@@ -67,11 +68,11 @@ class ResilientDownloadStream extends PassThrough {
     } catch (error: any) {
       if (this.retryCount < this.maxRetries) {
         this.retryCount++;
-        console.warn(`[Stream] Retry ${this.retryCount}/${this.maxRetries}...`);
-        await new Promise(resolve => setTimeout(resolve, 1000 * this.retryCount));
+        // console.warn(`[Stream] Retry ${this.retryCount}/${this.maxRetries}...`);
+        await new Promise(resolve => setTimeout(resolve, 500 * this.retryCount));
         this.startStream();
       } else {
-        console.error("[Stream] Max retries reached.");
+        // console.error("[Stream] Max retries reached.");
         this.emit('error', error);
       }
     }
@@ -104,14 +105,17 @@ export default async function handler(req: any, res: any) {
   let uploadedFileName = '';
 
   try {
-    // 1. Analyze File Size
+    // 1. Analyze File Size (Timeout-bounded)
     let totalBytes = 0;
     try {
-        const headRes = await fetch(downloadUrl, { method: 'HEAD' });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2000); // 2s timeout for HEAD
+        const headRes = await fetch(downloadUrl, { method: 'HEAD', signal: controller.signal });
+        clearTimeout(timeoutId);
         const cl = headRes.headers.get('content-length');
         if (cl) totalBytes = parseInt(cl, 10);
     } catch (e) {
-        console.warn("[Transcribe] HEAD failed, assuming stream");
+        // console.warn("[Transcribe] HEAD failed, assuming stream");
     }
 
     // 2. Smart Chunking
@@ -119,15 +123,27 @@ export default async function handler(req: any, res: any) {
     let endByteStr = ''; 
     let uploadSize = 0;
     
-    if (totalBytes > CHUNK_SIZE_BYTES) {
+    // Default to downloading 1MB chunk if totalBytes unknown or large
+    if (totalBytes === 0 || totalBytes > CHUNK_SIZE_BYTES) {
         const ratio = Math.min(Math.max(currentTime / (duration || 1), 0), 1);
-        const estimatedStart = Math.floor(totalBytes * ratio);
-        // Reduced buffer to 256KB to speed up stream start
-        startByte = Math.max(0, estimatedStart - (256 * 1024)); 
-        const calculatedEnd = Math.min(startByte + CHUNK_SIZE_BYTES, totalBytes);
-        endByteStr = calculatedEnd.toString();
-        uploadSize = calculatedEnd - startByte;
-    } else if (totalBytes > 0) {
+        const estimatedStart = totalBytes > 0 ? Math.floor(totalBytes * ratio) : 0; // Fallback 0 if unknown
+        
+        // 128KB context buffer (approx 8s)
+        startByte = Math.max(0, estimatedStart - (128 * 1024)); 
+        
+        // If totalBytes is unknown (0), we just request a range and hope server supports it 
+        // or we rely on the stream ending. But for uploads we usually need size.
+        // We assume 1MB chunk.
+        const calculatedEnd = startByte + CHUNK_SIZE_BYTES;
+        if (totalBytes > 0) {
+             endByteStr = Math.min(calculatedEnd, totalBytes).toString();
+             uploadSize = parseInt(endByteStr) - startByte;
+        } else {
+             // Blind chunk
+             endByteStr = calculatedEnd.toString();
+             uploadSize = CHUNK_SIZE_BYTES; 
+        }
+    } else {
         uploadSize = totalBytes;
     }
 
@@ -152,7 +168,6 @@ export default async function handler(req: any, res: any) {
     // 4. Pipe Stream -> Google
     const sourceStream = new ResilientDownloadStream(downloadUrl, startByte, endByteStr);
     
-    // Explicit Content-Length is required for robust Vercel streaming
     const uploadHeaders: any = {
         'X-Goog-Upload-Command': 'upload, finalize',
         'X-Goog-Upload-Offset': '0'
@@ -175,7 +190,8 @@ export default async function handler(req: any, res: any) {
     uploadedFileName = uploadData.file.name;
     const fileUri = uploadData.file.uri;
 
-    // 5. Polling (Heartbeat) - Optimized for speed
+    // 5. Polling (Heartbeat)
+    // Start response early to prevent Gateway Timeout while waiting for Google
     res.writeHead(200, {
       'Content-Type': 'text/plain; charset=utf-8',
       'Transfer-Encoding': 'chunked',
@@ -183,11 +199,11 @@ export default async function handler(req: any, res: any) {
       'Connection': 'keep-alive'
     });
 
-    // Use REST for polling to avoid complex SDK setup for simple get
     let isReady = false;
     let attempts = 0;
 
-    while (!isReady && attempts < 100) {
+    // Wait max 10 seconds for file processing
+    while (!isReady && attempts < 20) {
         const pollRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/${uploadedFileName}?key=${apiKey}`);
         const pollData = await pollRes.json();
         
@@ -197,12 +213,12 @@ export default async function handler(req: any, res: any) {
             throw new Error('Google File Processing Failed');
         } else {
             res.write(': processing...\n'); 
-            await new Promise(r => setTimeout(r, 500)); // Poll every 500ms
+            await new Promise(r => setTimeout(r, 500)); 
             attempts++;
         }
     }
 
-    if (!isReady) throw new Error("Processing Timeout");
+    if (!isReady) throw new Error("File Processing Timeout");
 
     // 6. Generate Content (SDK)
     const genAI = new GoogleGenerativeAI(apiKey);
@@ -236,12 +252,10 @@ export default async function handler(req: any, res: any) {
     }
   } finally {
     if (uploadedFileName) {
-        try {
-            // Non-blocking cleanup
-            fetch(`https://generativelanguage.googleapis.com/v1beta/${uploadedFileName}?key=${apiKey}`, {
-                method: 'DELETE'
-            }).catch(() => {});
-        } catch (e) { /* ignore */ }
+        // Fire and forget delete
+        fetch(`https://generativelanguage.googleapis.com/v1beta/${uploadedFileName}?key=${apiKey}`, {
+            method: 'DELETE'
+        }).catch(() => {});
     }
     res.end();
   }
