@@ -1,5 +1,5 @@
 
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI } from '@google/genai';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -7,7 +7,7 @@ import { pipeline } from 'stream/promises';
 import { createWriteStream } from 'fs';
 
 export const config = {
-  maxDuration: 60, // Extend function duration for file processing
+  maxDuration: 60,
   api: {
     bodyParser: true,
   },
@@ -27,100 +27,174 @@ export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
 
   const apiKey = process.env.API_KEY;
-  if (!apiKey) return res.status(500).json({ error: 'Missing API Key' });
+  if (!apiKey) {
+    console.error("Server Error: Missing API Key.");
+    return res.status(500).json({ error: 'Server Configuration Error: Missing API Key' });
+  }
 
   const { downloadUrl, duration, currentTime = 0 } = req.body;
-  if (!downloadUrl) return res.status(400).json({ error: 'Missing downloadUrl' });
 
-  // 2. Start Streaming Immediately (Heartbeat)
-  res.writeHead(200, {
-    'Content-Type': 'text/plain; charset=utf-8',
-    'Transfer-Encoding': 'chunked',
-    'X-Content-Type-Options': 'nosniff'
-  });
+  // 2. Validation
+  try {
+    if (!downloadUrl) throw new Error("Missing downloadUrl");
+    new URL(downloadUrl); // Strict URL validation
+  } catch (e: any) {
+    return res.status(400).json({ error: `Invalid URL: ${e.message}`, stage: 'validation' });
+  }
 
-  res.write(': status: initializing\n');
-
+  const ai = new GoogleGenAI({ apiKey });
   let tempFilePath: string | null = null;
+  let uploadResult: any = null;
 
   try {
-    const ai = new GoogleGenAI({ apiKey });
+    // 3. Pre-Calculation & Fetching (Before Headers)
+    
+    let startByte = 0;
+    let endByte = CHUNK_SIZE_BYTES;
 
-    // 3. Calculate Byte Range
-    let totalBytes = 0;
+    // Attempt to get file size with a short timeout
     try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 1500);
-        const headRes = await fetch(downloadUrl, { method: 'HEAD', signal: controller.signal });
-        clearTimeout(timeoutId);
-        const cl = headRes.headers.get('content-length');
-        if (cl) totalBytes = parseInt(cl, 10);
-    } catch (e) { /* ignore head errors */ }
+        const headController = new AbortController();
+        const headTimeout = setTimeout(() => headController.abort(), 2000); // 2s max for HEAD
+        
+        const headRes = await fetch(downloadUrl, { method: 'HEAD', signal: headController.signal });
+        clearTimeout(headTimeout);
 
-    const ratio = Math.min(Math.max(currentTime / (duration || 1), 0), 1);
-    const estimatedStart = totalBytes > 0 ? Math.floor(totalBytes * ratio) : 0;
-    const startByte = Math.max(0, estimatedStart - (64 * 1024)); // 64KB rewind context
-    const endByte = startByte + CHUNK_SIZE_BYTES;
+        const cl = headRes.headers.get('content-length');
+        if (cl) {
+            const totalBytes = parseInt(cl, 10);
+            const ratio = Math.min(Math.max(currentTime / (duration || 1), 0), 1);
+            const estimatedStart = totalBytes > 0 ? Math.floor(totalBytes * ratio) : 0;
+            startByte = Math.max(0, estimatedStart - (64 * 1024)); // 64KB rewind
+            endByte = startByte + CHUNK_SIZE_BYTES;
+        }
+    } catch (e) {
+        console.warn("Head request failed, defaulting to 0 start", e);
+    }
+
     const rangeHeader = `bytes=${startByte}-${endByte}`;
 
-    // 4. Download Chunk to /tmp
-    res.write(': status: downloading_audio\n');
-    
-    tempFilePath = path.join(os.tmpdir(), `audio-${Date.now()}.mp3`);
-    
-    const audioRes = await fetch(downloadUrl, { headers: { 'Range': rangeHeader } });
-    if (!audioRes.ok && audioRes.status !== 206) throw new Error(`Source returned ${audioRes.status}`);
-    if (!audioRes.body) throw new Error("No body");
+    // MAIN FETCH with 15s Timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
 
+    console.log(`[Transcribe] Fetching: ${downloadUrl} (${rangeHeader})`);
+    
+    const audioRes = await fetch(downloadUrl, { 
+        headers: { 'Range': rangeHeader },
+        signal: controller.signal
+    });
+    
+    clearTimeout(timeoutId);
+
+    if (!audioRes.ok && audioRes.status !== 206) {
+        throw new Error(`Upstream server returned status ${audioRes.status}`);
+    }
+    if (!audioRes.body) throw new Error("No response body received from upstream");
+
+    // ---------------------------------------------------------
+    // If we reach here, we have the stream. Send Heartbeat headers.
+    // ---------------------------------------------------------
+    res.writeHead(200, {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Transfer-Encoding': 'chunked',
+        'X-Content-Type-Options': 'nosniff'
+    });
+
+    res.write(': status: downloading_audio\n');
+
+    // 4. Download to Temp File
+    tempFilePath = path.join(os.tmpdir(), `audio-${Date.now()}.mp3`);
     const fileStream = createWriteStream(tempFilePath);
     // @ts-ignore
     await pipeline(audioRes.body, fileStream);
-    
-    // 5. Read to Buffer and Encode Base64 (Inline Data)
-    res.write(': status: preparing_audio\n');
-    const audioBuffer = await fs.promises.readFile(tempFilePath);
-    const base64Audio = audioBuffer.toString('base64');
 
-    // 6. Generate with Gemini API
+    // 5. Upload to Google
+    res.write(': status: uploading_to_gemini\n');
+    
+    uploadResult = await ai.files.upload({
+        file: tempFilePath,
+        config: {
+            mimeType: "audio/mp3",
+            displayName: "Audio Segment",
+        }
+    });
+
+    // 6. Poll Processing
+    let file = await ai.files.get({ name: uploadResult.file.name });
+    let attempts = 0;
+    while (file.state === 'PROCESSING' && attempts < 30) {
+        res.write(': status: processing_file\n');
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        file = await ai.files.get({ name: uploadResult.file.name });
+        attempts++;
+    }
+
+    if (file.state === 'FAILED') {
+        throw new Error("Google AI File Processing Failed");
+    }
+
+    // 7. Generate Stream
     res.write(': status: generating_transcript\n');
 
     const responseStream = await ai.models.generateContentStream({
-      model: 'gemini-3-flash-preview',
-      contents: {
-        parts: [
-          { 
-             text: `You are a professional transcriber.
-             Task: Transcribe the audio file precisely.
-             Format: Output strictly JSONL (JSON Lines). Each line must be a valid JSON object.
-             Do NOT use markdown code blocks. Do NOT output an array.
-             Schema: {"start": "HH:MM:SS.mmm", "end": "HH:MM:SS.mmm", "speaker": "Speaker Name", "text": "Content"}
-             Speaker Diarization: Enabled.` 
-          },
-          { 
-             inlineData: {
-               mimeType: 'audio/mp3',
-               data: base64Audio
-             } 
-          }
-        ]
-      }
+      model: 'gemini-2.0-flash-exp',
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { 
+               text: `You are a professional transcriber.
+               Task: Transcribe the audio file precisely.
+               Format: Output strictly JSONL (JSON Lines). Each line must be a valid JSON object.
+               Do NOT use markdown code blocks. Do NOT output an array.
+               Schema: {"start": "HH:MM:SS.mmm", "end": "HH:MM:SS.mmm", "speaker": "Speaker Name", "text": "Content"}
+               Speaker Diarization: Enabled.` 
+            },
+            { 
+               fileData: { 
+                   mimeType: file.mimeType, 
+                   fileUri: file.uri 
+               } 
+            }
+          ]
+        }
+      ]
     });
 
-    // 7. Pipe text chunks to response
     for await (const chunk of responseStream) {
-        if (chunk.text) {
-            res.write(chunk.text);
-        }
+        res.write(chunk.text);
     }
 
   } catch (error: any) {
     console.error('[Transcribe Error]', error);
-    // Write error to stream so client sees it even if 200 OK was sent
-    res.write(`\nERROR: ${error.message}\n`);
+
+    // If headers haven't been sent, we can send a proper JSON error
+    if (!res.headersSent) {
+        const isTimeout = error.name === 'AbortError';
+        return res.status(500).json({ 
+            error: isTimeout ? 'Upstream request timed out (15s)' : error.message, 
+            stage: 'fetching-audio' 
+        });
+    } else {
+        // Headers already sent, must write error to stream so client detects it
+        res.write(`\nERROR: ${error.message}\n`);
+    }
   } finally {
-    // 8. Cleanup
+    // 8. Robust Cleanup
     if (tempFilePath) {
-       fs.unlink(tempFilePath, () => {});
+       fs.unlink(tempFilePath, (err) => {
+           if (err) console.error("Failed to delete temp file:", err);
+       });
+    }
+    if (uploadResult) {
+        // Ensure file is deleted from Google Storage
+        try {
+            await ai.files.delete({ name: uploadResult.file.name });
+            console.log(`[Cleanup] Deleted remote file: ${uploadResult.file.name}`);
+        } catch (e) {
+            console.error(`[Cleanup] Failed to delete remote file: ${uploadResult.file.name}`, e);
+        }
     }
     res.end();
   }
