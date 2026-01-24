@@ -140,12 +140,21 @@ export class ABSService {
           ...options.headers,
         },
       });
-      if (!response.ok) return null;
+      
+      // Handle explicit HTTP errors here for better debugging
+      if (!response.ok) {
+        if (response.status === 401) throw new Error("Unauthorized");
+        if (response.status === 403) throw new Error("Forbidden");
+        if (response.status === 404) throw new Error("Not Found");
+        if (response.status >= 500) throw new Error(`Server Error ${response.status}`);
+        return null;
+      }
+
       const text = await response.text();
       try { return JSON.parse(text); } catch { return text; }
     } catch (e) {
       console.error(`Fetch error for ${url}:`, e);
-      return null;
+      throw e; // Re-throw to caller for handling
     }
   }
 
@@ -156,7 +165,6 @@ export class ABSService {
 
   async getLibraryItem(itemId: string): Promise<ABSLibraryItem | null> {
     if (!this.libraryId) return null;
-    // Request enriched data including authors and series
     const data = await this.fetchApi(`/libraries/${this.libraryId}/items/${itemId}?include=progress,userProgress,metadata,series,media,authors&expanded=1&_cb=${Date.now()}`);
     return data;
   }
@@ -187,7 +195,6 @@ export class ABSService {
     if (params.filter) query.append('filter', params.filter);
     if (params.search) query.append('search', params.search);
     
-    // Explicitly including 'series' and setting 'expanded' to ensure sequence data is returned
     query.append('include', 'progress,userProgress,metadata,series,media');
     query.append('expanded', '1');
     query.append('_cb', Date.now().toString());
@@ -204,9 +211,6 @@ export class ABSService {
 
     const query = new URLSearchParams();
     if (params?.limit) query.append('limit', params.limit.toString());
-    
-    // Explicitly including 'series' and 'expanded' for shelves as well.
-    // Ensure 'series' is definitely present to allow ID extraction on homepage items.
     query.append('include', 'progress,userProgress,metadata,series,media');
     query.append('expanded', '1');
     query.append('_cb', Date.now().toString());
@@ -274,7 +278,6 @@ export class ABSService {
     const q = new URLSearchParams();
     q.append('q', query);
     q.append('limit', '10');
-    // Ensure expanded metadata for search results
     q.append('include', 'metadata,series,media,userProgress');
     q.append('expanded', '1');
     const data = await this.fetchApi(`/libraries/${this.libraryId}/search?${q.toString()}`);
@@ -299,7 +302,24 @@ export class ABSService {
   }
 
   async scanLibrary(): Promise<boolean> {
-    if (!this.libraryId) return false;
+    // 1. Auto-discover library ID if missing
+    if (!this.libraryId) {
+      try {
+        const libs = await this.getLibraries();
+        if (libs && libs.length > 0) {
+          this.libraryId = libs[0].id;
+        } else {
+          throw new Error("No libraries found.");
+        }
+      } catch (e) {
+        console.error("Library discovery failed during scan:", e);
+        throw e;
+      }
+    }
+
+    // 2. Perform Scan
+    if (!this.libraryId) throw new Error("Library ID unavailable");
+    
     const data = await this.fetchApi(`/libraries/${this.libraryId}/scan`, { method: 'POST' });
     return data === 'OK' || !!data;
   }

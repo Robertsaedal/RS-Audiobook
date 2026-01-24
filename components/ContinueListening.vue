@@ -52,6 +52,13 @@ const getProgress = (item: ABSLibraryItem) => {
               :style="{ width: getProgress(item) * 100 + '%' }"
             />
           </div>
+          
+          <!-- Percentage Text (New Addition) -->
+          <div class="absolute bottom-2 right-2 z-20">
+             <span class="text-[8px] font-black text-purple-400 drop-shadow-md bg-black/60 px-1.5 py-0.5 rounded-full backdrop-blur-sm">
+                {{ Math.round(getProgress(item) * 100) }}%
+             </span>
+          </div>
 
           <!-- Hover Play State -->
           <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">

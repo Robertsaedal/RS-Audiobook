@@ -40,10 +40,11 @@ const searchBooks = async () => {
     const data = await res.json();
     
     if (!data.items || data.items.length === 0) {
-       // Silent fail or minimal feedback
        console.log('No results from Google Books');
+       searchResults.value = [];
+    } else {
+       searchResults.value = data.items;
     }
-    searchResults.value = data.items || [];
   } catch (e: any) {
     errorMsg.value = 'Failed to connect to Archive Index.';
     console.error('Search failed', e);
@@ -128,8 +129,9 @@ const transmitRequest = async (event: MouseEvent) => {
 };
 
 const scanLibrary = async () => {
-  if (isScanning.value || !props.absService) {
-    if (!props.absService) scanFeedback.value = "Service Offline";
+  if (isScanning.value) return;
+  if (!props.absService) {
+    scanFeedback.value = "Service Offline";
     return;
   }
   
@@ -142,10 +144,16 @@ const scanLibrary = async () => {
       scanFeedback.value = 'Scan Initiated';
       setTimeout(() => scanFeedback.value = '', 3000);
     } else {
-      throw new Error('ABS server unreachable.');
+      throw new Error('Server returned false');
     }
   } catch (e: any) {
-    scanFeedback.value = 'Scan Failed';
+    const msg = e.message || 'Unknown Error';
+    if (msg.includes('401') || msg.includes('Unauthorized')) scanFeedback.value = 'Unauthorized';
+    else if (msg.includes('403')) scanFeedback.value = 'Forbidden';
+    else if (msg.includes('404')) scanFeedback.value = 'Library Not Found';
+    else scanFeedback.value = 'Scan Failed';
+    
+    console.error("Scan Error:", e);
     setTimeout(() => scanFeedback.value = '', 4000);
   } finally {
     isScanning.value = false;
@@ -165,7 +173,7 @@ const reset = () => {
   <div class="max-w-4xl mx-auto px-6 pb-40 space-y-12 relative">
     <!-- Header Tools (Sync) -->
     <div class="flex justify-end items-center mb-4">
-      <div v-if="scanFeedback" class="mr-4 px-4 py-2 bg-neutral-900/60 border border-white/5 rounded-full text-[9px] font-black uppercase tracking-widest animate-fade-in" :class="scanFeedback === 'Scan Failed' ? 'text-red-500' : 'text-purple-400'">
+      <div v-if="scanFeedback" class="mr-4 px-4 py-2 bg-neutral-900/60 border border-white/5 rounded-full text-[9px] font-black uppercase tracking-widest animate-fade-in" :class="scanFeedback.includes('Scan Failed') || scanFeedback.includes('Error') || scanFeedback === 'Unauthorized' ? 'text-red-500' : 'text-purple-400'">
         {{ scanFeedback }}
       </div>
       <button 
