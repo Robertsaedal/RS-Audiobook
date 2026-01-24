@@ -6,9 +6,10 @@ import { usePlayer } from '../composables/usePlayer';
 import { ABSService } from '../services/absService';
 import { OfflineManager, downloadQueue } from '../services/offlineManager'; // Import Queue
 import ChapterEditor from '../components/ChapterEditor.vue';
+import TranscriptWindow from '../components/TranscriptWindow.vue';
 import { 
   ChevronDown, Play, Pause, Info, X, SkipBack, SkipForward,
-  RotateCcw, RotateCw, ChevronRight, Moon, Plus, Minus, Mic, Clock, Layers, Download, CheckCircle, Calendar, ArrowRight, Heart, Gauge
+  RotateCcw, RotateCw, ChevronRight, Moon, Plus, Minus, Mic, Clock, Layers, Download, CheckCircle, Calendar, ArrowRight, Heart, Gauge, MessageCircle
 } from 'lucide-vue-next';
 
 const props = defineProps<{
@@ -27,6 +28,7 @@ const absService = computed(() => new ABSService(props.auth.serverUrl, props.aut
 
 const showChapters = ref(false);
 const showInfo = ref(false);
+const showTranscript = ref(false);
 const isDownloaded = ref(false);
 const isWishlisted = ref(false);
 const liveTime = ref(Date.now()); 
@@ -47,6 +49,8 @@ const onPopState = () => {
   if (showInfo.value && hash !== '#player-info') {
     showInfo.value = false;
   }
+  // Transcript isn't pushed to history to keep it lightweight, but we could
+  if (showTranscript.value) showTranscript.value = false;
 };
 
 const openChapters = () => {
@@ -67,6 +71,10 @@ const openInfoOverlay = () => {
 const closeInfoOverlay = () => {
     if (window.location.hash === '#player-info') window.history.back();
     else showInfo.value = false;
+};
+
+const toggleTranscript = () => {
+  showTranscript.value = !showTranscript.value;
 };
 
 const coverUrl = computed(() => {
@@ -326,6 +334,11 @@ const infoRows = computed(() => {
           </div>
         </button>
         <div class="flex items-center gap-2">
+          <!-- Lyrics/Transcript Toggle -->
+          <button @click="toggleTranscript" class="p-2 text-neutral-600 hover:text-purple-400 transition-colors tap-effect" :class="showTranscript ? 'text-purple-500' : ''">
+            <MessageCircle :size="22" />
+          </button>
+
           <button @click="handleToggleDownload" class="p-2 relative transition-colors group tap-effect" :class="isDownloaded ? 'text-purple-500' : 'text-neutral-600 hover:text-purple-400'">
             <div v-if="isDownloading" class="absolute inset-0 flex items-center justify-center">
                <svg class="w-full h-full -rotate-90" viewBox="0 0 36 36">
@@ -342,38 +355,57 @@ const infoRows = computed(() => {
 
       <div class="flex-1 w-full flex flex-col lg:flex-row overflow-hidden relative z-10 gap-4 lg:gap-0 min-h-0">
         <div class="flex-1 lg:w-[40%] flex flex-col items-center justify-center px-6 relative z-10 min-h-0 lg:pb-0">
-          <div @click="openInfoOverlay" class="relative w-full max-w-[240px] md:max-w-[320px] aspect-[2/3] group cursor-pointer perspective-1000 shrink-0 mb-4 lg:mb-10 max-h-[40vh] md:max-h-[55vh] lg:max-h-[60vh] tap-effect">
-            <div 
-               class="absolute -inset-10 blur-[100px] rounded-full opacity-40 transition-colors duration-1000"
-               :style="{ backgroundColor: state.accentColor }"
-            />
-            <div class="relative z-10 w-full h-full rounded-r-2xl rounded-l-sm overflow-hidden border border-white/10 shadow-[20px_20px_60px_-15px_rgba(0,0,0,0.8)] book-spine">
-               <img :src="coverUrl" class="w-full h-full object-cover bg-black" />
-            </div>
-          </div>
-
-          <div class="text-center space-y-2 w-full max-w-md px-4 z-10 shrink-0">
-            <div class="flex flex-col gap-1">
-              <div class="flex items-center justify-center gap-2">
-                <h1 class="text-lg sm:text-2xl md:text-3xl font-black uppercase tracking-tight text-white leading-tight line-clamp-2 text-balance">{{ metadata.title }}</h1>
-                <CheckCircle v-if="isFinished" class="text-green-500 shrink-0" :size="20" fill="currentColor" stroke-width="2" stroke="black" />
+          
+          <!-- Swappable Container for Cover or Transcript -->
+          <Transition name="swap" mode="out-in">
+            <!-- Normal Cover Mode -->
+            <div v-if="!showTranscript" class="w-full flex flex-col items-center">
+              <div @click="openInfoOverlay" class="relative w-full max-w-[240px] md:max-w-[320px] aspect-[2/3] group cursor-pointer perspective-1000 shrink-0 mb-4 lg:mb-10 max-h-[40vh] md:max-h-[55vh] lg:max-h-[60vh] tap-effect">
+                <div 
+                   class="absolute -inset-10 blur-[100px] rounded-full opacity-40 transition-colors duration-1000"
+                   :style="{ backgroundColor: state.accentColor }"
+                />
+                <div class="relative z-10 w-full h-full rounded-r-2xl rounded-l-sm overflow-hidden border border-white/10 shadow-[20px_20px_60px_-15px_rgba(0,0,0,0.8)] book-spine">
+                   <img :src="coverUrl" class="w-full h-full object-cover bg-black" />
+                </div>
               </div>
-              <p class="text-sm md:text-lg font-bold text-neutral-500 line-clamp-1">{{ metadata.authorName }}</p>
+
+              <div class="text-center space-y-2 w-full max-w-md px-4 z-10 shrink-0">
+                <div class="flex flex-col gap-1">
+                  <div class="flex items-center justify-center gap-2">
+                    <h1 class="text-lg sm:text-2xl md:text-3xl font-black uppercase tracking-tight text-white leading-tight line-clamp-2 text-balance">{{ metadata.title }}</h1>
+                    <CheckCircle v-if="isFinished" class="text-green-500 shrink-0" :size="20" fill="currentColor" stroke-width="2" stroke="black" />
+                  </div>
+                  <p class="text-sm md:text-lg font-bold text-neutral-500 line-clamp-1">{{ metadata.authorName }}</p>
+                </div>
+                
+                <!-- TRANSPARENT SERIES PILL WITH GLOW -->
+                <button 
+                  v-if="metadata.seriesName" 
+                  @click="handleSeriesClick($event)" 
+                  class="group flex items-center justify-center gap-2 mx-auto px-4 py-1.5 rounded-full bg-purple-500/10 backdrop-blur-md border border-purple-500 text-white transition-all active:scale-95 shadow-[0_0_15px_rgba(168,85,247,0.5)] tap-effect hover:bg-purple-500/20 hover:shadow-[0_0_25px_rgba(168,85,247,0.8)]"
+                >
+                  <Layers :size="12" class="text-purple-300 group-hover:text-white transition-colors" />
+                  <span class="text-purple-100 font-black text-[10px] md:text-xs uppercase tracking-wider group-hover:text-white transition-colors">
+                    {{ metadata.seriesName }} {{ metadata.seriesSequence ? `#${metadata.seriesSequence}` : '' }}
+                  </span>
+                  <ArrowRight :size="12" class="text-purple-300 transition-transform group-hover:translate-x-1 group-hover:text-white" />
+                </button>
+              </div>
             </div>
-            
-            <!-- TRANSPARENT SERIES PILL WITH GLOW -->
-            <button 
-              v-if="metadata.seriesName" 
-              @click="handleSeriesClick($event)" 
-              class="group flex items-center justify-center gap-2 mx-auto px-4 py-1.5 rounded-full bg-purple-500/10 backdrop-blur-md border border-purple-500 text-white transition-all active:scale-95 shadow-[0_0_15px_rgba(168,85,247,0.5)] tap-effect hover:bg-purple-500/20 hover:shadow-[0_0_25px_rgba(168,85,247,0.8)]"
-            >
-              <Layers :size="12" class="text-purple-300 group-hover:text-white transition-colors" />
-              <span class="text-purple-100 font-black text-[10px] md:text-xs uppercase tracking-wider group-hover:text-white transition-colors">
-                {{ metadata.seriesName }} {{ metadata.seriesSequence ? `#${metadata.seriesSequence}` : '' }}
-              </span>
-              <ArrowRight :size="12" class="text-purple-300 transition-transform group-hover:translate-x-1 group-hover:text-white" />
-            </button>
-          </div>
+
+            <!-- Karaoke / Transcript Mode -->
+            <div v-else class="w-full h-full max-h-[50vh] lg:max-h-[60vh] max-w-md lg:max-w-xl mx-auto px-2 relative">
+               <TranscriptWindow 
+                 :item="activeItem" 
+                 :currentTime="state.currentTime" 
+                 :absService="absService" 
+                 @close="toggleTranscript" 
+                 @seek="handleChapterSeek" 
+               />
+            </div>
+          </Transition>
+
         </div>
 
         <div class="shrink-0 lg:flex-1 lg:w-[60%] lg:h-full flex flex-col justify-end lg:justify-center px-6 pb-6 lg:pb-0 lg:px-24 space-y-6 lg:space-y-16 w-full max-w-xl lg:max-w-3xl mx-auto lg:mx-0 z-20">
@@ -586,3 +618,17 @@ const infoRows = computed(() => {
     <ChapterEditor v-if="showChapters" :item="activeItem" :currentTime="state.currentTime" :isPlaying="state.isPlaying" @close="closeChapters" @seek="handleChapterSeek" />
   </div>
 </template>
+
+<style scoped>
+.swap-enter-active, .swap-leave-active {
+  transition: all 0.3s ease-out;
+}
+.swap-enter-from {
+  opacity: 0;
+  transform: translateX(20px);
+}
+.swap-leave-to {
+  opacity: 0;
+  transform: translateX(-20px);
+}
+</style>

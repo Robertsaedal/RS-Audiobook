@@ -3,6 +3,5 @@ node_modules
 dist
 dist-ssr
 *.local
-
-# Design Assets
-
+.env          # <--- Add this line exactly
+.env.local    # (Optional) Good for extra safety
