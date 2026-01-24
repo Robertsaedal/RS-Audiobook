@@ -217,14 +217,7 @@ const reset = async () => {
 
 onMounted(async () => {
   await reset();
-  props.absService.onProgressUpdate((updated: ABSProgress) => {
-    // If progressMap is provided, the parent updates it, and hydration handles it.
-    // However, if we don't have progressMap or want direct update as fallback:
-    const index = libraryItems.value.findIndex(i => i.id === updated.itemId);
-    if (index !== -1) {
-      libraryItems.value[index] = { ...libraryItems.value[index], userProgress: updated };
-    }
-  });
+  // Removed local onProgressUpdate listener to prevent race conditions with hydratedItems
   props.absService.onLibraryUpdate(() => reset());
 });
 

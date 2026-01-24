@@ -35,11 +35,18 @@ const colorLoaded = ref(false);
 // Optimize: Intersection Observer for lazy loading logic
 let observer: IntersectionObserver | null = null;
 
+// Ensure reactivity by checking nested properties explicitly
 const progressData = computed(() => {
-  return props.item.userProgress || 
-         (props.item.media as any)?.userProgress || 
-         (props.item as any).userMediaProgress || 
-         null;
+  const up = props.item.userProgress;
+  const mp = (props.item.media as any)?.userProgress;
+  const ump = (props.item as any).userMediaProgress;
+  
+  // Dependency tracking hack: accessing primitive properties forces Vue to track updates
+  if (up) { const _ = up.currentTime + up.duration; return up; }
+  if (mp) { const _ = mp.currentTime + mp.duration; return mp; }
+  if (ump) { const _ = ump.currentTime + ump.duration; return ump; }
+
+  return null;
 });
 
 const progressPercentage = computed(() => {

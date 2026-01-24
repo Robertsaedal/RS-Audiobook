@@ -363,13 +363,13 @@ const infoRows = computed(() => {
             <button 
               v-if="metadata.seriesName" 
               @click="handleSeriesClick($event)" 
-              class="group flex items-center justify-center gap-2 mx-auto px-4 py-1.5 rounded-full bg-purple-600 border border-purple-500/50 hover:bg-purple-500 transition-all active:scale-95 shadow-lg shadow-purple-900/20 tap-effect"
+              class="group flex items-center justify-center gap-2 mx-auto px-4 py-1.5 rounded-full bg-purple-500/20 border border-purple-500/30 hover:bg-purple-500/30 transition-all active:scale-95 shadow-sm tap-effect backdrop-blur-md"
             >
-              <Layers :size="12" class="text-purple-200" />
-              <span class="text-white font-bold text-[10px] md:text-xs">
+              <Layers :size="12" class="text-purple-300" />
+              <span class="text-purple-100 font-bold text-[10px] md:text-xs">
                 {{ metadata.seriesName }} {{ metadata.seriesSequence ? `#${metadata.seriesSequence}` : '' }}
               </span>
-              <ArrowRight :size="12" class="text-white/70 group-hover:text-white transition-colors group-hover:translate-x-1" />
+              <ArrowRight :size="12" class="text-purple-400 group-hover:text-purple-200 transition-colors group-hover:translate-x-1" />
             </button>
           </div>
         </div>
@@ -423,7 +423,7 @@ const infoRows = computed(() => {
             <!-- Play/Pause Main -->
             <button 
               @click="togglePlay" 
-              class="w-20 h-20 md:w-24 md:h-24 rounded-full bg-purple-600 text-white flex items-center justify-center shadow-[0_0_50px_rgba(168,85,247,0.5)] active:scale-95 transition-all group relative tap-effect hover:scale-105 hover:bg-purple-500 border border-purple-400/30"
+              class="w-20 h-20 md:w-24 md:h-24 rounded-full bg-purple-600/80 text-white flex items-center justify-center shadow-2xl shadow-black/50 active:scale-95 transition-all group relative tap-effect hover:scale-105 hover:bg-purple-500/90 border border-white/10 backdrop-blur-xl"
             >
               <div v-if="state.isLoading" class="absolute inset-0 bg-white/20 rounded-full animate-ping" />
               <Pause v-if="state.isPlaying" :size="36" fill="currentColor" />
