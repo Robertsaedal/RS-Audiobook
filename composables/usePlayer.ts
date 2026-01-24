@@ -1,6 +1,6 @@
 
 import { reactive, onUnmounted } from 'vue';
-import { AuthState, ABSLibraryItem, ABSAudioTrack, PlayMethod } from '../types';
+import { AuthState, ABSLibraryItem, ABSAudioTrack, PlayMethod, ABSProgress } from '../types';
 import { ABSService } from '../services/absService';
 import { OfflineManager } from '../services/offlineManager';
 import { getDominantColor } from '../services/colorUtils';
@@ -54,6 +54,7 @@ let syncInterval: any = null;
 let listeningTimeSinceSync = 0;
 let lastTickTime = Date.now();
 let lastChapterIndex = -1;
+let lastSyncDispatch = 0;
 
 let audioTracks: ABSAudioTrack[] = [];
 let currentTrackIndex = 0;
@@ -105,6 +106,7 @@ export function usePlayer() {
 
   const onEvtPause = () => {
     state.isPlaying = false;
+    syncNow(); // Sync on pause
   };
 
   const onEvtProgress = () => {
@@ -119,6 +121,7 @@ export function usePlayer() {
       loadCurrentTrack();
     } else {
       state.isPlaying = false;
+      syncNow();
     }
   };
 
@@ -170,6 +173,29 @@ export function usePlayer() {
     }
 
     state.currentTime = newTime;
+
+    // Optimistic Local Sync Dispatch (Throttled)
+    const now = Date.now();
+    if (now - lastSyncDispatch > 1000) {
+        dispatchProgressSync();
+        lastSyncDispatch = now;
+    }
+  };
+
+  const dispatchProgressSync = () => {
+    if (!state.activeItem) return;
+    
+    const progressUpdate: ABSProgress = {
+      itemId: state.activeItem.id,
+      currentTime: state.currentTime,
+      duration: state.duration,
+      progress: state.duration > 0 ? (state.currentTime / state.duration) : 0,
+      isFinished: false,
+      lastUpdate: Date.now()
+    };
+
+    // Dispatch global event for App.vue to pick up
+    window.dispatchEvent(new CustomEvent('rs-progress-sync', { detail: progressUpdate }));
   };
 
   const getFullUrl = (relativeUrl: string) => {
@@ -265,6 +291,7 @@ export function usePlayer() {
   };
 
   const syncNow = () => {
+    dispatchProgressSync(); // Immediate local update
     if (state.sessionId && absService) {
         const timeToSync = Math.floor(listeningTimeSinceSync);
         absService.syncSession(state.sessionId, timeToSync, state.currentTime);
@@ -387,6 +414,7 @@ export function usePlayer() {
       try {
         audioEl.currentTime = target;
         state.currentTime = target;
+        dispatchProgressSync(); // Update UI immediately on seek
         
         if (playWhenReady) {
            audioEl.play().catch(e => console.warn("Offline seek resume failed", e));
@@ -415,6 +443,7 @@ export function usePlayer() {
       }
     }
     state.currentTime = target;
+    dispatchProgressSync(); // Update UI immediately on seek
   };
 
   const setPlaybackRate = (rate: number) => {

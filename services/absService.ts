@@ -76,11 +76,20 @@ export class ABSService {
 
   private static async fetchWithRetry(url: string, options: RequestInit, retries = 3, timeout = 10000): Promise<Response> {
     let lastError: Error | null = null;
+    
+    // Add No-Cache Headers to all requests to ensure freshness
+    const headers = new Headers(options.headers || {});
+    headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    headers.set('Pragma', 'no-cache');
+    headers.set('Expires', '0');
+
+    const newOptions = { ...options, headers };
+
     for (let i = 0; i < retries; i++) {
       const controller = new AbortController();
       const id = setTimeout(() => controller.abort(), timeout);
       try {
-        const response = await fetch(url, { ...options, signal: controller.signal });
+        const response = await fetch(url, { ...newOptions, signal: controller.signal });
         clearTimeout(id);
         
         const contentType = response.headers.get("content-type");
@@ -234,6 +243,7 @@ export class ABSService {
   }
 
   async getItemsInProgress(): Promise<ABSLibraryItem[]> {
+    // Explicitly add timestamp to prevent caching
     const data = await this.fetchApi(`/me/items-in-progress?include=progress,userProgress,metadata,series,media&expanded=1&_cb=${Date.now()}`);
     return Array.isArray(data) ? data : (data?.results || []);
   }
@@ -302,7 +312,6 @@ export class ABSService {
   }
 
   async scanLibrary(): Promise<boolean> {
-    // 1. Auto-discover library ID if missing
     if (!this.libraryId) {
       try {
         const libs = await this.getLibraries();
@@ -317,7 +326,6 @@ export class ABSService {
       }
     }
 
-    // 2. Perform Scan
     if (!this.libraryId) throw new Error("Library ID unavailable");
     
     const data = await this.fetchApi(`/libraries/${this.libraryId}/scan`, { method: 'POST' });
@@ -461,7 +469,7 @@ export class ABSService {
   // Socket Event Listeners
 
   onInit(callback: (data: any) => void) {
-    this.socket?.off('init'); // Deduplicate
+    this.socket?.off('init');
     this.socket?.on('init', callback);
   }
 

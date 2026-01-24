@@ -1,5 +1,6 @@
+
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, onActivated, watch, computed, nextTick, reactive, shallowRef } from 'vue';
+import { ref, onMounted, onUnmounted, onActivated, onDeactivated, watch, computed, nextTick, reactive, shallowRef } from 'vue';
 import { AuthState, ABSLibraryItem, ABSSeries, ABSProgress } from '../types';
 import { ABSService } from '../services/absService';
 import { OfflineManager } from '../services/offlineManager';
@@ -63,6 +64,7 @@ const activeProgressMap = computed(() => props.progressMap || localProgressMap);
 const searchResults = ref<{ books: ABSLibraryItem[], series: ABSSeries[] }>({ books: [], series: [] });
 const isGlobalSearching = ref(false);
 let debounceTimeout: any = null;
+let pollingInterval: any = null;
 
 // --- Navigation Guard ---
 const onPopState = (event: PopStateEvent) => {
@@ -297,10 +299,8 @@ const forceSyncProgress = async () => {
   
   try {
     absService.value.emitGetUserItems();
-    const allProgress = await absService.value.getAllUserProgress();
-    if (allProgress && Array.isArray(allProgress)) {
-      allProgress.forEach(p => handleProgressUpdate(p, false));
-    }
+    // Use the silent poller to update progress
+    await silentProgressPoll();
     await fetchDashboardData();
     syncFeedback.value = "Synced";
     setTimeout(() => syncFeedback.value = '', 2000);
@@ -319,6 +319,37 @@ const updateOnlineStatus = () => {
   } else {
     handleOfflineFallback();
   }
+};
+
+// --- Polling & Background Sync Logic ---
+const silentProgressPoll = async () => {
+  if (isOfflineMode.value || !absService.value) return;
+  try {
+    const items = await absService.value.getItemsInProgress();
+    // Dispatch sync events for all items to update global map
+    items.forEach(item => {
+      if (item.userProgress) {
+        const p: ABSProgress = {
+          itemId: item.id,
+          currentTime: item.userProgress.currentTime,
+          duration: item.userProgress.duration || item.media.duration,
+          progress: item.userProgress.progress,
+          isFinished: item.userProgress.isFinished,
+          lastUpdate: item.userProgress.lastUpdate || Date.now(),
+          hideFromContinueListening: item.userProgress.hideFromContinueListening
+        };
+        // Dispatch global event for App.vue to pick up
+        window.dispatchEvent(new CustomEvent('rs-progress-sync', { detail: p }));
+      }
+    });
+  } catch (e) {
+    console.warn("Silent poll failed", e);
+  }
+};
+
+const startPolling = () => {
+  if (pollingInterval) clearInterval(pollingInterval);
+  pollingInterval = setInterval(silentProgressPoll, 30000); // 30s Poll
 };
 
 // --- Info Modal Logic ---
@@ -432,6 +463,7 @@ onMounted(async () => {
   await initService();
   await initProgressMap(); 
   await fetchDashboardData();
+  startPolling(); // Start polling
   if (props.initialSeriesId) await nextTick(() => handleJumpToSeries(props.initialSeriesId!));
   window.addEventListener('online', updateOnlineStatus);
   window.addEventListener('offline', updateOnlineStatus);
@@ -439,11 +471,19 @@ onMounted(async () => {
 });
 
 onActivated(async () => {
+  // View-Focus Refresh
+  silentProgressPoll(); 
+  startPolling();
   wishlistRaw.value = await OfflineManager.getWishlistBooks();
   if (props.initialSeriesId) await nextTick(() => handleJumpToSeries(props.initialSeriesId!));
 });
 
+onDeactivated(() => {
+  if (pollingInterval) clearInterval(pollingInterval);
+});
+
 onUnmounted(() => {
+  if (pollingInterval) clearInterval(pollingInterval);
   if (!props.providedService) {
     absService.value?.disconnect();
   }

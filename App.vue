@@ -1,3 +1,4 @@
+
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, defineAsyncComponent, computed, reactive, watch } from 'vue';
 import { AuthState, ABSLibraryItem, ABSProgress } from './types';
@@ -56,6 +57,30 @@ const handleInstallPrompt = (e: Event) => {
   }
 };
 
+const handleGlobalProgressSync = (event: Event) => {
+  const customEvent = event as CustomEvent<ABSProgress>;
+  const update = customEvent.detail;
+  if (update && update.itemId) {
+    const existing = progressMap.get(update.itemId);
+    if (existing) {
+      Object.assign(existing, update);
+    } else {
+      progressMap.set(update.itemId, update);
+    }
+    progressTick.value++;
+    
+    // Sync active item if matching
+    if (selectedItem.value && selectedItem.value.id === update.itemId) {
+       const updatedItem = { ...selectedItem.value };
+       updatedItem.userProgress = update;
+       if ((updatedItem as any).media?.userProgress) {
+         (updatedItem as any).media.userProgress = update;
+       }
+       selectedItem.value = updatedItem;
+    }
+  }
+};
+
 const initAbsService = () => {
   if (!auth.value) return;
   
@@ -64,28 +89,8 @@ const initAbsService = () => {
 
   // 1. Progress Update Listener
   absService.value.onProgressUpdate((update: ABSProgress) => {
-    // Update Global Map
-    const existing = progressMap.get(update.itemId);
-    if (existing) {
-      Object.assign(existing, update);
-    } else {
-      progressMap.set(update.itemId, update);
-    }
-    progressTick.value++; // Force Reactivity Downstream
-
-    // Global Sync: Update Active Player Item if matching
-    if (selectedItem.value && selectedItem.value.id === update.itemId) {
-      // Create a shallow copy to trigger reactivity in Player/MiniPlayer
-      const updatedItem = { ...selectedItem.value };
-      updatedItem.userProgress = update;
-      
-      // Also update nested media progress if it exists structure-wise
-      if ((updatedItem as any).media?.userProgress) {
-        (updatedItem as any).media.userProgress = update;
-      }
-      
-      selectedItem.value = updatedItem;
-    }
+    // Dispatch as local event to reuse logic
+    window.dispatchEvent(new CustomEvent('rs-progress-sync', { detail: update }));
   });
 
   // 2. Init / User Items Listener (Force Refresh Response)
@@ -112,11 +117,7 @@ const initAbsService = () => {
      // Ensure it's treated as a progress update
      const p = update as ABSProgress;
      if (p && p.itemId) {
-        progressMap.set(p.itemId, p);
-        progressTick.value++;
-        if (selectedItem.value && selectedItem.value.id === p.itemId) {
-           selectedItem.value = { ...selectedItem.value, userProgress: p };
-        }
+        window.dispatchEvent(new CustomEvent('rs-progress-sync', { detail: p }));
      }
   });
 };
@@ -158,11 +159,13 @@ onMounted(() => {
 
   window.addEventListener('popstate', handlePopState);
   window.addEventListener('beforeinstallprompt', handleInstallPrompt);
+  window.addEventListener('rs-progress-sync', handleGlobalProgressSync);
 });
 
 onUnmounted(() => {
   window.removeEventListener('popstate', handlePopState);
   window.removeEventListener('beforeinstallprompt', handleInstallPrompt);
+  window.removeEventListener('rs-progress-sync', handleGlobalProgressSync);
   absService.value?.disconnect();
 });
 
