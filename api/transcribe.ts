@@ -37,7 +37,6 @@ class ResilientDownloadStream extends PassThrough {
     try {
       const currentStart = this.rangeStart + this.totalBytesReceived;
       if (this.rangeEnd && currentStart > parseInt(this.rangeEnd)) {
-        // Fix: Cast this to any to access standard Node.js stream methods when TS types are missing
         (this as any).end();
         return;
       }
@@ -60,28 +59,23 @@ class ResilientDownloadStream extends PassThrough {
       // @ts-ignore - Node.js fetch body is an async iterator
       for await (const chunk of response.body) {
         this.totalBytesReceived += chunk.length;
-        // Fix: Use Uint8Array instead of Buffer to avoid "Cannot find name 'Buffer'" error
         const canContinue = (this as any).write(new Uint8Array(chunk));
         
-        // Handle backpressure
         if (!canContinue) {
-          // Fix: Cast this to any for standard EventEmitter methods
           await new Promise(resolve => (this as any).once('drain', resolve));
         }
       }
 
-      // Fix: Cast to any for end method
-      (this as any).end(); // Stream finished successfully
+      (this as any).end(); 
 
     } catch (error: any) {
       if (this.retryCount < this.maxRetries) {
         this.retryCount++;
-        console.warn(`[Stream] Connection lost. Retrying (${this.retryCount}/${this.maxRetries}) from byte ${this.rangeStart + this.totalBytesReceived}...`);
-        await new Promise(resolve => setTimeout(resolve, 1000 * this.retryCount)); // Exponential backoff
+        console.warn(`[Stream] Connection lost. Retrying (${this.retryCount}/${this.maxRetries})...`);
+        await new Promise(resolve => setTimeout(resolve, 1000 * this.retryCount)); 
         this.startStream();
       } else {
         console.error("[Stream] Max retries reached.");
-        // Fix: Cast to any for emit method
         (this as any).emit('error', error);
       }
     }
@@ -106,7 +100,8 @@ export default async function handler(req: any, res: any) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
 
-  const apiKey = process.env.API_KEY!;
+  // Use API_KEY to match the .env variable
+  const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY;
   if (!apiKey) return res.status(500).json({ error: 'Server misconfiguration: Missing API Key' });
 
   const { downloadUrl, duration, currentTime = 0 } = req.body;
@@ -115,7 +110,6 @@ export default async function handler(req: any, res: any) {
   let uploadedFileName = '';
 
   try {
-    // 1. Analyze File Size via HEAD
     let totalBytes = 0;
     try {
         const headRes = await fetch(downloadUrl, { method: 'HEAD' });
@@ -125,20 +119,17 @@ export default async function handler(req: any, res: any) {
         console.warn("[Transcribe] HEAD request failed, assuming stream");
     }
 
-    // 2. Calculate Byte Range (Smart Chunking)
     let startByte = 0;
     let endByteStr = ''; 
     
     if (totalBytes > CHUNK_SIZE_BYTES) {
         const ratio = Math.min(Math.max(currentTime / (duration || 1), 0), 1);
         const estimatedStart = Math.floor(totalBytes * ratio);
-        // Buffer back 1MB for context overlap
         startByte = Math.max(0, estimatedStart - (1024 * 1024)); 
         const calculatedEnd = Math.min(startByte + CHUNK_SIZE_BYTES, totalBytes);
         endByteStr = calculatedEnd.toString();
     }
 
-    // 3. Initialize Resumable Upload with Google
     const uploadBaseUrl = "https://generativelanguage.googleapis.com/upload/v1beta/files";
     const initRes = await fetch(`${uploadBaseUrl}?key=${apiKey}`, {
         method: 'POST',
@@ -156,7 +147,6 @@ export default async function handler(req: any, res: any) {
     const uploadUrl = initRes.headers.get('x-goog-upload-url');
     if (!uploadUrl) throw new Error("No upload URL returned");
 
-    // 4. Pipe Resilient Stream -> Google
     const sourceStream = new ResilientDownloadStream(downloadUrl, startByte, endByteStr);
     
     const uploadRes = await fetch(uploadUrl, {
@@ -165,7 +155,7 @@ export default async function handler(req: any, res: any) {
             'X-Goog-Upload-Command': 'upload, finalize',
             'X-Goog-Upload-Offset': '0'
         },
-        // @ts-ignore: Fetch accepts streams in Node environment
+        // @ts-ignore
         body: sourceStream, 
         duplex: 'half'
     });
@@ -176,19 +166,16 @@ export default async function handler(req: any, res: any) {
     uploadedFileName = uploadData.file.name;
     const fileUri = uploadData.file.uri;
 
-    // 5. Polling for 'ACTIVE' State with Heartbeat
-    // We start writing the response headers now to keep the connection alive
     res.writeHead(200, {
       'Content-Type': 'text/plain; charset=utf-8',
       'Transfer-Encoding': 'chunked',
       'X-Content-Type-Options': 'nosniff'
     });
 
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey });
     let isReady = false;
     let attempts = 0;
 
-    // "Heartbeat" loop: Write whitespace to client while waiting
     while (!isReady && attempts < 60) {
         const file = await ai.files.get({ name: uploadedFileName });
         
@@ -197,7 +184,7 @@ export default async function handler(req: any, res: any) {
         } else if (file.state === 'FAILED') {
             throw new Error('Google File Processing Failed');
         } else {
-            res.write(': processing...\n'); // Heartbeat comment (ignored by JSON parsers usually)
+            res.write(': processing...\n'); 
             await new Promise(r => setTimeout(r, 1000));
             attempts++;
         }
@@ -205,17 +192,18 @@ export default async function handler(req: any, res: any) {
 
     if (!isReady) throw new Error("Processing Timeout");
 
-    // 6. Generate Content with Smart Prompt
     const promptText = `
-    Transcribe the provided audio with extremely high precision.
+    You are a high-precision transcription engine. 
+    Transcribe the provided audio carefully.
     
-    CRITICAL RULES:
-    1. **Format**: Output ONLY valid JSON objects, one per line (JSONL).
-    2. **Diarization**: Identify speakers as "Speaker A", "Speaker B", "Narrator", etc.
-    3. **Background**: Describe sounds in brackets like [Music swells] or [Door creaks] in the "background_noise" field.
-    4. **No Noise**: Do NOT include markdown code blocks, backticks, or extra text.
-    
-    JSON Object Schema per line:
+    OUTPUT FORMAT REQUIREMENTS:
+    1. Output ONLY valid JSON objects, one per line.
+    2. Do NOT use markdown code blocks (e.g., no \`\`\`json).
+    3. Do NOT include any introductory or summary text.
+    4. Diarize speakers as "Speaker A", "Speaker B", or "Narrator".
+    5. Note background sounds in the "background_noise" field (e.g., "[Bird chirping]").
+
+    JSON SCHEMA (Per Line):
     {"start": "HH:MM:SS.mmm", "end": "HH:MM:SS.mmm", "speaker": "Name", "text": "...", "background_noise": "..."}
     `;
 
@@ -236,20 +224,18 @@ export default async function handler(req: any, res: any) {
 
   } catch (error: any) {
     console.error('[Transcribe Error]', error);
-    // If headers already sent, we can only write the error to the stream
     if (res.headersSent) {
         res.write(`\nERROR: ${error.message}`);
     } else {
         res.status(500).json({ error: error.message });
     }
   } finally {
-    // Cleanup: Delete file from Google
     if (uploadedFileName) {
         try {
             await fetch(`https://generativelanguage.googleapis.com/v1beta/${uploadedFileName}?key=${apiKey}`, {
                 method: 'DELETE'
             });
-        } catch (e) { /* ignore cleanup error */ }
+        } catch (e) { }
     }
     res.end();
   }
