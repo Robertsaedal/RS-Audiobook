@@ -6,7 +6,7 @@ export interface TranscriptCue {
   end: number;
   text: string;
   speaker?: string;
-  background_noise?: string; // New field
+  background_noise?: string; 
 }
 
 export class TranscriptionService {
@@ -53,8 +53,12 @@ export class TranscriptionService {
         
         if (value) {
           const chunk = decoder.decode(value, { stream: true });
+          // Filter out heartbeat/status messages for the UI callback if needed
+          // but keep them in fullText for parsing later as the parser handles filtering
+          if (!chunk.startsWith(': status:')) {
+             if (onChunk) onChunk(chunk);
+          }
           fullText += chunk;
-          if (onChunk) onChunk(chunk);
         }
       }
 
@@ -104,7 +108,7 @@ export class TranscriptionService {
       const trimmed = line.trim();
       if (!trimmed) continue;
       
-      // Filter out heartbeat comments or API errors in stream
+      // Filter out heartbeat comments (: status: ...) and errors
       if (trimmed.startsWith(':') || trimmed.startsWith('ERROR:')) continue;
 
       try {
