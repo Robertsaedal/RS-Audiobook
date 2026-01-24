@@ -113,6 +113,7 @@ export default async function handler(req: any, res: any) {
     // 5. Upload to Google
     res.write(': status: uploading_to_gemini\n');
     
+    // In @google/genai, upload returns the File object directly, not { file: File }
     uploadResult = await ai.files.upload({
         file: tempFilePath,
         config: {
@@ -122,12 +123,12 @@ export default async function handler(req: any, res: any) {
     });
 
     // 6. Poll Processing
-    let file = await ai.files.get({ name: uploadResult.file.name });
+    let file = await ai.files.get({ name: uploadResult.name });
     let attempts = 0;
     while (file.state === 'PROCESSING' && attempts < 30) {
         res.write(': status: processing_file\n');
         await new Promise((resolve) => setTimeout(resolve, 1000));
-        file = await ai.files.get({ name: uploadResult.file.name });
+        file = await ai.files.get({ name: uploadResult.name });
         attempts++;
     }
 
@@ -188,13 +189,13 @@ export default async function handler(req: any, res: any) {
            if (err) console.error("Failed to delete temp file:", err);
        });
     }
-    if (uploadResult) {
+    if (uploadResult && uploadResult.name) {
         // Ensure file is deleted from Google Storage
         try {
-            await ai.files.delete({ name: uploadResult.file.name });
-            console.log(`[Cleanup] Deleted remote file: ${uploadResult.file.name}`);
+            await ai.files.delete({ name: uploadResult.name });
+            console.log(`[Cleanup] Deleted remote file: ${uploadResult.name}`);
         } catch (e) {
-            console.error(`[Cleanup] Failed to delete remote file: ${uploadResult.file.name}`, e);
+            console.error(`[Cleanup] Failed to delete remote file: ${uploadResult.name}`, e);
         }
     }
     res.end();
