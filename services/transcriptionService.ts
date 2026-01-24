@@ -1,5 +1,5 @@
 
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { db } from './db';
 import { ABSService } from './absService';
 
@@ -28,38 +28,35 @@ export class TranscriptionService {
     }
 
     // 1. Fetch Audio Blob (Proxy through ABSService to handle auth headers)
-    // Note: For very large files (>20MB), this might hit browser limits. 
-    // Gemini 2.0 Flash can handle large contexts, but client-side bandwidth applies.
     console.log('[Transcription] Fetching audio for analysis...');
     const audioBlob = await absService.downloadFile(downloadUrl);
     
     // 2. Convert to Base64 for Gemini Inline Data
     const base64Audio = await this.blobToBase64(audioBlob);
 
-    // 3. Init Gemini
-    const ai = new GoogleGenAI({ apiKey: this.apiKey });
+    // 3. Init Gemini (Using @google/generative-ai SDK)
+    const genAI = new GoogleGenerativeAI(this.apiKey);
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
     
     // 4. Generate Content
     console.log('[Transcription] Sending to Gemini 2.0 Flash...');
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.0-flash-exp', // Use 2.0 Flash for superior multimodal handling
-      contents: [
-        {
-          inlineData: {
-            mimeType: audioBlob.type || 'audio/mp3',
-            data: base64Audio
-          }
-        },
-        {
-          text: `Transcribe the audio into WebVTT format, including precise timestamp cues (HH:MM:SS.mmm). 
-                 Ensure speaker labels are included if discernible. 
-                 Return ONLY the complete WebVTT content, with no introductory text, markdown formatting, or explanations. 
-                 Start directly with WEBVTT.`
+    
+    const result = await model.generateContent([
+      {
+        inlineData: {
+          mimeType: audioBlob.type || 'audio/mp3',
+          data: base64Audio
         }
-      ]
-    });
+      },
+      `Transcribe the audio into WebVTT format, including precise timestamp cues (HH:MM:SS.mmm). 
+       Ensure speaker labels are included if discernible. 
+       Return ONLY the complete WebVTT content, with no introductory text, markdown formatting, or explanations. 
+       Start directly with WEBVTT.`
+    ]);
 
-    const vttText = response.text || '';
+    const response = await result.response;
+    const vttText = response.text();
+
     if (!vttText.startsWith('WEBVTT')) {
        // Fallback cleanup if model chatters
        const match = vttText.match(/WEBVTT[\s\S]*/);

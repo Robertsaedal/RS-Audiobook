@@ -1,3 +1,4 @@
+
 {
   "name": "rs-audiobooks-vue",
   "private": true,
@@ -14,7 +15,8 @@
     "hls.js": "^1.5.7",
     "lucide-vue-next": "^0.473.0",
     "dexie": "^4.0.1",
-    "canvas-confetti": "^1.9.2"
+    "canvas-confetti": "^1.9.2",
+    "@google/generative-ai": "^0.21.0"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.0.0",
