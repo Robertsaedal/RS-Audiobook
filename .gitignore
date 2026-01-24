@@ -3,5 +3,7 @@ node_modules
 dist
 dist-ssr
 *.local
-.env          # <--- Add this line exactly
-.env.local    # (Optional) Good for extra safety
+
+# Secret environment variables
+.env
+.env.local
