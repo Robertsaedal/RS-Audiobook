@@ -11,11 +11,18 @@ export interface OfflineBook {
   isWishlisted?: number; // 0 or 1 for indexing
 }
 
+export interface TranscriptCue {
+  start: number;
+  end: number;
+  text: string;
+  speaker?: string;
+  background_noise?: string; 
+}
+
 export interface TranscriptRecord {
   itemId: string;
-  vttContent: string;
+  cues: TranscriptCue[];
   createdAt: number;
-  offset?: number; // Playback start time offset in seconds
 }
 
 export class AppDatabase extends Dexie {

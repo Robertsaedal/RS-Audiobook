@@ -47,8 +47,8 @@ export default async function handler(req: any, res: any) {
   // Use .mp3 extension for maximum compatibility with Gemini
   const tempFilePath = path.join(os.tmpdir(), `segment-${Date.now()}.mp3`);
   let uploadResult: any = null;
-  // Reduced to 120s (2 mins) to ensure processing finishes within Vercel's 60s limit
-  const SEGMENT_DURATION = 120; 
+  // Reduced to 45s to safely fit within Vercel's 60s execution limit (allowing for overhead)
+  const SEGMENT_DURATION = 45; 
 
   try {
     console.log(`[Transcribe] Processing Segment starting at ${currentTime}s`);
@@ -117,7 +117,7 @@ export default async function handler(req: any, res: any) {
     // Prompt engineered for granular "Karaoke" style segments
     const systemPrompt = `You are a professional audiobook transcriber.
     
-    Task: Transcribe the provided ${Math.floor(SEGMENT_DURATION/60)}-minute audio segment verbatim.
+    Task: Transcribe the provided ${Math.floor(SEGMENT_DURATION)} second audio segment verbatim.
     
     CRITICAL RULES:
     1. GRANULARITY: Split text into SHORT phrases or half-sentences (approx 5-15 words). 

@@ -1,7 +1,8 @@
 
 <script setup lang="ts">
 import { ref, watch, onMounted, computed, nextTick, onUnmounted } from 'vue';
-import { TranscriptionService, TranscriptCue } from '../services/transcriptionService';
+import { TranscriptionService } from '../services/transcriptionService';
+import { TranscriptCue } from '../services/db';
 import { useTranscriptionQueue } from '../composables/useTranscriptionQueue';
 import { ABSService } from '../services/absService';
 import { ABSLibraryItem } from '../types';
@@ -24,12 +25,14 @@ const cues = ref<TranscriptCue[]>([]);
 const hasTranscript = ref(false);
 const activeCueIndex = ref(-1);
 const scrollContainer = ref<HTMLElement | null>(null);
-const transcriptOffset = ref(0);
 const isUserScrolling = ref(false);
 let userScrollTimeout: any = null;
 
 // Queue Status tracking
-const queueItem = computed(() => getItemStatus(props.item.id, props.currentTime));
+const queueItem = computed(() => getItemStatus(props.item.id, props.currentTime)); // Note: this finds generic queue item for this book
+// To correctly track auto-load, we should check if *any* status is pending/processing for this book
+// For simplicity, we use the shared composable status.
+
 const isQueued = computed(() => !!queueItem.value);
 const queueStatus = computed(() => queueItem.value?.status);
 const queueError = computed(() => queueItem.value?.error);
@@ -38,32 +41,34 @@ const progressLabel = computed(() => {
   if (cooldownTimer.value > 0 && queueStatus.value === 'retrying') {
     return `Rate Limit Reached. Retrying in ${cooldownTimer.value}s...`;
   }
-  if (queueStatus.value === 'pending') return 'Waiting in Queue...';
-  if (queueStatus.value === 'processing') return 'Transcribing Audio...';
+  if (queueStatus.value === 'pending') return 'Queued...';
+  if (queueStatus.value === 'processing') return 'Transcribing...';
   if (queueStatus.value === 'completed') return 'Finalizing...';
-  if (queueStatus.value === 'failed') return 'Transcription Failed';
+  if (queueStatus.value === 'failed') return 'Failed';
   return 'Initializing...';
 });
 
-// Check if current transcript is out of sync (e.g., user skipped ahead 5 mins)
+// Check if we are completely lost (e.g. jumped to 1 hour but transcript is only 0-5 mins)
 const isOutOfSync = computed(() => {
   if (!hasTranscript.value || cues.value.length === 0) return false;
-  // If the current time is more than 30 seconds before the start or after the end of the loaded segment
   const first = cues.value[0];
   const last = cues.value[cues.value.length - 1];
-  return props.currentTime < (first.start - 30) || props.currentTime > (last.end + 30);
+  
+  // If we are BEFORE the start, that's fine (just wait). 
+  // If we are AFTER the end by > 10 seconds, we need to load more.
+  return props.currentTime > (last.end + 10);
 });
 
 const loadTranscript = async () => {
   const result = await TranscriptionService.getTranscript(props.item.id);
-  if (result) {
-    transcriptOffset.value = result.offset;
-    // Parse with the stored offset to ensure timestamps match the book position
-    cues.value = TranscriptionService.parseTranscript(result.content, result.offset);
-    hasTranscript.value = cues.value.length > 0;
+  if (result && result.length > 0) {
+    cues.value = result;
+    hasTranscript.value = true;
   } else {
-    hasTranscript.value = false;
-    cues.value = [];
+    // Keep existing cues if reload fails or returns empty to avoid flicker
+    if (cues.value.length === 0) {
+      hasTranscript.value = false;
+    }
   }
 };
 
@@ -75,11 +80,14 @@ const deleteTranscript = async () => {
   }
 };
 
-const handleGenerateClick = () => {
+const triggerGeneration = (startTime: number) => {
   const downloadUrl = props.absService.getDownloadUrl(props.item.id);
   const duration = props.item.media.duration;
-  // Use current time as the precise anchor
-  addToQueue(props.item.id, downloadUrl, duration, props.currentTime);
+  addToQueue(props.item.id, downloadUrl, duration, startTime);
+};
+
+const handleGenerateClick = () => {
+  triggerGeneration(props.currentTime);
 };
 
 const handleRegenerate = () => {
@@ -96,31 +104,48 @@ watch(queueStatus, (newStatus) => {
 
 const handleCueClick = (cue: TranscriptCue) => {
   if (cue && typeof cue.start === 'number') {
-    // cue.start is now Absolute time (Offset + Relative)
-    console.log(`[Transcript] Seeking to ${cue.start} (Offset: ${transcriptOffset.value})`);
+    console.log(`[Transcript] Seeking to ${cue.start}`);
     emit('seek', cue.start);
   }
 };
 
-// Sync Active Cue
+// Sync Active Cue & Auto-Load Logic
 watch(() => props.currentTime, (time) => {
   if (cues.value.length === 0) return;
   
-  // 1. Check if current active cue is still valid
+  // 1. Sync Active Cue
   if (activeCueIndex.value !== -1) {
     const current = cues.value[activeCueIndex.value];
-    if (time >= current.start && time <= current.end) return; 
+    if (time >= current.start && time <= current.end) {
+        // Still in same cue, no visual update needed
+    } else {
+        const idx = cues.value.findIndex(c => time >= c.start && time <= c.end);
+        if (idx !== -1 && idx !== activeCueIndex.value) {
+            activeCueIndex.value = idx;
+            if (!isUserScrolling.value) scrollToActive();
+        }
+    }
+  } else {
+    // Initial find
+    const idx = cues.value.findIndex(c => time >= c.start && time <= c.end);
+    if (idx !== -1) {
+        activeCueIndex.value = idx;
+        if (!isUserScrolling.value) scrollToActive();
+    }
   }
 
-  // 2. Find new cue
-  const idx = cues.value.findIndex(c => time >= c.start && time <= c.end);
+  // 2. Auto-Load Logic
+  // If we are within 20 seconds of the end of the loaded transcript, request the next chunk
+  const lastCue = cues.value[cues.value.length - 1];
+  if (time > (lastCue.end - 20) && !isQueued.value) {
+      console.log(`[Transcript] Auto-loading next segment starting at ${lastCue.end}`);
+      triggerGeneration(lastCue.end);
+  }
   
-  // 3. Update if changed
-  if (idx !== -1 && idx !== activeCueIndex.value) {
-    activeCueIndex.value = idx;
-    if (!isUserScrolling.value) {
-      scrollToActive();
-    }
+  // If user jumped WAY past the end (e.g. via progress bar), trigger immediate load at new time
+  if (time > (lastCue.end + 10) && !isQueued.value) {
+       console.log(`[Transcript] Jump detected. Loading segment at ${time}`);
+       triggerGeneration(time);
   }
 });
 
@@ -129,11 +154,10 @@ const onScroll = () => {
   if (userScrollTimeout) clearTimeout(userScrollTimeout);
   userScrollTimeout = setTimeout(() => {
     isUserScrolling.value = false;
-  }, 2000); // Resume auto-scroll after 2s of inactivity
+  }, 2000); 
 };
 
 const scrollToActive = () => {
-  // Use requestAnimationFrame for smoother performance
   requestAnimationFrame(() => {
     if (!scrollContainer.value) return;
     const activeEl = scrollContainer.value.querySelector('.active-cue');
@@ -178,14 +202,14 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- Sync Warning Overlay -->
+    <!-- Sync Warning Overlay (Only show if we have cues but are totally lost) -->
     <div v-if="hasTranscript && isOutOfSync && !isQueued" class="absolute top-14 left-0 right-0 z-10 px-6">
       <button 
-        @click="handleRegenerate"
+        @click="handleGenerateClick"
         class="w-full flex items-center justify-center gap-2 py-2 bg-amber-500/10 border border-amber-500/30 text-amber-500 rounded-xl backdrop-blur-md shadow-lg active:scale-95 transition-all"
       >
          <RefreshCw :size="12" />
-         <span class="text-[9px] font-black uppercase tracking-widest">Out of Sync • Regenerate Here</span>
+         <span class="text-[9px] font-black uppercase tracking-widest">Load Transcript For Current Time</span>
       </button>
     </div>
 
@@ -196,8 +220,8 @@ onUnmounted(() => {
       class="flex-1 overflow-y-auto custom-scrollbar p-6 relative"
     >
       
-      <!-- Processing State (Blocking Overlay) -->
-      <div v-if="isQueued && queueStatus !== 'completed' && queueStatus !== 'failed'" class="absolute inset-0 flex flex-col items-center justify-center gap-6 z-20 bg-black/80 backdrop-blur-md">
+      <!-- BLOCKING Processing State (Only if NO transcript exists yet) -->
+      <div v-if="isQueued && !hasTranscript" class="absolute inset-0 flex flex-col items-center justify-center gap-6 z-20 bg-black/80 backdrop-blur-md">
         <div class="relative mb-2">
           <div class="absolute inset-0 bg-purple-500/20 blur-xl rounded-full animate-pulse" />
           <Loader2 v-if="queueStatus === 'processing'" :size="48" class="text-purple-500 animate-spin relative z-10" />
@@ -208,16 +232,10 @@ onUnmounted(() => {
            <p class="text-[9px] font-black uppercase tracking-[0.3em] text-white animate-pulse">
              {{ progressLabel }}
            </p>
-           
-           <!-- Progress Bar -->
            <div class="w-full h-1 bg-white/10 rounded-full overflow-hidden">
                <div 
-                  class="h-full transition-all duration-300 ease-out rounded-full"
-                  :class="[
-                    queueStatus === 'retrying' ? 'bg-amber-500' : 'bg-purple-500 shadow-[0_0_10px_rgba(168,85,247,0.5)]',
-                    queueStatus === 'processing' ? 'animate-pulse' : ''
-                  ]"
-                  :style="{ width: queueStatus === 'processing' ? '60%' : '100%' }"
+                  class="h-full transition-all duration-300 ease-out rounded-full bg-purple-500 shadow-[0_0_10px_rgba(168,85,247,0.5)]"
+                  :style="{ width: '100%' }"
                ></div>
            </div>
         </div>
@@ -231,7 +249,7 @@ onUnmounted(() => {
         <div class="space-y-1">
           <h3 class="text-sm font-black uppercase tracking-tight text-white">No Transcript</h3>
           <p class="text-[9px] text-neutral-500 leading-relaxed max-w-[200px] mx-auto">
-            Generate AI-powered transcripts with phrase-level syncing for a karaoke experience.
+            Generate AI-powered transcripts with phrase-level syncing.
           </p>
         </div>
         
@@ -249,8 +267,8 @@ onUnmounted(() => {
         </button>
       </div>
 
-      <!-- Transcript Lines (Karaoke Enabled) -->
-      <div v-if="hasTranscript" class="space-y-6 py-20 flex flex-col items-center min-h-full justify-center w-full">
+      <!-- Transcript Lines -->
+      <div v-if="hasTranscript" class="space-y-6 py-20 flex flex-col items-center min-h-full justify-start w-full">
         <div 
           v-for="(cue, index) in cues" 
           :key="index"
@@ -274,8 +292,6 @@ onUnmounted(() => {
           </div>
 
           <!-- Karaoke Text -->
-          <!-- KEY is crucial here to force re-render when active state changes, triggering animation replay -->
-          <!-- box-decoration-break: clone helps with inline text wrapping background -->
           <p 
             v-if="cue.text"
             :key="activeCueIndex === index ? 'active' : 'inactive'"
@@ -287,6 +303,12 @@ onUnmounted(() => {
           >
             {{ cue.text }}
           </p>
+        </div>
+
+        <!-- NON-BLOCKING Loading Indicator at bottom -->
+        <div v-if="isQueued && hasTranscript" class="py-4 flex flex-col items-center justify-center gap-2 opacity-50">
+           <Loader2 :size="16" class="text-purple-500 animate-spin" />
+           <span class="text-[8px] font-black uppercase tracking-widest text-neutral-500">Auto-loading next segment...</span>
         </div>
       </div>
 

@@ -1,28 +1,15 @@
 
-import { db } from './db';
-
-export interface TranscriptCue {
-  start: number;
-  end: number;
-  text: string;
-  speaker?: string;
-  background_noise?: string; 
-}
-
-export interface TranscriptResult {
-    content: string;
-    offset: number;
-}
+import { db, TranscriptCue } from './db';
 
 export class TranscriptionService {
   
-  static async getTranscript(itemId: string): Promise<TranscriptResult | null> {
+  static async getTranscript(itemId: string): Promise<TranscriptCue[] | null> {
     const record = await db.transcripts.get(itemId);
-    // Safety check: If a record exists but has no offset (legacy), treat as invalid to force regenerate
-    if (record && record.offset === undefined) {
-      return null;
+    if (record && record.cues) {
+      return record.cues;
     }
-    return record ? { content: record.vttContent, offset: record.offset || 0 } : null;
+    // Backward compatibility: If we encounter an old record format, return null to force regeneration
+    return null;
   }
 
   static async deleteTranscript(itemId: string): Promise<void> {
@@ -35,7 +22,7 @@ export class TranscriptionService {
     duration: number,
     onChunk?: (chunk: string) => void,
     currentTime: number = 0 
-  ): Promise<string> {
+  ): Promise<TranscriptCue[]> {
     
     console.log(`[Transcription] Requesting smart segment transcription at ${currentTime}s`);
 
@@ -79,7 +66,6 @@ export class TranscriptionService {
         }
       }
 
-      // Explicitly pass currentTime as the offset
       return this.saveTranscript(itemId, fullText, currentTime);
 
     } catch (error: any) {
@@ -88,20 +74,38 @@ export class TranscriptionService {
     }
   }
 
-  private static async saveTranscript(itemId: string, rawContent: string, offset: number): Promise<string> {
-    // Clean up content before saving
-    const cleanContent = rawContent
-      .split('\n')
-      .filter(line => !line.startsWith(': status:') && !line.startsWith('ERROR:'))
-      .join('\n');
+  private static async saveTranscript(itemId: string, rawContent: string, offset: number): Promise<TranscriptCue[]> {
+    // 1. Parse the new chunk of text into cues
+    const newCues = this.parseTranscript(rawContent, offset);
+    
+    if (newCues.length === 0) return [];
+
+    // 2. Load existing transcript
+    const existingRecord = await db.transcripts.get(itemId);
+    let allCues = existingRecord?.cues || [];
+
+    // 3. Merge Strategy: Append and Deduplicate
+    allCues = [...allCues, ...newCues];
+
+    // Remove duplicates based on exact start time and text
+    const seen = new Set();
+    allCues = allCues.filter(c => {
+        const key = `${Math.floor(c.start * 100)}_${c.text}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+
+    // Sort by start time to ensure order
+    allCues.sort((a, b) => a.start - b.start);
 
     await db.transcripts.put({
       itemId,
-      vttContent: cleanContent, 
-      createdAt: Date.now(),
-      offset: offset
+      cues: allCues, 
+      createdAt: existingRecord?.createdAt || Date.now()
     });
-    return cleanContent;
+    
+    return allCues;
   }
 
   static parseTranscript(jsonlString: string, offsetSeconds: number = 0): TranscriptCue[] {
@@ -145,7 +149,7 @@ export class TranscriptionService {
         const obj = JSON.parse(cleanLine);
         
         if (obj.text || obj.background_noise) { 
-            // CRITICAL: Add offsetSeconds to make timestamp absolute relative to the book
+            // CRITICAL: Add offsetSeconds here so DB stores ABSOLUTE cues relative to book start
             cues.push({ 
                 start: parseTime(obj.start) + offsetSeconds, 
                 end: parseTime(obj.end) + offsetSeconds, 
@@ -159,7 +163,6 @@ export class TranscriptionService {
       }
     }
 
-    // Sanity sort to ensure cues are in order
-    return cues.sort((a, b) => a.start - b.start);
+    return cues;
   }
 }
