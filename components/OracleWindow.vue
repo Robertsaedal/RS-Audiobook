@@ -80,18 +80,39 @@ const sendMessage = async () => {
       ${knowledgeBase.value}
     `;
 
-    // Use gemini-2.0-flash-exp as per guidelines to avoid 1.5-flash restrictions
+    // Use gemini-3-flash-preview as per standard guidelines for basic text tasks
     const model = genAI.getGenerativeModel({ 
-      model: 'gemini-2.0-flash-exp',
+      model: 'gemini-3-flash-preview',
       systemInstruction: systemInstruction 
     });
 
-    const result = await model.generateContent(query);
-    const response = await result.response;
-    const text = response.text();
+    // Implement Retry Logic with Exponential Backoff
+    let responseText = '';
+    const retries = 3;
+    
+    for (let attempt = 0; attempt < retries; attempt++) {
+      try {
+        const result = await model.generateContent(query);
+        const response = await result.response;
+        responseText = response.text();
+        break; // Success
+      } catch (err: any) {
+        const isRateLimit = err.message?.includes('429') || err.status === 429;
+        const isLastAttempt = attempt === retries - 1;
 
-    if (text) {
-      messages.value.push({ role: 'model', text: text });
+        if (isRateLimit && !isLastAttempt) {
+          const delay = 1000 * Math.pow(2, attempt); // 1s, 2s, 4s
+          console.warn(`[Oracle] Rate limited (429). Retrying in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+        
+        throw err; // Re-throw if not retryable or max retries reached
+      }
+    }
+
+    if (responseText) {
+      messages.value.push({ role: 'model', text: responseText });
     }
   } catch (e: any) {
     console.error("[Oracle] Generation failed", e);
@@ -99,6 +120,11 @@ const sendMessage = async () => {
     
     if (e.message?.includes('403')) {
       errorText = 'Access Denied (403): Please check your API Key configuration.';
+    } else if (e.message?.includes('429')) {
+      errorText = 'The Oracle is overwhelmed with requests. Please try again in a moment.';
+    } else if (e.message?.includes('404')) {
+      // Fallback for model availability issues
+      errorText = 'The requested Oracle model is currently unavailable.';
     }
     
     messages.value.push({ role: 'model', text: errorText });
