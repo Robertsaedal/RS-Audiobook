@@ -7,9 +7,10 @@ import { ABSService } from '../services/absService';
 import { OfflineManager, downloadQueue } from '../services/offlineManager'; // Import Queue
 import ChapterEditor from '../components/ChapterEditor.vue';
 import TranscriptWindow from '../components/TranscriptWindow.vue';
+import OracleWindow from '../components/OracleWindow.vue';
 import { 
   ChevronDown, Play, Pause, Info, X, SkipBack, SkipForward,
-  RotateCcw, RotateCw, ChevronRight, Moon, Plus, Minus, Mic, Clock, Layers, Download, CheckCircle, Calendar, ArrowRight, Heart, Gauge, MessageCircle
+  RotateCcw, RotateCw, ChevronRight, Moon, Plus, Minus, Mic, Clock, Layers, Download, CheckCircle, Calendar, ArrowRight, Heart, Gauge, MessageCircle, Sparkles
 } from 'lucide-vue-next';
 
 const props = defineProps<{
@@ -29,6 +30,7 @@ const absService = computed(() => new ABSService(props.auth.serverUrl, props.aut
 const showChapters = ref(false);
 const showInfo = ref(false);
 const showTranscript = ref(false);
+const showOracle = ref(false);
 const isDownloaded = ref(false);
 const isWishlisted = ref(false);
 const liveTime = ref(Date.now()); 
@@ -49,8 +51,8 @@ const onPopState = () => {
   if (showInfo.value && hash !== '#player-info') {
     showInfo.value = false;
   }
-  // Transcript isn't pushed to history to keep it lightweight, but we could
   if (showTranscript.value) showTranscript.value = false;
+  if (showOracle.value) showOracle.value = false;
 };
 
 const openChapters = () => {
@@ -74,7 +76,13 @@ const closeInfoOverlay = () => {
 };
 
 const toggleTranscript = () => {
+  showOracle.value = false;
   showTranscript.value = !showTranscript.value;
+};
+
+const toggleOracle = () => {
+  showTranscript.value = false;
+  showOracle.value = !showOracle.value;
 };
 
 const coverUrl = computed(() => {
@@ -334,6 +342,17 @@ const infoRows = computed(() => {
           </div>
         </button>
         <div class="flex items-center gap-2">
+          
+          <!-- Oracle Toggle -->
+          <button 
+             @click="toggleOracle"
+             class="p-2 transition-colors tap-effect group relative" 
+             :class="showOracle ? 'text-purple-400' : 'text-neutral-600 hover:text-purple-400'"
+          >
+             <div v-if="showOracle" class="absolute inset-0 bg-purple-500/20 blur-md rounded-full animate-pulse" />
+             <Sparkles :size="22" class="relative z-10" />
+          </button>
+
           <!-- Lyrics/Transcript Toggle -->
           <button @click="toggleTranscript" class="p-2 text-neutral-600 hover:text-purple-400 transition-colors tap-effect" :class="showTranscript ? 'text-purple-500' : ''">
             <MessageCircle :size="22" />
@@ -356,10 +375,31 @@ const infoRows = computed(() => {
       <div class="flex-1 w-full flex flex-col lg:flex-row overflow-hidden relative z-10 gap-4 lg:gap-0 min-h-0">
         <div class="flex-1 lg:w-[40%] flex flex-col items-center justify-center px-6 relative z-10 min-h-0 lg:pb-0">
           
-          <!-- Swappable Container for Cover or Transcript -->
+          <!-- Swappable Container for Cover / Transcript / Oracle -->
           <Transition name="swap" mode="out-in">
+            <!-- Oracle Mode -->
+            <div v-if="showOracle" class="w-full h-full max-h-[55vh] lg:max-h-[60vh] max-w-md lg:max-w-xl mx-auto px-2 relative">
+               <OracleWindow 
+                 :item="activeItem" 
+                 :currentTime="state.currentTime" 
+                 :absService="absService"
+                 @close="toggleOracle"
+               />
+            </div>
+
+            <!-- Transcript Mode -->
+            <div v-else-if="showTranscript" class="w-full h-full max-h-[50vh] lg:max-h-[60vh] max-w-md lg:max-w-xl mx-auto px-2 relative">
+               <TranscriptWindow 
+                 :item="activeItem" 
+                 :currentTime="state.currentTime" 
+                 :absService="absService" 
+                 @close="toggleTranscript" 
+                 @seek="handleChapterSeek" 
+               />
+            </div>
+
             <!-- Normal Cover Mode -->
-            <div v-if="!showTranscript" class="w-full flex flex-col items-center">
+            <div v-else class="w-full flex flex-col items-center">
               <div @click="openInfoOverlay" class="relative w-full max-w-[240px] md:max-w-[320px] aspect-[2/3] group cursor-pointer perspective-1000 shrink-0 mb-4 lg:mb-10 max-h-[40vh] md:max-h-[55vh] lg:max-h-[60vh] tap-effect">
                 <div 
                    class="absolute -inset-10 blur-[100px] rounded-full opacity-40 transition-colors duration-1000"
@@ -392,17 +432,6 @@ const infoRows = computed(() => {
                   <ArrowRight :size="12" class="text-purple-300 transition-transform group-hover:translate-x-1 group-hover:text-white" />
                 </button>
               </div>
-            </div>
-
-            <!-- Karaoke / Transcript Mode -->
-            <div v-else class="w-full h-full max-h-[50vh] lg:max-h-[60vh] max-w-md lg:max-w-xl mx-auto px-2 relative">
-               <TranscriptWindow 
-                 :item="activeItem" 
-                 :currentTime="state.currentTime" 
-                 :absService="absService" 
-                 @close="toggleTranscript" 
-                 @seek="handleChapterSeek" 
-               />
             </div>
           </Transition>
 

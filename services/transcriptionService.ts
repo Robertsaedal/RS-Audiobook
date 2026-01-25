@@ -1,4 +1,3 @@
-
 import { db, TranscriptCue } from './db';
 import { ABSLibraryItem } from '../types';
 import { ABSService } from './absService';
@@ -161,6 +160,85 @@ export class TranscriptionService {
       console.error(`[Transcription] Error processing transcript for ${itemId}`, e);
       return null;
     }
+  }
+
+  /**
+   * Builds a "Safe Context" for the Oracle AI.
+   * - Includes current book transcript UP TO currentTime.
+   * - Includes FULL transcripts of previous books in the series.
+   */
+  static async getOracleContext(
+    currentItem: ABSLibraryItem,
+    currentTime: number,
+    absService: ABSService
+  ): Promise<{ context: string, booksIncluded: string[] }> {
+    
+    let context = "";
+    const booksIncluded: string[] = [];
+    const meta = currentItem.media.metadata;
+
+    // 1. Identify Series info
+    let seriesId = meta.seriesId;
+    let currentSeq = parseFloat(String(meta.seriesSequence || meta.sequence || '999999'));
+
+    if (!seriesId && Array.isArray(meta.series) && meta.series.length > 0) {
+      seriesId = meta.series[0].id;
+      currentSeq = parseFloat(String(meta.series[0].sequence || '999999'));
+    }
+
+    // 2. Fetch Previous Books (if part of a series)
+    if (seriesId) {
+      try {
+        const allSeriesBooks = await absService.getSeriesBooks(seriesId);
+        // Filter for previous books
+        const previousBooks = allSeriesBooks
+          .filter(b => {
+            const bSeq = parseFloat(String(b.media.metadata.seriesSequence || b.media.metadata.sequence || '999999'));
+            // Check implicit series array if top level is missing
+            const bSeqAlt = Array.isArray(b.media.metadata.series) && b.media.metadata.series.length > 0 
+                ? parseFloat(String(b.media.metadata.series[0].sequence)) 
+                : 999999;
+            
+            const finalSeq = bSeq !== 999999 ? bSeq : bSeqAlt;
+            return finalSeq < currentSeq;
+          })
+          .sort((a, b) => {
+             // sort asc
+             const seqA = parseFloat(String(a.media.metadata.seriesSequence || 0));
+             const seqB = parseFloat(String(b.media.metadata.seriesSequence || 0));
+             return seqA - seqB;
+          });
+
+        // 3. Load full transcripts for previous books
+        for (const prevBook of previousBooks) {
+           const cues = await this.getTranscript(prevBook.id, absService);
+           if (cues && cues.length > 0) {
+             const fullText = cues.map(c => c.text).join(' ');
+             context += `BOOK: ${prevBook.media.metadata.title}\nCONTEXT: ${fullText}\n\n`;
+             booksIncluded.push(prevBook.media.metadata.title);
+           }
+        }
+      } catch (e) {
+        console.warn("[Oracle] Failed to fetch previous series books", e);
+      }
+    }
+
+    // 4. Load & Slice Current Book
+    const currentCues = await this.getTranscript(currentItem.id, absService);
+    if (currentCues && currentCues.length > 0) {
+      // SLICER LOGIC: Only cues that have ended before or slightly after current time
+      const safeCues = currentCues.filter(c => c.end <= currentTime + 5); 
+      const safeText = safeCues.map(c => c.text).join(' ');
+      
+      context += `CURRENT BOOK: ${meta.title}\n`;
+      context += `CURRENT READING POSITION: Chapter/Time is approximately ${Math.floor(currentTime)} seconds in.\n`;
+      context += `KNOWN CONTEXT (Everything read so far):\n${safeText}\n`;
+      booksIncluded.push(meta.title);
+    } else {
+      context += `CURRENT BOOK: ${meta.title}\n(No transcript available for this book yet. Answer based on general knowledge if possible, but warn the user.)\n`;
+    }
+
+    return { context, booksIncluded };
   }
 
   // --- VTT PARSER ---
