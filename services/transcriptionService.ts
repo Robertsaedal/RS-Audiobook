@@ -8,42 +8,61 @@ const DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/146294114832154629
 export class TranscriptionService {
   
   /**
-   * Checks IndexedDB first, then tries to find a JSON file in the item's library files via ABS API.
+   * Checks IndexedDB first, then scans the item's files in ABS for a matching JSON transcript.
    */
   static async getTranscript(itemId: string, absService: ABSService | null): Promise<TranscriptCue[] | null> {
-    // 1. Check Local DB
+    // 1. Check Local DB (Cache)
     const record = await db.transcripts.get(itemId);
     if (record && record.cues && record.cues.length > 0) {
+      console.log(`[Transcription] Loaded from local cache: ${itemId}`);
       return record.cues;
     }
 
-    if (!absService) return null;
+    if (!absService) {
+      console.warn('[Transcription] No ABSService available to fetch files.');
+      return null;
+    }
 
-    // 2. Fetch from ABS Files
+    // 2. Scan ABS Library Files
     try {
+      console.log(`[Transcription] Scanning files for item: ${itemId}`);
       const files = await absService.getItemFiles(itemId);
       
-      // Look for a .json (or .jason as per user report) file
+      if (!files || files.length === 0) {
+        console.log(`[Transcription] No files returned from ABS for item ${itemId}`);
+        return null;
+      }
+
+      // Log all files for debugging purposes
+      console.log(`[Transcription] Found files:`, files.map((f: any) => f.name));
+
+      // Look for a .json or .jason file
       const candidate = files.find((f: any) => {
           const name = (f.name || '').toLowerCase();
           return name.endsWith('.json') || name.endsWith('.jason');
       });
 
-      if (!candidate || !candidate.ino) return null;
+      if (!candidate || !candidate.ino) {
+        console.log(`[Transcription] No matching .json or .jason file found.`);
+        return null;
+      }
 
+      console.log(`[Transcription] Match found: ${candidate.name}. Fetching...`);
       const fileUrl = absService.getRawFileUrl(itemId, candidate.ino);
       
       const response = await fetch(fileUrl);
       if (!response.ok) {
-        if (response.status !== 404) console.warn(`[Transcription] Fetch failed: ${response.status}`);
+        console.warn(`[Transcription] Download failed: ${response.status} ${response.statusText}`);
         return null;
       }
 
       const data = await response.json();
       
-      // Validate and Normalize Format
+      // 3. Parse & Normalize Format
       let cues: TranscriptCue[] = [];
       
+      // Expected format: Array of objects with { start, end, text }
+      // Supporting both seconds (number) and string timestamps if necessary, but assuming number based on previous context.
       if (Array.isArray(data)) {
         cues = data.map((entry: any) => ({
             start: Number(entry.start) || 0,
@@ -51,11 +70,16 @@ export class TranscriptionService {
             text: String(entry.text || ''),
             speaker: entry.speaker,
             background_noise: entry.background_noise
-        })).filter(c => c.text.trim().length > 0).sort((a, b) => a.start - b.start);
+        }))
+        .filter(c => c.text && c.text.trim().length > 0)
+        .sort((a, b) => a.start - b.start);
+      } else {
+        console.warn(`[Transcription] JSON format unrecognized (not an array).`);
+        return null;
       }
 
       if (cues.length > 0) {
-        console.log(`[Transcription] Found file '${candidate.name}' for ${itemId} (${cues.length} lines)`);
+        console.log(`[Transcription] Successfully parsed ${cues.length} cues.`);
         // Save to DB for faster future access
         await db.transcripts.put({
             itemId,
@@ -63,11 +87,14 @@ export class TranscriptionService {
             createdAt: Date.now()
         });
         return cues;
+      } else {
+        console.warn(`[Transcription] File parsed but contained no valid cues.`);
       }
+
       return null;
 
     } catch (e) {
-      console.warn(`[Transcription] Error fetching transcript for ${itemId}`, e);
+      console.error(`[Transcription] Error processing transcript for ${itemId}`, e);
       return null;
     }
   }
@@ -80,6 +107,8 @@ export class TranscriptionService {
    * Sends a request to Discord Webhook
    */
   static async requestTranscript(item: ABSLibraryItem, note?: string): Promise<boolean> {
+    console.log(`[Transcription] Sending request for ${item.media.metadata.title}`);
+    
     const payload = {
       embeds: [{
         title: `Transcript Request`,

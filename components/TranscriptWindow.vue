@@ -155,7 +155,7 @@ onUnmounted(() => {
         <div class="space-y-2">
           <h3 class="text-sm font-black uppercase tracking-tight text-white">Transcript Unavailable</h3>
           <p class="text-[10px] text-neutral-500 leading-relaxed max-w-[220px] mx-auto">
-            This artifact does not have a synchronized text file in the local archive.
+            This artifact does not have a synchronized JSON file in the archive.
           </p>
         </div>
         
