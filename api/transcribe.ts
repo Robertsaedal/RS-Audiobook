@@ -47,8 +47,9 @@ export default async function handler(req: any, res: any) {
   const tempFilePath = path.join(os.tmpdir(), `segment-${Date.now()}.mp3`);
   let uploadResult: any = null;
   
-  // Reduced to 20s to strictly fit within Vercel's 60s limit with overhead
-  const SEGMENT_DURATION = 20; 
+  // Reduced to 10s to guarantee success within 60s timeout window
+  // Smaller chunks = Faster processing = No Timeouts
+  const SEGMENT_DURATION = 10; 
 
   try {
     console.log(`[Transcribe] Processing Segment starting at ${currentTime}s`);
@@ -73,7 +74,7 @@ export default async function handler(req: any, res: any) {
                 '-f mp3'
             ])
             .audioCodec('libmp3lame')
-            .audioBitrate(32)        
+            .audioBitrate(32)
             .on('end', resolve)
             .on('error', (err: any) => {
                 console.error('FFmpeg Error:', err);

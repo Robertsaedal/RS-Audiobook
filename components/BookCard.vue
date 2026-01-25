@@ -19,7 +19,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'click', item: ABSLibraryItem): void,
-  (e: 'click-info', item: ABSLibraryItem): void
+  (e: 'click-info', item: ABSLibraryItem): void,
+  (e: 'finish', item: ABSLibraryItem): void
 }>();
 
 const rootEl = ref<HTMLElement | null>(null);
@@ -32,43 +33,47 @@ const triggerCompletionEffect = ref(false);
 const accentColor = ref('#A855F7');
 const colorLoaded = ref(false);
 
+// State for progress to ensure reactivity on deep updates
+const localProgressPct = ref(0);
+const localIsFinished = ref(false);
+
 // Optimize: Intersection Observer for lazy loading logic
 let observer: IntersectionObserver | null = null;
 
-// Ensure reactivity by checking nested properties explicitly
-const progressData = computed(() => {
-  const up = props.item.userProgress;
-  const mp = (props.item.media as any)?.userProgress;
-  const ump = (props.item as any).userMediaProgress;
-  
-  // Dependency tracking hack: accessing primitive properties forces Vue to track updates
-  if (up) { const _ = up.currentTime + up.duration; return up; }
-  if (mp) { const _ = mp.currentTime + mp.duration; return mp; }
-  if (ump) { const _ = ump.currentTime + ump.duration; return ump; }
+// Deep Watcher to enforce progress updates
+watch(
+  () => props.item,
+  (newItem) => {
+    if (!newItem) return;
+    
+    // Resolve Progress Object
+    const p = newItem.userProgress || 
+              (newItem.media as any)?.userProgress || 
+              (newItem as any).userMediaProgress || 
+              null;
 
-  return null;
-});
-
-const progressPercentage = computed(() => {
-  const p = progressData.value;
-  if (!p) return 0;
-  
-  if (p.isFinished || (p as any).isCompleted) return 100;
-
-  const total = p.duration || props.item.media.duration || 0;
-  const current = p.currentTime || 0;
-
-  if (total > 0 && current > 0) {
-    return Math.min(100, (current / total) * 100);
-  }
-  return 0;
-});
-
-const isFinished = computed(() => {
-  const p = progressData.value;
-  if (!p) return false;
-  return p.isFinished || (p as any).isCompleted || progressPercentage.value >= 99.5;
-});
+    if (p) {
+        const { currentTime, duration, isFinished, progress } = p;
+        const total = duration || newItem.media.duration || 0;
+        
+        localIsFinished.value = isFinished || (p as any).isCompleted || false;
+        
+        if (localIsFinished.value) {
+            localProgressPct.value = 100;
+        } else if (total > 0 && currentTime > 0) {
+            localProgressPct.value = Math.min(100, (currentTime / total) * 100);
+        } else if (progress > 0) {
+            localProgressPct.value = Math.min(100, progress * 100);
+        } else {
+            localProgressPct.value = 0;
+        }
+    } else {
+        localProgressPct.value = 0;
+        localIsFinished.value = false;
+    }
+  },
+  { deep: true, immediate: true }
+);
 
 const displaySequence = computed(() => {
   if (props.fallbackSequence !== undefined && props.fallbackSequence !== null) {
@@ -89,8 +94,7 @@ const displaySequence = computed(() => {
 
 // Clamped position for the pill so it doesn't fall off edges of the card
 const pillPosition = computed(() => {
-  const p = progressPercentage.value;
-  // Clamp between 10% and 90% to keep the pill entirely visible
+  const p = localProgressPct.value;
   return Math.max(10, Math.min(90, p));
 });
 
@@ -137,7 +141,7 @@ onUnmounted(() => {
   observer?.disconnect();
 });
 
-watch(isFinished, (newVal) => {
+watch(localIsFinished, (newVal) => {
   if (newVal) {
     triggerCompletionEffect.value = true;
     setTimeout(() => { triggerCompletionEffect.value = false; }, 2000);
@@ -211,37 +215,37 @@ watch(isFinished, (newVal) => {
       </div>
 
       <!-- Finished Indicator Overlay -->
-      <div v-if="isFinished && !downloadProgress && isVisible" class="absolute inset-0 flex items-center justify-center z-40 bg-black/40 backdrop-grayscale-[0.5] pointer-events-none">
+      <div v-if="localIsFinished && !downloadProgress && isVisible" class="absolute inset-0 flex items-center justify-center z-40 bg-black/40 backdrop-grayscale-[0.5] pointer-events-none">
          <div class="px-4 py-1.5 bg-purple-600/90 backdrop-blur-md border border-purple-400/30 rounded-full flex items-center justify-center shadow-xl transform -rotate-12">
             <span class="text-[9px] font-black text-white uppercase tracking-[0.2em]">COMPLETE</span>
          </div>
       </div>
 
       <!-- Play Overlay -->
-      <div v-if="!isFinished && !downloadProgress && isVisible" class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex items-center justify-center pointer-events-none">
+      <div v-if="!localIsFinished && !downloadProgress && isVisible" class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex items-center justify-center pointer-events-none">
         <div class="w-14 h-14 rounded-full bg-purple-600 text-white flex items-center justify-center shadow-[0_0_30px_rgba(168,85,247,0.5)] transform scale-90 group-hover:scale-100 transition-transform">
           <Play :size="24" fill="currentColor" class="translate-x-0.5" />
         </div>
       </div>
 
       <!-- Progress Bar with Dynamic Pill (Hidden if downloading) -->
-      <div v-if="!hideProgress && !isFinished && progressPercentage > 0 && !downloadProgress && isVisible" class="absolute bottom-3 left-3 right-3 z-30 flex flex-col pointer-events-none">
+      <div v-if="!hideProgress && !localIsFinished && localProgressPct > 0 && !downloadProgress && isVisible" class="absolute bottom-3 left-3 right-3 z-30 flex flex-col pointer-events-none">
          <div class="relative w-full h-1.5 bg-purple-950/40 backdrop-blur-sm rounded-full">
             <div 
-              class="h-full bg-purple-500 rounded-full shadow-[0_0_10px_rgba(168,85,247,0.4)] transition-all duration-300 relative" 
-              :style="{ width: progressPercentage + '%', backgroundColor: colorLoaded ? 'var(--card-accent)' : undefined, boxShadow: colorLoaded ? '0 0 10px var(--card-accent)' : undefined }"
+              class="h-full bg-purple-500 rounded-full shadow-[0_0_10px_rgba(168,85,247,0.4)] transition-all duration-300 relative will-change-transform" 
+              :style="{ width: localProgressPct + '%', backgroundColor: colorLoaded ? 'var(--card-accent)' : undefined, boxShadow: colorLoaded ? '0 0 10px var(--card-accent)' : undefined }"
             />
             
             <!-- Dynamic Percentage Pill -->
             <div 
-              class="absolute bottom-2.5 -translate-x-1/2 z-20 transition-all duration-300"
+              class="absolute bottom-2.5 -translate-x-1/2 z-20 transition-all duration-300 will-change-left"
               :style="{ left: pillPosition + '%' }"
             >
                <div 
                  class="bg-purple-500 text-white text-[8px] font-black px-2 py-0.5 rounded-full shadow-lg min-w-[28px] text-center border border-white/10 tracking-tight"
                  :style="{ backgroundColor: colorLoaded ? 'var(--card-accent)' : undefined }"
                >
-                  {{ Math.round(progressPercentage) }}%
+                  {{ Math.round(localProgressPct) }}%
                </div>
                <!-- Tiny Triangle Pointer -->
                <div 
