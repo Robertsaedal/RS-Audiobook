@@ -4,12 +4,14 @@ import { ref, watch, onMounted, onUnmounted } from 'vue';
 import { TranscriptionService } from '../services/transcriptionService';
 import { TranscriptCue } from '../services/db';
 import { ABSLibraryItem } from '../types';
+import { ABSService } from '../services/absService';
 import { X, Volume2, FileText, Send, CheckCircle, AlertTriangle, Loader2 } from 'lucide-vue-next';
 import confetti from 'canvas-confetti';
 
 const props = defineProps<{
   item: ABSLibraryItem,
-  currentTime: number
+  currentTime: number,
+  absService?: ABSService | null
 }>();
 
 const emit = defineEmits<{
@@ -33,7 +35,7 @@ const loadTranscript = async () => {
   requestStatus.value = 'idle';
   
   try {
-    const result = await TranscriptionService.getTranscript(props.item.id);
+    const result = await TranscriptionService.getTranscript(props.item.id, props.absService || null);
     if (result && result.length > 0) {
       cues.value = result;
       hasTranscript.value = true;

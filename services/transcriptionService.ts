@@ -1,54 +1,47 @@
 
 import { db, TranscriptCue } from './db';
 import { ABSLibraryItem } from '../types';
+import { ABSService } from './absService';
 
 const DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/1462941148321546290/H0cmE88xjO3T73sJMRg0meSc6ar82TmvILqWCWkoN5jKXpNj4CJeJbhkd8I_1fbDtAXF';
 
 export class TranscriptionService {
   
   /**
-   * Checks IndexedDB first, then tries to fetch a static JSON file from the server.
+   * Checks IndexedDB first, then tries to find a JSON file in the item's library files via ABS API.
    */
-  static async getTranscript(itemId: string): Promise<TranscriptCue[] | null> {
+  static async getTranscript(itemId: string, absService: ABSService | null): Promise<TranscriptCue[] | null> {
     // 1. Check Local DB
     const record = await db.transcripts.get(itemId);
     if (record && record.cues && record.cues.length > 0) {
       return record.cues;
     }
 
-    // 2. Check Static File (Local Program Output)
-    return this.fetchStaticTranscript(itemId);
-  }
+    if (!absService) return null;
 
-  static async deleteTranscript(itemId: string): Promise<void> {
-    await db.transcripts.delete(itemId);
-  }
-
-  /**
-   * Attempts to fetch /transcripts/{itemId}.json
-   */
-  private static async fetchStaticTranscript(itemId: string): Promise<TranscriptCue[] | null> {
+    // 2. Fetch from ABS Files
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000); // 3s timeout
-
-      const response = await fetch(`/transcripts/${itemId}.json`, { 
-          signal: controller.signal 
-      });
+      const files = await absService.getItemFiles(itemId);
       
-      clearTimeout(timeoutId);
+      // Look for a .json (or .jason as per user report) file
+      const candidate = files.find((f: any) => {
+          const name = (f.name || '').toLowerCase();
+          return name.endsWith('.json') || name.endsWith('.jason');
+      });
 
+      if (!candidate || !candidate.ino) return null;
+
+      const fileUrl = absService.getRawFileUrl(itemId, candidate.ino);
+      
+      const response = await fetch(fileUrl);
       if (!response.ok) {
-        if (response.status !== 404) {
-            console.warn(`[Transcription] Failed to fetch static file: ${response.status}`);
-        }
+        if (response.status !== 404) console.warn(`[Transcription] Fetch failed: ${response.status}`);
         return null;
       }
 
       const data = await response.json();
       
       // Validate and Normalize Format
-      // Assuming local program outputs Array of { start, end, text, ... }
       let cues: TranscriptCue[] = [];
       
       if (Array.isArray(data)) {
@@ -62,7 +55,7 @@ export class TranscriptionService {
       }
 
       if (cues.length > 0) {
-        console.log(`[Transcription] Found local file for ${itemId} (${cues.length} lines)`);
+        console.log(`[Transcription] Found file '${candidate.name}' for ${itemId} (${cues.length} lines)`);
         // Save to DB for faster future access
         await db.transcripts.put({
             itemId,
@@ -71,13 +64,16 @@ export class TranscriptionService {
         });
         return cues;
       }
-
       return null;
 
     } catch (e) {
-      console.warn(`[Transcription] Error fetching static transcript for ${itemId}`, e);
+      console.warn(`[Transcription] Error fetching transcript for ${itemId}`, e);
       return null;
     }
+  }
+
+  static async deleteTranscript(itemId: string): Promise<void> {
+    await db.transcripts.delete(itemId);
   }
 
   /**

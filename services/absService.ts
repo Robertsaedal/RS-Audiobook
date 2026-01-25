@@ -298,6 +298,17 @@ export class ABSService {
     }
   }
 
+  // --- NEW: Helper to fetch library files (e.g. .json, .nfo) associated with an item ---
+  async getItemFiles(itemId: string): Promise<any[]> {
+    const data = await this.fetchApi(`/items/${itemId}?include=libraryFiles`);
+    return data?.libraryFiles || [];
+  }
+
+  // --- NEW: Helper to construct a download URL for any file inside an item ---
+  getRawFileUrl(itemId: string, fileIno: string): string {
+    return `${this.serverUrl}/api/items/${itemId}/file/${fileIno}?token=${this.token}`;
+  }
+
   async getLibraries(): Promise<any[]> {
     const data = await this.fetchApi('/libraries');
     return Array.isArray(data) ? data : (data?.libraries || []);
