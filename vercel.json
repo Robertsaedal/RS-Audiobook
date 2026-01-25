@@ -1,11 +1,6 @@
 
 {
   "cleanUrls": true,
-  "functions": {
-    "api/transcribe.ts": {
-      "maxDuration": 60
-    }
-  },
   "rewrites": [
     {
       "source": "/sw.js",
