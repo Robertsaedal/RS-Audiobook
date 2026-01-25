@@ -88,7 +88,16 @@ const triggerGeneration = (startTime: number) => {
 };
 
 const handleGenerateClick = () => {
-  triggerGeneration(props.currentTime);
+  // If we have a failed request locked in, retry that specific time
+  if (queueStatus.value === 'failed' && lastRequestedTime.value !== null) {
+      triggerGeneration(lastRequestedTime.value);
+  } else {
+      triggerGeneration(props.currentTime);
+  }
+};
+
+const dismissError = () => {
+    lastRequestedTime.value = null;
 };
 
 const handleRegenerate = () => {
@@ -187,6 +196,8 @@ onUnmounted(() => {
 
     <!-- Failed/Retry Overlay (High Priority) -->
     <div v-if="queueStatus === 'failed'" class="absolute inset-0 z-30 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center animate-in fade-in">
+        <button @click="dismissError" class="absolute top-4 right-4 p-2 text-neutral-500 hover:text-white"><X :size="20" /></button>
+        
         <AlertTriangle :size="32" class="text-red-500 mb-4" />
         <h3 class="text-lg font-black uppercase text-white mb-2">Transcription Failed</h3>
         <p class="text-[10px] text-neutral-400 uppercase tracking-widest mb-6 max-w-xs">{{ queueError }}</p>

@@ -31,8 +31,20 @@ export function useTranscriptionQueue() {
   const addToQueue = (itemId: string, downloadUrl: string, duration: number, currentTime: number) => {
     const id = generateId(itemId, currentTime);
     
-    // Prevent duplicates
-    if (queue.find(i => i.id === id)) return;
+    // Check if exists
+    const existingItem = queue.find(i => i.id === id);
+    if (existingItem) {
+        // CRITICAL FIX: If it failed previously, reset it so we can try again
+        if (existingItem.status === 'failed') {
+            console.log(`[Queue] Retrying failed item: ${id}`);
+            existingItem.status = 'pending';
+            existingItem.error = undefined;
+            existingItem.progress = 0;
+            existingItem.retryCount = 0; // Reset retries on manual action
+            processQueue();
+        }
+        return;
+    }
 
     const item: QueueItem = {
       id,
