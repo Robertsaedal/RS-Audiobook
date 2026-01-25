@@ -47,14 +47,14 @@ export default async function handler(req: any, res: any) {
   // Use .mp3 extension for maximum compatibility with Gemini
   const tempFilePath = path.join(os.tmpdir(), `segment-${Date.now()}.mp3`);
   let uploadResult: any = null;
-  const SEGMENT_DURATION = 180; // Reduced to 3 minutes to prevent Vercel 60s Timeout
+  // Reduced to 120s (2 mins) to ensure processing finishes within Vercel's 60s limit
+  const SEGMENT_DURATION = 120; 
 
   try {
     console.log(`[Transcribe] Processing Segment starting at ${currentTime}s`);
 
     // 2. USE FFMPEG TO CREATE A VALID AUDIO SEGMENT
     // Optimized for Speed & Size: 16khz Mono @ 32kbps
-    // This creates a tiny file that processes and uploads instantly.
     await new Promise((resolve, reject) => {
         ffmpeg()
             .input(downloadUrl)
@@ -66,13 +66,13 @@ export default async function handler(req: any, res: any) {
             ])
             .outputOptions([
                 `-t ${SEGMENT_DURATION}`, 
-                '-ac 1',             // Downmix to Mono (Faster)
-                '-ar 16000',         // 16kHz Sample Rate (Enough for Speech)
-                '-map_metadata -1',  // Strip Metadata
+                '-ac 1',             // Downmix to Mono
+                '-ar 16000',         // 16kHz
+                '-map_metadata -1',  
                 '-f mp3'
             ])
             .audioCodec('libmp3lame')
-            .audioBitrate(32)        // 32kbps (Tiny file size)
+            .audioBitrate(32)        
             .on('end', resolve)
             .on('error', (err: any) => {
                 console.error('FFmpeg Error:', err);
@@ -114,16 +114,22 @@ export default async function handler(req: any, res: any) {
     // 5. Generate Stream
     const modelName = 'gemini-2.5-flash';
     
+    // Prompt engineered for granular "Karaoke" style segments
     const systemPrompt = `You are a professional audiobook transcriber.
     
     Task: Transcribe the provided ${Math.floor(SEGMENT_DURATION/60)}-minute audio segment verbatim.
     
     CRITICAL RULES:
-    1. SEGMENTATION: Break text into SENTENCES. Short, precise segments are better for syncing.
-    2. TIMESTAMPS: You MUST use relative timestamps starting at 00:00:00. Do NOT attempt to guess the book's absolute time.
+    1. GRANULARITY: Split text into SHORT phrases or half-sentences (approx 5-15 words). 
+       - NEVER output long paragraphs. 
+       - The goal is precise karaoke synchronization.
+       - Example:
+         {"start": "00:00", "end": "00:02", "text": "He walked down the street,"}
+         {"start": "00:02", "end": "00:04", "text": "looking at the lights."}
+    2. TIMESTAMPS: Use relative timestamps starting at 00:00:00.
     3. ANTI-HALLUCINATION: If audio is silent/noise, output NOTHING.
     4. Output Format: strictly JSONL. {"start": "HH:MM:SS.mmm", "end": "HH:MM:SS.mmm", "speaker": "Name", "text": "..."}
-    5. No markdown. No "Intro" or "Music" tags.
+    5. No markdown.
     `;
 
     const responseStream = await ai.models.generateContentStream({

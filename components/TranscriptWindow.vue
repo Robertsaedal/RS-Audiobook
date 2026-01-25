@@ -231,7 +231,7 @@ onUnmounted(() => {
         <div class="space-y-1">
           <h3 class="text-sm font-black uppercase tracking-tight text-white">No Transcript</h3>
           <p class="text-[9px] text-neutral-500 leading-relaxed max-w-[200px] mx-auto">
-            Generate AI-powered transcripts with sentence-level syncing.
+            Generate AI-powered transcripts with phrase-level syncing for a karaoke experience.
           </p>
         </div>
         
@@ -275,10 +275,11 @@ onUnmounted(() => {
 
           <!-- Karaoke Text -->
           <!-- KEY is crucial here to force re-render when active state changes, triggering animation replay -->
+          <!-- box-decoration-break: clone helps with inline text wrapping background -->
           <p 
             v-if="cue.text"
             :key="activeCueIndex === index ? 'active' : 'inactive'"
-            class="text-base md:text-lg font-bold leading-relaxed transition-colors duration-300 relative"
+            class="text-base md:text-lg font-bold leading-relaxed transition-colors duration-300 relative inline-block decoration-clone"
             :class="[
                activeCueIndex === index ? 'text-purple-100 karaoke-text' : 'text-neutral-300',
             ]"
@@ -294,6 +295,11 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.decoration-clone {
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
 .karaoke-text {
   background: linear-gradient(to right, #ffffff 50%, #525252 50%);
   background-size: 200% 100%;
