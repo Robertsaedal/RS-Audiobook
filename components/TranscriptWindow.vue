@@ -5,7 +5,7 @@ import { TranscriptionService } from '../services/transcriptionService';
 import { TranscriptCue } from '../services/db';
 import { ABSLibraryItem } from '../types';
 import { ABSService } from '../services/absService';
-import { X, Volume2, FileText, Send, CheckCircle, AlertTriangle, Loader2 } from 'lucide-vue-next';
+import { X, Volume2, FileText, Send, CheckCircle, AlertTriangle, Loader2, Upload } from 'lucide-vue-next';
 import confetti from 'canvas-confetti';
 
 const props = defineProps<{
@@ -25,6 +25,7 @@ const isLoading = ref(true);
 const activeCueIndex = ref(-1);
 const scrollContainer = ref<HTMLElement | null>(null);
 const isUserScrolling = ref(false);
+const fileInput = ref<HTMLInputElement | null>(null);
 let userScrollTimeout: any = null;
 
 // Request State
@@ -73,6 +74,49 @@ const handleRequestTranscript = async (e: MouseEvent) => {
   } else {
     requestStatus.value = 'error';
   }
+};
+
+const triggerUpload = () => {
+  fileInput.value?.click();
+};
+
+const handleFileUpload = (event: Event) => {
+  const target = event.target as HTMLInputElement;
+  const file = target.files?.[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const json = JSON.parse(e.target?.result as string);
+      
+      let parsedCues: TranscriptCue[] = [];
+      
+      // Handle different JSON structures (Array vs Object wrapper)
+      const rawData = Array.isArray(json) ? json : (json.cues || json.segments || []);
+      
+      if (Array.isArray(rawData)) {
+         parsedCues = rawData.map((entry: any) => ({
+            start: Number(entry.start) || 0,
+            end: Number(entry.end) || 0,
+            text: String(entry.text || ''),
+            speaker: entry.speaker,
+            background_noise: entry.background_noise
+        })).filter(c => c.text && c.text.trim().length > 0).sort((a, b) => a.start - b.start);
+      }
+
+      if (parsedCues.length > 0) {
+          cues.value = parsedCues;
+          hasTranscript.value = true;
+      } else {
+          alert("Invalid JSON format: Could not find cue array.");
+      }
+    } catch (err) {
+      console.error("Invalid JSON", err);
+      alert("Failed to parse JSON file.");
+    }
+  };
+  reader.readAsText(file);
 };
 
 const handleCueClick = (cue: TranscriptCue) => {
@@ -160,35 +204,49 @@ onUnmounted(() => {
         </div>
         
         <!-- Request Button States -->
-        <div class="pt-4">
-            <button 
-              v-if="requestStatus === 'idle' || requestStatus === 'error'"
-              @click="handleRequestTranscript"
-              class="px-6 py-3 bg-neutral-800 hover:bg-purple-900/40 border border-white/10 hover:border-purple-500/30 text-white font-black uppercase tracking-[0.15em] text-[9px] rounded-full transition-all active:scale-95 flex items-center gap-2 group"
-            >
-              <Send :size="12" class="group-hover:-translate-y-0.5 group-hover:translate-x-0.5 transition-transform" />
-              <span>Request Transcript</span>
-            </button>
-            
-            <button 
-              v-else-if="requestStatus === 'sending'"
-              disabled
-              class="px-6 py-3 bg-neutral-900 border border-white/5 text-neutral-500 font-black uppercase tracking-[0.15em] text-[9px] rounded-full flex items-center gap-2 cursor-wait"
-            >
-              <Loader2 :size="12" class="animate-spin" />
-              <span>Transmitting...</span>
-            </button>
+        <div class="pt-4 flex flex-col items-center gap-6 w-full">
+            <div>
+              <button 
+                v-if="requestStatus === 'idle' || requestStatus === 'error'"
+                @click="handleRequestTranscript"
+                class="px-6 py-3 bg-neutral-800 hover:bg-purple-900/40 border border-white/10 hover:border-purple-500/30 text-white font-black uppercase tracking-[0.15em] text-[9px] rounded-full transition-all active:scale-95 flex items-center gap-2 group"
+              >
+                <Send :size="12" class="group-hover:-translate-y-0.5 group-hover:translate-x-0.5 transition-transform" />
+                <span>Request Transcript</span>
+              </button>
+              
+              <button 
+                v-else-if="requestStatus === 'sending'"
+                disabled
+                class="px-6 py-3 bg-neutral-900 border border-white/5 text-neutral-500 font-black uppercase tracking-[0.15em] text-[9px] rounded-full flex items-center gap-2 cursor-wait"
+              >
+                <Loader2 :size="12" class="animate-spin" />
+                <span>Transmitting...</span>
+              </button>
 
-            <div v-else-if="requestStatus === 'success'" class="flex flex-col items-center gap-2 animate-in fade-in zoom-in">
-              <div class="px-6 py-3 bg-green-500/10 border border-green-500/20 text-green-400 font-black uppercase tracking-[0.15em] text-[9px] rounded-full flex items-center gap-2">
-                <CheckCircle :size="12" />
-                <span>Request Sent</span>
+              <div v-else-if="requestStatus === 'success'" class="flex flex-col items-center gap-2 animate-in fade-in zoom-in">
+                <div class="px-6 py-3 bg-green-500/10 border border-green-500/20 text-green-400 font-black uppercase tracking-[0.15em] text-[9px] rounded-full flex items-center gap-2">
+                  <CheckCircle :size="12" />
+                  <span>Request Sent</span>
+                </div>
               </div>
+
+              <p v-if="requestStatus === 'error'" class="text-[8px] text-red-500 font-bold uppercase mt-3 tracking-wide flex items-center justify-center gap-1">
+                <AlertTriangle :size="10" /> Connection Failed
+              </p>
             </div>
 
-            <p v-if="requestStatus === 'error'" class="text-[8px] text-red-500 font-bold uppercase mt-3 tracking-wide flex items-center justify-center gap-1">
-               <AlertTriangle :size="10" /> Connection Failed
-            </p>
+            <!-- Manual Upload Section -->
+            <div class="pt-6 border-t border-white/5 w-full max-w-[200px] flex flex-col items-center gap-2 opacity-60 hover:opacity-100 transition-opacity">
+              <input ref="fileInput" type="file" accept=".json,.jason" class="hidden" @change="handleFileUpload" />
+              <button 
+                @click="triggerUpload"
+                class="text-[9px] font-bold uppercase tracking-widest text-neutral-500 hover:text-white transition-colors flex items-center gap-2 py-2"
+              >
+                <Upload :size="12" />
+                <span>Manual Upload (Test)</span>
+              </button>
+            </div>
         </div>
       </div>
 
