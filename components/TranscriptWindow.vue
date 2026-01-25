@@ -143,7 +143,7 @@ const onScroll = () => {
   if (userScrollTimeout) clearTimeout(userScrollTimeout);
   userScrollTimeout = setTimeout(() => {
     isUserScrolling.value = false;
-  }, 3500); // Increased timeout to prevent fighting
+  }, 3500); 
 };
 
 const scrollToActive = () => {
@@ -168,10 +168,10 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="w-full h-full bg-black/40 backdrop-blur-xl rounded-[32px] border border-white/10 flex flex-col overflow-hidden relative shadow-2xl">
+  <div class="w-full h-full bg-neutral-900/90 backdrop-blur-md rounded-[32px] border border-white/10 flex flex-col overflow-hidden relative shadow-2xl">
     
     <!-- Header -->
-    <div class="absolute top-0 left-0 right-0 z-20 flex items-center justify-between p-4 bg-gradient-to-b from-black/80 to-transparent">
+    <div class="absolute top-0 left-0 right-0 z-20 flex items-center justify-between p-4 bg-gradient-to-b from-black/90 to-transparent">
       <div class="flex items-center gap-2 px-2">
         <FileText :size="12" class="text-purple-500" />
         <span class="text-[9px] font-black uppercase tracking-widest text-white/50">Lyrics / Text</span>
@@ -265,24 +265,26 @@ onUnmounted(() => {
       </div>
 
       <!-- Transcript Lines -->
-      <div v-else class="space-y-8 py-32 flex flex-col items-center min-h-full justify-start w-full">
+      <div v-else class="space-y-6 py-[50vh] flex flex-col items-center min-h-full justify-start w-full content-visibility-auto">
         <div 
           v-for="(cue, index) in cues" 
           :key="index"
           @click="handleCueClick(cue)"
-          class="cursor-pointer p-6 rounded-3xl w-full max-w-lg flex flex-col gap-2 group relative transition-all duration-500 cue-item"
+          class="cursor-pointer p-6 rounded-3xl w-full max-w-lg flex flex-col gap-3 group relative cinema-transition cue-item will-change-transform"
           :class="[
             activeCueIndex === index 
-              ? 'active-cue bg-white/5 border border-purple-500/50 scale-105 shadow-[0_0_30px_rgba(168,85,247,0.2)] z-10' 
-              : 'opacity-40 hover:opacity-80 scale-100 border border-transparent'
+              ? 'active-cue opacity-100 scale-100 z-10 bg-white/5 border border-purple-500/30' 
+              : 'opacity-20 scale-95 border border-transparent hover:opacity-40 grayscale'
           ]"
         >
-          <!-- Metadata Header -->
-          <div class="flex items-center gap-3">
+          <!-- Metadata Header (Hidden unless active) -->
+          <div 
+            class="flex items-center gap-3 transition-opacity duration-700"
+            :class="activeCueIndex === index ? 'opacity-100' : 'opacity-0 h-0 overflow-hidden'"
+          >
              <span 
                v-if="cue.speaker"
-               class="text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md border transition-colors duration-300"
-               :class="activeCueIndex === index ? 'text-purple-300 border-purple-500/30 bg-purple-500/10' : 'text-neutral-500 border-white/5 bg-black/20'"
+               class="text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md border text-purple-300 border-purple-500/30 bg-purple-500/10"
              >
                {{ cue.speaker }}
              </span>
@@ -292,11 +294,10 @@ onUnmounted(() => {
              </div>
           </div>
 
-          <!-- Karaoke Text -->
+          <!-- Text -->
           <p 
-            class="text-lg md:text-xl font-bold leading-relaxed transition-colors duration-500 relative inline-block decoration-clone"
-            :class="activeCueIndex === index ? 'text-purple-100 karaoke-text' : 'text-neutral-300'"
-            :style="activeCueIndex === index ? { '--anim-duration': Math.max(0.5, cue.end - cue.start) + 's' } : {}"
+            class="text-xl md:text-2xl font-bold leading-relaxed transition-all duration-700"
+            :class="activeCueIndex === index ? 'text-white active-glow' : 'text-neutral-400'"
           >
             {{ cue.text }}
           </p>
@@ -309,37 +310,28 @@ onUnmounted(() => {
 
 <style scoped>
 .focus-mask {
-  mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0%, black 30%, black 70%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 30%, black 70%, transparent 100%);
+}
+
+.content-visibility-auto {
+  content-visibility: auto;
 }
 
 .cue-item {
-  scroll-margin-top: 150px;
-  scroll-margin-bottom: 150px;
+  scroll-margin-block: 50vh;
+}
+
+.cinema-transition {
+  transition: all 0.7s cubic-bezier(0.2, 0, 0.2, 1);
+}
+
+.will-change-transform {
   will-change: transform, opacity;
-  transition-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1); /* Spring-like ease */
 }
 
-.decoration-clone {
-  -webkit-box-decoration-break: clone;
-  box-decoration-break: clone;
-}
-
-.karaoke-text {
-  background: linear-gradient(to right, #ffffff 50%, #737373 50%);
-  background-size: 200% 100%;
-  background-position: 100% 0;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: fillText var(--anim-duration) linear forwards;
-  will-change: background-position;
-}
-
-@keyframes fillText {
-  to {
-    background-position: 0 0;
-  }
+.active-glow {
+  text-shadow: 0 0 10px rgba(168, 85, 247, 0.5);
 }
 
 @keyframes wave {
