@@ -13,13 +13,22 @@ export class TranscriptionService {
    * 1. File matches audio filename (e.g. "Book.m4b" -> "Book.vtt" or "Book.json")
    * 2. Heuristic (contains "transcript" or "lyrics")
    * 3. Fallback (Single candidate file)
+   * 
+   * @param itemId 
+   * @param absService 
+   * @param forceRefresh If true, bypasses local cache and re-scans server files.
    */
-  static async getTranscript(itemId: string, absService: ABSService | null): Promise<TranscriptCue[] | null> {
-    // 1. Check Local DB (Cache)
-    const record = await db.transcripts.get(itemId);
-    if (record && record.cues && record.cues.length > 0) {
-      console.log(`[Transcription] Loaded from local cache: ${itemId}`);
-      return record.cues;
+  static async getTranscript(itemId: string, absService: ABSService | null, forceRefresh = false): Promise<TranscriptCue[] | null> {
+    // 1. Check Local DB (Cache) - Skip if forcing refresh
+    if (!forceRefresh) {
+      const record = await db.transcripts.get(itemId);
+      if (record && record.cues && record.cues.length > 0) {
+        console.log(`[Transcription] Loaded from local cache: ${itemId}`);
+        return record.cues;
+      }
+    } else {
+      console.log(`[Transcription] Force refresh requested for ${itemId}. Bypassing cache.`);
+      await db.transcripts.delete(itemId);
     }
 
     if (!absService) {
