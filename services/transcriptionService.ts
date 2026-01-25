@@ -9,6 +9,10 @@ export class TranscriptionService {
   
   /**
    * Checks IndexedDB first, then scans the item's files in ABS for a matching JSON transcript.
+   * Priority:
+   * 1. File matches audio filename (e.g. "Book.m4b" -> "Book.json")
+   * 2. Heuristic (contains "transcript" or "lyrics")
+   * 3. Fallback (Single .json that isn't metadata.json)
    */
   static async getTranscript(itemId: string, absService: ABSService | null): Promise<TranscriptCue[] | null> {
     // 1. Check Local DB (Cache)
@@ -36,18 +40,77 @@ export class TranscriptionService {
       // Log all files for debugging purposes
       console.log(`[Transcription] Found files:`, files.map((f: any) => f.name));
 
-      // Look for a .json or .jason file
-      const candidate = files.find((f: any) => {
+      const audioExtensions = ['.m4b', '.mp3', '.m4a', '.flac', '.ogg', '.opus', '.wav', '.wma', '.aac'];
+      const ignoredJsonNames = ['metadata.json', 'abs_metadata.json', 'chapter_metadata.json', 'ffmetadata.json'];
+
+      // Filter Audio Files
+      const audioFiles = files.filter((f: any) => {
           const name = (f.name || '').toLowerCase();
-          return name.endsWith('.json') || name.endsWith('.jason');
+          return audioExtensions.some(ext => name.endsWith(ext));
       });
 
+      // Filter Candidate JSON Files (Exclude standard metadata)
+      const jsonFiles = files.filter((f: any) => {
+          const name = (f.name || '').toLowerCase();
+          return (name.endsWith('.json') || name.endsWith('.jason')) 
+                 && !ignoredJsonNames.includes(name);
+      });
+
+      let candidate: any = null;
+
+      // STRATEGY 1: Strict Name Match (Base name of JSON must match Base name of Audio)
+      // This solves the issue where "metadata.json" exists alongside "BookName.m4b"
+      if (audioFiles.length > 0) {
+        for (const audio of audioFiles) {
+            const audioName = audio.name;
+            const lastDotIndex = audioName.lastIndexOf('.');
+            if (lastDotIndex === -1) continue;
+            
+            const audioBase = audioName.substring(0, lastDotIndex).toLowerCase();
+
+            const match = jsonFiles.find((f: any) => {
+                const jsonName = f.name;
+                const jsonBase = jsonName.substring(0, jsonName.lastIndexOf('.')).toLowerCase();
+                return jsonBase === audioBase;
+            });
+            
+            if (match) {
+                candidate = match;
+                console.log(`[Transcription] Strict match found: ${candidate.name} (Matches audio: ${audio.name})`);
+                break;
+            }
+        }
+      }
+
+      // STRATEGY 2: Fallback Logic
+      if (!candidate) {
+          if (jsonFiles.length === 1) {
+              // Only one candidate and it's not metadata.json? Use it.
+              candidate = jsonFiles[0];
+              console.log(`[Transcription] No strict match, but found single valid candidate: ${candidate.name}`);
+          } else if (jsonFiles.length > 1) {
+              // Multiple candidates, but none matched audio. Try heuristic keyword search.
+              const heuristicMatch = jsonFiles.find((f: any) => {
+                  const n = f.name.toLowerCase();
+                  return n.includes('transcript') || n.includes('lyrics') || n.includes('subs');
+              });
+              
+              if (heuristicMatch) {
+                  candidate = heuristicMatch;
+                  console.log(`[Transcription] Heuristic match found: ${candidate.name}`);
+              } else {
+                  console.log(`[Transcription] Multiple JSON files found but none matched audio filename. Skipping to avoid loading incorrect metadata.`);
+              }
+          }
+      }
+
       if (!candidate || !candidate.ino) {
-        console.log(`[Transcription] No matching .json or .jason file found.`);
+        console.log(`[Transcription] No valid transcript file identified.`);
         return null;
       }
 
-      console.log(`[Transcription] Match found: ${candidate.name}. Fetching...`);
+      // Fetch
+      console.log(`[Transcription] Fetching: ${candidate.name}...`);
       const fileUrl = absService.getRawFileUrl(itemId, candidate.ino);
       
       const response = await fetch(fileUrl);
@@ -61,10 +124,11 @@ export class TranscriptionService {
       // 3. Parse & Normalize Format
       let cues: TranscriptCue[] = [];
       
-      // Expected format: Array of objects with { start, end, text }
-      // Supporting both seconds (number) and string timestamps if necessary, but assuming number based on previous context.
-      if (Array.isArray(data)) {
-        cues = data.map((entry: any) => ({
+      // Handle array or object wrapper
+      const rawCues = Array.isArray(data) ? data : (data.cues || data.segments || []);
+      
+      if (Array.isArray(rawCues)) {
+        cues = rawCues.map((entry: any) => ({
             start: Number(entry.start) || 0,
             end: Number(entry.end) || 0,
             text: String(entry.text || ''),
@@ -73,9 +137,6 @@ export class TranscriptionService {
         }))
         .filter(c => c.text && c.text.trim().length > 0)
         .sort((a, b) => a.start - b.start);
-      } else {
-        console.warn(`[Transcription] JSON format unrecognized (not an array).`);
-        return null;
       }
 
       if (cues.length > 0) {
