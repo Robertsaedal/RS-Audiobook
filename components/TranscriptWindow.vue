@@ -135,9 +135,10 @@ watch(() => props.currentTime, (time) => {
   }
 
   // 2. Auto-Load Logic
-  // If we are within 20 seconds of the end of the loaded transcript, request the next chunk
+  // If we are within 10 seconds of the end of the loaded transcript, request the next chunk
+  // (Reduced from 20s to 10s because segments are now 30s)
   const lastCue = cues.value[cues.value.length - 1];
-  if (time > (lastCue.end - 20) && !isQueued.value) {
+  if (time > (lastCue.end - 10) && !isQueued.value) {
       console.log(`[Transcript] Auto-loading next segment starting at ${lastCue.end}`);
       triggerGeneration(lastCue.end);
   }

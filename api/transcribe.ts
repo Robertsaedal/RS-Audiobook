@@ -47,14 +47,15 @@ export default async function handler(req: any, res: any) {
   // Use .mp3 extension for maximum compatibility with Gemini
   const tempFilePath = path.join(os.tmpdir(), `segment-${Date.now()}.mp3`);
   let uploadResult: any = null;
-  // Reduced to 45s to safely fit within Vercel's 60s execution limit (allowing for overhead)
-  const SEGMENT_DURATION = 45; 
+  
+  // Reduced to 30s to ensure FFmpeg + Upload + GenAI fits in 60s limit
+  const SEGMENT_DURATION = 30; 
 
   try {
     console.log(`[Transcribe] Processing Segment starting at ${currentTime}s`);
 
     // 2. USE FFMPEG TO CREATE A VALID AUDIO SEGMENT
-    // Optimized for Speed & Size: 16khz Mono @ 32kbps
+    // Optimized for MAXIMUM Speed: ultrafast preset, low bitrate
     await new Promise((resolve, reject) => {
         ffmpeg()
             .input(downloadUrl)
@@ -68,7 +69,8 @@ export default async function handler(req: any, res: any) {
                 `-t ${SEGMENT_DURATION}`, 
                 '-ac 1',             // Downmix to Mono
                 '-ar 16000',         // 16kHz
-                '-map_metadata -1',  
+                '-map_metadata -1',
+                '-preset ultrafast', // CRITICAL: Prioritize speed over compression ratio
                 '-f mp3'
             ])
             .audioCodec('libmp3lame')
