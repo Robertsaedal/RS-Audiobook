@@ -1,11 +1,11 @@
 
 <script setup lang="ts">
-import { ref, watch, onMounted, computed, nextTick } from 'vue';
+import { ref, watch, onMounted, computed, nextTick, onUnmounted } from 'vue';
 import { TranscriptionService, TranscriptCue } from '../services/transcriptionService';
 import { useTranscriptionQueue } from '../composables/useTranscriptionQueue';
 import { ABSService } from '../services/absService';
 import { ABSLibraryItem } from '../types';
-import { Loader2, Sparkles, X, AlertTriangle, FileText, Clock, Volume2, RotateCcw } from 'lucide-vue-next';
+import { Loader2, Sparkles, X, AlertTriangle, FileText, Clock, Volume2, RotateCcw, RefreshCw } from 'lucide-vue-next';
 
 const props = defineProps<{
   item: ABSLibraryItem,
@@ -24,6 +24,9 @@ const cues = ref<TranscriptCue[]>([]);
 const hasTranscript = ref(false);
 const activeCueIndex = ref(-1);
 const scrollContainer = ref<HTMLElement | null>(null);
+const transcriptOffset = ref(0);
+const isUserScrolling = ref(false);
+let userScrollTimeout: any = null;
 
 // Queue Status tracking
 const queueItem = computed(() => getItemStatus(props.item.id, props.currentTime));
@@ -42,9 +45,20 @@ const progressLabel = computed(() => {
   return 'Initializing...';
 });
 
+// Check if current transcript is out of sync (e.g., user skipped ahead 5 mins)
+const isOutOfSync = computed(() => {
+  if (!hasTranscript.value || cues.value.length === 0) return false;
+  // If the current time is more than 30 seconds before the start or after the end of the loaded segment
+  const first = cues.value[0];
+  const last = cues.value[cues.value.length - 1];
+  return props.currentTime < (first.start - 30) || props.currentTime > (last.end + 30);
+});
+
 const loadTranscript = async () => {
   const result = await TranscriptionService.getTranscript(props.item.id);
   if (result) {
+    transcriptOffset.value = result.offset;
+    // Parse with the stored offset to ensure timestamps match the book position
     cues.value = TranscriptionService.parseTranscript(result.content, result.offset);
     hasTranscript.value = cues.value.length > 0;
   } else {
@@ -64,9 +78,14 @@ const deleteTranscript = async () => {
 const handleGenerateClick = () => {
   const downloadUrl = props.absService.getDownloadUrl(props.item.id);
   const duration = props.item.media.duration;
-  
-  // Always use the CURRENT prop time as the offset seed
+  // Use current time as the precise anchor
   addToQueue(props.item.id, downloadUrl, duration, props.currentTime);
+};
+
+const handleRegenerate = () => {
+  deleteTranscript().then(() => {
+    handleGenerateClick();
+  });
 };
 
 watch(queueStatus, (newStatus) => {
@@ -77,6 +96,8 @@ watch(queueStatus, (newStatus) => {
 
 const handleCueClick = (cue: TranscriptCue) => {
   if (cue && typeof cue.start === 'number') {
+    // cue.start is now Absolute time (Offset + Relative)
+    console.log(`[Transcript] Seeking to ${cue.start} (Offset: ${transcriptOffset.value})`);
     emit('seek', cue.start);
   }
 };
@@ -85,20 +106,35 @@ const handleCueClick = (cue: TranscriptCue) => {
 watch(() => props.currentTime, (time) => {
   if (cues.value.length === 0) return;
   
+  // 1. Check if current active cue is still valid
   if (activeCueIndex.value !== -1) {
     const current = cues.value[activeCueIndex.value];
     if (time >= current.start && time <= current.end) return; 
   }
 
+  // 2. Find new cue
   const idx = cues.value.findIndex(c => time >= c.start && time <= c.end);
+  
+  // 3. Update if changed
   if (idx !== -1 && idx !== activeCueIndex.value) {
     activeCueIndex.value = idx;
-    scrollToActive();
+    if (!isUserScrolling.value) {
+      scrollToActive();
+    }
   }
 });
 
+const onScroll = () => {
+  isUserScrolling.value = true;
+  if (userScrollTimeout) clearTimeout(userScrollTimeout);
+  userScrollTimeout = setTimeout(() => {
+    isUserScrolling.value = false;
+  }, 2000); // Resume auto-scroll after 2s of inactivity
+};
+
 const scrollToActive = () => {
-  nextTick(() => {
+  // Use requestAnimationFrame for smoother performance
+  requestAnimationFrame(() => {
     if (!scrollContainer.value) return;
     const activeEl = scrollContainer.value.querySelector('.active-cue');
     if (activeEl) {
@@ -112,6 +148,10 @@ onMounted(() => {
 });
 
 watch(() => props.item.id, loadTranscript);
+
+onUnmounted(() => {
+  if (userScrollTimeout) clearTimeout(userScrollTimeout);
+});
 </script>
 
 <template>
@@ -138,8 +178,23 @@ watch(() => props.item.id, loadTranscript);
       </div>
     </div>
 
+    <!-- Sync Warning Overlay -->
+    <div v-if="hasTranscript && isOutOfSync && !isQueued" class="absolute top-14 left-0 right-0 z-10 px-6">
+      <button 
+        @click="handleRegenerate"
+        class="w-full flex items-center justify-center gap-2 py-2 bg-amber-500/10 border border-amber-500/30 text-amber-500 rounded-xl backdrop-blur-md shadow-lg active:scale-95 transition-all"
+      >
+         <RefreshCw :size="12" />
+         <span class="text-[9px] font-black uppercase tracking-widest">Out of Sync • Regenerate Here</span>
+      </button>
+    </div>
+
     <!-- Content Area -->
-    <div ref="scrollContainer" class="flex-1 overflow-y-auto custom-scrollbar p-6 relative">
+    <div 
+      ref="scrollContainer" 
+      @scroll="onScroll"
+      class="flex-1 overflow-y-auto custom-scrollbar p-6 relative"
+    >
       
       <!-- Processing State (Blocking Overlay) -->
       <div v-if="isQueued && queueStatus !== 'completed' && queueStatus !== 'failed'" class="absolute inset-0 flex flex-col items-center justify-center gap-6 z-20 bg-black/80 backdrop-blur-md">
@@ -219,12 +274,13 @@ watch(() => props.item.id, loadTranscript);
           </div>
 
           <!-- Karaoke Text -->
+          <!-- KEY is crucial here to force re-render when active state changes, triggering animation replay -->
           <p 
             v-if="cue.text"
+            :key="activeCueIndex === index ? 'active' : 'inactive'"
             class="text-base md:text-lg font-bold leading-relaxed transition-colors duration-300 relative"
             :class="[
-               activeCueIndex === index ? 'text-purple-100' : 'text-neutral-300',
-               activeCueIndex === index ? 'karaoke-text' : ''
+               activeCueIndex === index ? 'text-purple-100 karaoke-text' : 'text-neutral-300',
             ]"
             :style="activeCueIndex === index ? { '--anim-duration': Math.max(0.5, cue.end - cue.start) + 's' } : {}"
           >
@@ -246,6 +302,7 @@ watch(() => props.item.id, loadTranscript);
   background-clip: text;
   -webkit-text-fill-color: transparent;
   animation: fillText var(--anim-duration) linear forwards;
+  will-change: background-position;
 }
 
 @keyframes fillText {

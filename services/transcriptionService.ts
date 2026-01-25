@@ -18,6 +18,10 @@ export class TranscriptionService {
   
   static async getTranscript(itemId: string): Promise<TranscriptResult | null> {
     const record = await db.transcripts.get(itemId);
+    // Safety check: If a record exists but has no offset (legacy), treat as invalid to force regenerate
+    if (record && record.offset === undefined) {
+      return null;
+    }
     return record ? { content: record.vttContent, offset: record.offset || 0 } : null;
   }
 
@@ -33,7 +37,7 @@ export class TranscriptionService {
     currentTime: number = 0 
   ): Promise<string> {
     
-    console.log('[Transcription] Requesting smart segment transcription...');
+    console.log(`[Transcription] Requesting smart segment transcription at ${currentTime}s`);
 
     try {
       const response = await fetch('/api/transcribe', {
@@ -62,7 +66,7 @@ export class TranscriptionService {
         
         if (value) {
           const chunk = decoder.decode(value, { stream: true });
-          
+          // Filter out log lines from backend
           const lines = chunk.split('\n');
           const cleanLines = lines.filter(line => !line.trim().startsWith(': status:') && !line.trim().startsWith('ERROR:'));
           
@@ -75,6 +79,7 @@ export class TranscriptionService {
         }
       }
 
+      // Explicitly pass currentTime as the offset
       return this.saveTranscript(itemId, fullText, currentTime);
 
     } catch (error: any) {
@@ -105,6 +110,7 @@ export class TranscriptionService {
 
     const parseTime = (timeStr: string) => {
       if (!timeStr) return 0;
+      // Handle "HH:MM:SS.mmm" or "MM:SS.mmm"
       const parts = timeStr.split(':');
       let h = 0, m = 0, s = 0, ms = 0;
       
@@ -119,6 +125,8 @@ export class TranscriptionService {
         const secParts = parts[1].split('.');
         s = parseInt(secParts[0], 10);
         ms = parseInt(secParts[1] || '0', 10);
+      } else {
+         return 0;
       }
 
       return h * 3600 + m * 60 + s + ms / 1000;
@@ -137,6 +145,7 @@ export class TranscriptionService {
         const obj = JSON.parse(cleanLine);
         
         if (obj.text || obj.background_noise) { 
+            // CRITICAL: Add offsetSeconds to make timestamp absolute relative to the book
             cues.push({ 
                 start: parseTime(obj.start) + offsetSeconds, 
                 end: parseTime(obj.end) + offsetSeconds, 
@@ -150,6 +159,7 @@ export class TranscriptionService {
       }
     }
 
-    return cues;
+    // Sanity sort to ensure cues are in order
+    return cues.sort((a, b) => a.start - b.start);
   }
 }
