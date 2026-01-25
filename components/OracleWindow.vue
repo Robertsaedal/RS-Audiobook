@@ -28,10 +28,8 @@ const knowledgeBase = ref('');
 const messagesContainer = ref<HTMLElement | null>(null);
 
 // Initialize Gemini Client
-// We assume process.env.API_KEY is available as per instructions.
-// In Vite, if not polyfilled, we might need import.meta.env.
-// We'll use a fallback to be safe for runtime, but keep the instruction's preference.
-const apiKey = process.env.API_KEY || (import.meta as any).env?.GEMINI_API_KEY || '';
+// We use process.env.API_KEY which is defined in vite.config.ts
+const apiKey = process.env.API_KEY || '';
 const genAI = new GoogleGenerativeAI(apiKey);
 
 const buildKnowledgeBase = async () => {
@@ -82,8 +80,9 @@ const sendMessage = async () => {
       ${knowledgeBase.value}
     `;
 
+    // Use gemini-2.0-flash-exp as per guidelines to avoid 1.5-flash restrictions
     const model = genAI.getGenerativeModel({ 
-      model: 'gemini-1.5-flash',
+      model: 'gemini-2.0-flash-exp',
       systemInstruction: systemInstruction 
     });
 
@@ -94,9 +93,15 @@ const sendMessage = async () => {
     if (text) {
       messages.value.push({ role: 'model', text: text });
     }
-  } catch (e) {
+  } catch (e: any) {
     console.error("[Oracle] Generation failed", e);
-    messages.value.push({ role: 'model', text: 'The mists of the archive are too thick. I cannot see the answer right now.' });
+    let errorText = 'The mists of the archive are too thick. I cannot see the answer right now.';
+    
+    if (e.message?.includes('403')) {
+      errorText = 'Access Denied (403): Please check your API Key configuration.';
+    }
+    
+    messages.value.push({ role: 'model', text: errorText });
   } finally {
     isThinking.value = false;
     scrollToBottom();
