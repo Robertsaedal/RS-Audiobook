@@ -90,26 +90,38 @@ const handleFileUpload = (event: Event) => {
     try {
       const json = JSON.parse(e.target?.result as string);
       
-      let parsedCues: TranscriptCue[] = [];
+      let rawData: any[] = [];
       
-      // Handle different JSON structures (Array vs Object wrapper)
-      const rawData = Array.isArray(json) ? json : (json.cues || json.segments || []);
-      
-      if (Array.isArray(rawData)) {
-         parsedCues = rawData.map((entry: any) => ({
-            start: Number(entry.start) || 0,
-            end: Number(entry.end) || 0,
+      // Handle different JSON structures (Matches Service Logic)
+      if (Array.isArray(json)) {
+        rawData = json;
+      } else if (Array.isArray(json.cues)) {
+        rawData = json.cues;
+      } else if (Array.isArray(json.segments)) {
+        rawData = json.segments;
+      } else if (json.transcription) {
+        if (Array.isArray(json.transcription)) {
+             rawData = json.transcription;
+        } else if (Array.isArray(json.transcription.segments)) {
+             rawData = json.transcription.segments;
+        } else if (Array.isArray(json.transcription.cues)) {
+             rawData = json.transcription.cues;
+        }
+      }
+
+      if (rawData.length > 0) {
+         const parsedCues = rawData.map((entry: any) => ({
+            start: Number(entry.start) || Number(entry.startTime) || 0,
+            end: Number(entry.end) || Number(entry.endTime) || 0,
             text: String(entry.text || ''),
             speaker: entry.speaker,
             background_noise: entry.background_noise
         })).filter(c => c.text && c.text.trim().length > 0).sort((a, b) => a.start - b.start);
-      }
-
-      if (parsedCues.length > 0) {
-          cues.value = parsedCues;
-          hasTranscript.value = true;
+        
+        cues.value = parsedCues;
+        hasTranscript.value = true;
       } else {
-          alert("Invalid JSON format: Could not find cue array.");
+          alert("Invalid JSON format: Could not find valid cue/segment array.");
       }
     } catch (err) {
       console.error("Invalid JSON", err);

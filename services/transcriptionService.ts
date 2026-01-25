@@ -123,23 +123,38 @@ export class TranscriptionService {
       
       // 3. Parse & Normalize Format
       let cues: TranscriptCue[] = [];
+      let rawCues: any[] = [];
+
+      // Detect different JSON structures
+      if (Array.isArray(data)) {
+        rawCues = data;
+      } else if (Array.isArray(data.cues)) {
+        rawCues = data.cues;
+      } else if (Array.isArray(data.segments)) {
+        // OpenAI Whisper standard
+        rawCues = data.segments;
+      } else if (data.transcription) {
+        // Handle wrapper object (e.g., { filename: "...", transcription: [...] })
+        if (Array.isArray(data.transcription)) {
+             rawCues = data.transcription;
+        } else if (Array.isArray(data.transcription.segments)) {
+             rawCues = data.transcription.segments;
+        } else if (Array.isArray(data.transcription.cues)) {
+             rawCues = data.transcription.cues;
+        }
+      }
       
-      // Handle array or object wrapper
-      const rawCues = Array.isArray(data) ? data : (data.cues || data.segments || []);
-      
-      if (Array.isArray(rawCues)) {
+      if (rawCues.length > 0) {
         cues = rawCues.map((entry: any) => ({
-            start: Number(entry.start) || 0,
-            end: Number(entry.end) || 0,
+            start: Number(entry.start) || Number(entry.startTime) || 0,
+            end: Number(entry.end) || Number(entry.endTime) || 0,
             text: String(entry.text || ''),
             speaker: entry.speaker,
             background_noise: entry.background_noise
         }))
         .filter(c => c.text && c.text.trim().length > 0)
         .sort((a, b) => a.start - b.start);
-      }
 
-      if (cues.length > 0) {
         console.log(`[Transcription] Successfully parsed ${cues.length} cues.`);
         // Save to DB for faster future access
         await db.transcripts.put({
@@ -149,7 +164,7 @@ export class TranscriptionService {
         });
         return cues;
       } else {
-        console.warn(`[Transcription] File parsed but contained no valid cues.`);
+        console.warn(`[Transcription] File parsed but found no valid array in known keys (cues, segments, transcription).`);
       }
 
       return null;
