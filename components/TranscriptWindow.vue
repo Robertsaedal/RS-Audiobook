@@ -88,44 +88,27 @@ const handleFileUpload = (event: Event) => {
   const reader = new FileReader();
   reader.onload = (e) => {
     try {
-      const json = JSON.parse(e.target?.result as string);
+      const content = e.target?.result as string;
+      const isVtt = file.name.endsWith('.vtt') || content.trim().startsWith('WEBVTT');
       
-      let rawData: any[] = [];
-      
-      // Handle different JSON structures (Matches Service Logic)
-      if (Array.isArray(json)) {
-        rawData = json;
-      } else if (Array.isArray(json.cues)) {
-        rawData = json.cues;
-      } else if (Array.isArray(json.segments)) {
-        rawData = json.segments;
-      } else if (json.transcription) {
-        if (Array.isArray(json.transcription)) {
-             rawData = json.transcription;
-        } else if (Array.isArray(json.transcription.segments)) {
-             rawData = json.transcription.segments;
-        } else if (Array.isArray(json.transcription.cues)) {
-             rawData = json.transcription.cues;
-        }
+      let parsedCues: TranscriptCue[] = [];
+
+      if (isVtt) {
+         parsedCues = TranscriptionService.parseVTT(content);
+      } else {
+         const json = JSON.parse(content);
+         parsedCues = TranscriptionService.parseJSON(json);
       }
 
-      if (rawData.length > 0) {
-         const parsedCues = rawData.map((entry: any) => ({
-            start: Number(entry.start) || Number(entry.startTime) || 0,
-            end: Number(entry.end) || Number(entry.endTime) || 0,
-            text: String(entry.text || ''),
-            speaker: entry.speaker,
-            background_noise: entry.background_noise
-        })).filter(c => c.text && c.text.trim().length > 0).sort((a, b) => a.start - b.start);
-        
-        cues.value = parsedCues;
-        hasTranscript.value = true;
+      if (parsedCues.length > 0) {
+         cues.value = parsedCues;
+         hasTranscript.value = true;
       } else {
-          alert("Invalid JSON format: Could not find valid cue/segment array.");
+          alert("Invalid transcript format: Could not parse cues.");
       }
     } catch (err) {
-      console.error("Invalid JSON", err);
-      alert("Failed to parse JSON file.");
+      console.error("Invalid File", err);
+      alert("Failed to parse file.");
     }
   };
   reader.readAsText(file);
@@ -211,7 +194,7 @@ onUnmounted(() => {
         <div class="space-y-2">
           <h3 class="text-sm font-black uppercase tracking-tight text-white">Transcript Unavailable</h3>
           <p class="text-[10px] text-neutral-500 leading-relaxed max-w-[220px] mx-auto">
-            This artifact does not have a synchronized JSON file in the archive.
+            No synchronized VTT or JSON file found in the archive.
           </p>
         </div>
         
@@ -250,7 +233,7 @@ onUnmounted(() => {
 
             <!-- Manual Upload Section -->
             <div class="pt-6 border-t border-white/5 w-full max-w-[200px] flex flex-col items-center gap-2 opacity-60 hover:opacity-100 transition-opacity">
-              <input ref="fileInput" type="file" accept=".json,.jason" class="hidden" @change="handleFileUpload" />
+              <input ref="fileInput" type="file" accept=".json,.jason,.vtt" class="hidden" @change="handleFileUpload" />
               <button 
                 @click="triggerUpload"
                 class="text-[9px] font-bold uppercase tracking-widest text-neutral-500 hover:text-white transition-colors flex items-center gap-2 py-2"
