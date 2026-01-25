@@ -1,7 +1,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, nextTick, watch } from 'vue';
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { ABSLibraryItem } from '../types';
 import { ABSService } from '../services/absService';
 import { TranscriptionService } from '../services/transcriptionService';
@@ -27,9 +27,10 @@ const includedBooks = ref<string[]>([]);
 const knowledgeBase = ref('');
 const messagesContainer = ref<HTMLElement | null>(null);
 
-// Initialize Gemini Client
+// Initialize Gemini Client (Stable SDK)
 // Using process.env.API_KEY as strictly requested
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || import.meta.env.GEMINI_API_KEY });
+const apiKey = process.env.API_KEY || import.meta.env.GEMINI_API_KEY;
+const genAI = new GoogleGenerativeAI(apiKey);
 
 const buildKnowledgeBase = async () => {
   isBuildingContext.value = true;
@@ -80,17 +81,19 @@ const sendMessage = async () => {
       ${knowledgeBase.value}
     `;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-latest',
-      contents: query,
-      config: {
-        systemInstruction: systemInstruction,
-        temperature: 0.7,
-      },
+    // Use Stable SDK Method
+    // We try to use the newer model string, but fallback to 1.5-flash if needed.
+    const model = genAI.getGenerativeModel({ 
+      model: 'gemini-1.5-flash',
+      systemInstruction: systemInstruction 
     });
 
-    if (response.text) {
-      messages.value.push({ role: 'model', text: response.text });
+    const result = await model.generateContent(query);
+    const response = await result.response;
+    const text = response.text();
+
+    if (text) {
+      messages.value.push({ role: 'model', text: text });
     }
   } catch (e) {
     console.error("[Oracle] Generation failed", e);
@@ -240,3 +243,55 @@ onMounted(() => {
   animation: pulse 8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 </style>
+  </change>
+  <change>
+    <file>index.html</file>
+    <description>Remove @google/genai from importmap as we are using npm package @google/generative-ai now.</description>
+    <content><![CDATA[
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>R.S Audiobook Player</title>
+    <link rel="manifest" href="/manifest.json">
+    <link rel="icon" type="image/svg+xml" href="/logo.svg"> 
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#000000">
+<script type="importmap">
+{
+  "imports": {
+    "vue": "https://esm.sh/vue@^3.5.27",
+    "socket.io-client": "https://esm.sh/socket.io-client@^4.8.3",
+    "hls.js": "https://esm.sh/hls.js@^1.6.15",
+    "lucide-vue-next": "https://esm.sh/lucide-vue-next@^0.473.0",
+    "vite": "https://esm.sh/vite@^7.3.1",
+    "@vitejs/plugin-vue": "https://esm.sh/@vitejs/plugin-vue@^6.0.3",
+    "dexie": "https://esm.sh/dexie@^4.0.1",
+    "@google/generative-ai": "https://esm.sh/@google/generative-ai@^0.21.0",
+    "os": "https://esm.sh/os@^0.1.2",
+    "fs": "https://esm.sh/fs@^0.0.1-security",
+    "path": "https://esm.sh/path@^0.12.7",
+    "stream/": "https://esm.sh/stream@^0.0.3/",
+    "stream": "https://esm.sh/stream@^0.0.3",
+    "@ai-sdk/google": "https://esm.sh/@ai-sdk/google@^3.0.13",
+    "ai": "https://esm.sh/ai@^6.0.49",
+    "fluent-ffmpeg": "https://esm.sh/fluent-ffmpeg@^2.1.3",
+    "ffmpeg-static": "https://esm.sh/ffmpeg-static@^5.3.0"
+  }
+}
+</script>
+</head>
+<body>
+    <div id="root"></div>
+    <script type="module" src="/main.ts"></script>
+</body>
+</html>
+]]></content>
+  </change>
+</changes>
+```
