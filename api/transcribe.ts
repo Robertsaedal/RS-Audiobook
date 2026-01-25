@@ -47,20 +47,32 @@ export default async function handler(req: any, res: any) {
   // Use .mp3 extension for maximum compatibility with Gemini
   const tempFilePath = path.join(os.tmpdir(), `segment-${Date.now()}.mp3`);
   let uploadResult: any = null;
+  const SEGMENT_DURATION = 180; // Reduced to 3 minutes to prevent Vercel 60s Timeout
 
   try {
     console.log(`[Transcribe] Processing Segment starting at ${currentTime}s`);
 
     // 2. USE FFMPEG TO CREATE A VALID AUDIO SEGMENT
-    // Using input seeking (-ss BEFORE -i) to force fast remote seeking via Range headers
+    // Optimized for Speed & Size: 16khz Mono @ 32kbps
+    // This creates a tiny file that processes and uploads instantly.
     await new Promise((resolve, reject) => {
         ffmpeg()
             .input(downloadUrl)
-            .inputOptions([`-ss ${currentTime}`]) // Input seek for speed
-            .outputOptions(['-t 300']) // 5 Minute Duration
+            .inputOptions([
+                `-ss ${currentTime}`,
+                '-reconnect 1',
+                '-reconnect_streamed 1',
+                '-reconnect_delay_max 5'
+            ])
+            .outputOptions([
+                `-t ${SEGMENT_DURATION}`, 
+                '-ac 1',             // Downmix to Mono (Faster)
+                '-ar 16000',         // 16kHz Sample Rate (Enough for Speech)
+                '-map_metadata -1',  // Strip Metadata
+                '-f mp3'
+            ])
             .audioCodec('libmp3lame')
-            .audioBitrate(128)
-            .format('mp3')
+            .audioBitrate(32)        // 32kbps (Tiny file size)
             .on('end', resolve)
             .on('error', (err) => {
                 console.error('FFmpeg Error:', err);
@@ -73,6 +85,9 @@ export default async function handler(req: any, res: any) {
     if (!fs.existsSync(tempFilePath) || fs.statSync(tempFilePath).size === 0) {
         throw new Error("FFmpeg produced an empty file");
     }
+
+    const fileSize = fs.statSync(tempFilePath).size / 1024;
+    console.log(`[Transcribe] Segment prepared: ${fileSize.toFixed(2)}KB`);
 
     // 3. Upload to Google
     uploadResult = await ai.files.upload({
@@ -99,10 +114,9 @@ export default async function handler(req: any, res: any) {
     // 5. Generate Stream
     const modelName = 'gemini-2.5-flash';
     
-    // Updated Prompt to handle "Chapter at a time" flow nicely
     const systemPrompt = `You are a professional audiobook transcriber.
     
-    Task: Transcribe the provided 5-minute audio segment accurately.
+    Task: Transcribe the provided ${Math.floor(SEGMENT_DURATION/60)}-minute audio segment accurately.
     
     CRITICAL RULES:
     1. STRICT ANTI-HALLUCINATION: If the audio is silent, noise, music, or unintelligible, OUTPUT NOTHING.
