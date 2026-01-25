@@ -74,7 +74,7 @@ export default async function handler(req: any, res: any) {
             .audioCodec('libmp3lame')
             .audioBitrate(32)        // 32kbps (Tiny file size)
             .on('end', resolve)
-            .on('error', (err) => {
+            .on('error', (err: any) => {
                 console.error('FFmpeg Error:', err);
                 reject(new Error(`FFmpeg failed: ${err.message}`));
             })
@@ -116,13 +116,14 @@ export default async function handler(req: any, res: any) {
     
     const systemPrompt = `You are a professional audiobook transcriber.
     
-    Task: Transcribe the provided ${Math.floor(SEGMENT_DURATION/60)}-minute audio segment accurately.
+    Task: Transcribe the provided ${Math.floor(SEGMENT_DURATION/60)}-minute audio segment verbatim.
     
     CRITICAL RULES:
-    1. STRICT ANTI-HALLUCINATION: If the audio is silent, noise, music, or unintelligible, OUTPUT NOTHING.
-    2. Context: This is a segment from a Fantasy Audiobook. Expect dialogue, narrative, and fantasy terminology.
-    3. Output Format: strictly JSONL. {"start": "HH:MM:SS.mmm", "end": "HH:MM:SS.mmm", "speaker": "Name", "text": "..."}
-    4. Do not output markdown. Do not output generic "Visuals" or "Intro" tags.
+    1. SEGMENTATION: Break text into SENTENCES. Short, precise segments are better for syncing.
+    2. TIMESTAMPS: You MUST use relative timestamps starting at 00:00:00. Do NOT attempt to guess the book's absolute time.
+    3. ANTI-HALLUCINATION: If audio is silent/noise, output NOTHING.
+    4. Output Format: strictly JSONL. {"start": "HH:MM:SS.mmm", "end": "HH:MM:SS.mmm", "speaker": "Name", "text": "..."}
+    5. No markdown. No "Intro" or "Music" tags.
     `;
 
     const responseStream = await ai.models.generateContentStream({

@@ -1,11 +1,11 @@
 
 <script setup lang="ts">
-import { ref, watch, onMounted, computed, nextTick, onUnmounted } from 'vue';
+import { ref, watch, onMounted, computed, nextTick } from 'vue';
 import { TranscriptionService, TranscriptCue } from '../services/transcriptionService';
 import { useTranscriptionQueue } from '../composables/useTranscriptionQueue';
 import { ABSService } from '../services/absService';
 import { ABSLibraryItem } from '../types';
-import { Loader2, Sparkles, X, AlertTriangle, FileText, CheckCircle, Clock, Volume2, RotateCcw } from 'lucide-vue-next';
+import { Loader2, Sparkles, X, AlertTriangle, FileText, Clock, Volume2, RotateCcw } from 'lucide-vue-next';
 
 const props = defineProps<{
   item: ABSLibraryItem,
@@ -42,12 +42,9 @@ const progressLabel = computed(() => {
   return 'Initializing...';
 });
 
-const activeCue = computed(() => activeCueIndex.value !== -1 ? cues.value[activeCueIndex.value] : null);
-
 const loadTranscript = async () => {
   const result = await TranscriptionService.getTranscript(props.item.id);
   if (result) {
-    // Parse with the stored offset to ensure timestamps match the book position
     cues.value = TranscriptionService.parseTranscript(result.content, result.offset);
     hasTranscript.value = cues.value.length > 0;
   } else {
@@ -68,6 +65,7 @@ const handleGenerateClick = () => {
   const downloadUrl = props.absService.getDownloadUrl(props.item.id);
   const duration = props.item.media.duration;
   
+  // Always use the CURRENT prop time as the offset seed
   addToQueue(props.item.id, downloadUrl, duration, props.currentTime);
 };
 
@@ -78,7 +76,9 @@ watch(queueStatus, (newStatus) => {
 });
 
 const handleCueClick = (cue: TranscriptCue) => {
-  emit('seek', cue.start);
+  if (cue && typeof cue.start === 'number') {
+    emit('seek', cue.start);
+  }
 };
 
 // Sync Active Cue
@@ -168,7 +168,7 @@ watch(() => props.item.id, loadTranscript);
         </div>
       </div>
 
-      <!-- No Transcript / Queue Trigger State -->
+      <!-- No Transcript State -->
       <div v-if="!hasTranscript && !isQueued" class="h-full flex flex-col items-center justify-center text-center space-y-6 px-4">
         <div class="w-16 h-16 rounded-full bg-white/5 border border-white/5 flex items-center justify-center">
            <FileText :size="24" class="text-neutral-500" />
@@ -176,11 +176,10 @@ watch(() => props.item.id, loadTranscript);
         <div class="space-y-1">
           <h3 class="text-sm font-black uppercase tracking-tight text-white">No Transcript</h3>
           <p class="text-[9px] text-neutral-500 leading-relaxed max-w-[200px] mx-auto">
-            Generate AI-powered transcripts with speaker identification for this segment.
+            Generate AI-powered transcripts with sentence-level syncing.
           </p>
         </div>
         
-        <!-- Queue Error Message -->
         <div v-if="queueError" class="w-full bg-red-500/10 border border-red-500/20 p-3 rounded-xl flex items-center gap-2 text-red-400 justify-center">
            <AlertTriangle :size="12" />
            <span class="text-[8px] font-bold uppercase">{{ queueError }}</span>
@@ -195,7 +194,7 @@ watch(() => props.item.id, loadTranscript);
         </button>
       </div>
 
-      <!-- Transcript Lines -->
+      <!-- Transcript Lines (Karaoke Enabled) -->
       <div v-if="hasTranscript" class="space-y-6 py-20 flex flex-col items-center min-h-full justify-center w-full">
         <div 
           v-for="(cue, index) in cues" 
@@ -206,7 +205,6 @@ watch(() => props.item.id, loadTranscript);
         >
           <!-- Metadata Header -->
           <div class="flex items-center gap-3">
-             <!-- Speaker -->
              <span 
                v-if="cue.speaker"
                class="text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md border"
@@ -214,18 +212,21 @@ watch(() => props.item.id, loadTranscript);
              >
                {{ cue.speaker }}
              </span>
-             
-             <!-- Background Noise Indicator -->
              <div v-if="cue.background_noise" class="flex items-center gap-1.5 text-neutral-500">
                <Volume2 :size="10" />
                <span class="text-[8px] italic text-neutral-600">{{ cue.background_noise }}</span>
              </div>
           </div>
 
+          <!-- Karaoke Text -->
           <p 
             v-if="cue.text"
-            class="text-base md:text-lg font-bold leading-relaxed transition-colors duration-300"
-            :class="activeCueIndex === index ? 'text-purple-100 drop-shadow-[0_0_15px_rgba(168,85,247,0.2)]' : 'text-neutral-300'"
+            class="text-base md:text-lg font-bold leading-relaxed transition-colors duration-300 relative"
+            :class="[
+               activeCueIndex === index ? 'text-purple-100' : 'text-neutral-300',
+               activeCueIndex === index ? 'karaoke-text' : ''
+            ]"
+            :style="activeCueIndex === index ? { '--anim-duration': Math.max(0.5, cue.end - cue.start) + 's' } : {}"
           >
             {{ cue.text }}
           </p>
@@ -235,3 +236,21 @@ watch(() => props.item.id, loadTranscript);
     </div>
   </div>
 </template>
+
+<style scoped>
+.karaoke-text {
+  background: linear-gradient(to right, #ffffff 50%, #525252 50%);
+  background-size: 200% 100%;
+  background-position: 100% 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: fillText var(--anim-duration) linear forwards;
+}
+
+@keyframes fillText {
+  to {
+    background-position: 0 0;
+  }
+}
+</style>
