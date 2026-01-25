@@ -44,12 +44,11 @@ export default async function handler(req: any, res: any) {
   }
 
   const ai = new GoogleGenAI({ apiKey });
-  // Use .mp3 extension for maximum compatibility with Gemini
   const tempFilePath = path.join(os.tmpdir(), `segment-${Date.now()}.mp3`);
   let uploadResult: any = null;
   
-  // Reduced to 30s to ensure FFmpeg + Upload + GenAI fits in 60s limit
-  const SEGMENT_DURATION = 30; 
+  // Reduced to 25s to strictly fit within Vercel's 60s limit with overhead
+  const SEGMENT_DURATION = 25; 
 
   try {
     console.log(`[Transcribe] Processing Segment starting at ${currentTime}s`);
@@ -122,16 +121,16 @@ export default async function handler(req: any, res: any) {
     Task: Transcribe the provided ${Math.floor(SEGMENT_DURATION)} second audio segment verbatim.
     
     CRITICAL RULES:
-    1. GRANULARITY: Split text into SHORT phrases or half-sentences (approx 5-15 words). 
+    1. GRANULARITY: Split text into SHORT phrases (approx 3-10 words). 
        - NEVER output long paragraphs. 
        - The goal is precise karaoke synchronization.
        - Example:
          {"start": "00:00", "end": "00:02", "text": "He walked down the street,"}
          {"start": "00:02", "end": "00:04", "text": "looking at the lights."}
-    2. TIMESTAMPS: Use relative timestamps starting at 00:00:00.
+    2. TIMESTAMPS: Use relative timestamps from the start of the audio file (00:00.000).
     3. ANTI-HALLUCINATION: If audio is silent/noise, output NOTHING.
-    4. Output Format: strictly JSONL. {"start": "HH:MM:SS.mmm", "end": "HH:MM:SS.mmm", "speaker": "Name", "text": "..."}
-    5. No markdown.
+    4. OUTPUT FORMAT: ONLY JSON Lines (JSONL). No markdown blocks. No explanations.
+       {"start": "MM:SS.mmm", "end": "MM:SS.mmm", "speaker": "Name", "text": "..."}
     `;
 
     const responseStream = await ai.models.generateContentStream({

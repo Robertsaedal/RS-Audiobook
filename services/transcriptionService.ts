@@ -8,7 +8,6 @@ export class TranscriptionService {
     if (record && record.cues) {
       return record.cues;
     }
-    // Backward compatibility: If we encounter an old record format, return null to force regeneration
     return null;
   }
 
@@ -53,7 +52,6 @@ export class TranscriptionService {
         
         if (value) {
           const chunk = decoder.decode(value, { stream: true });
-          // Filter out log lines from backend
           const lines = chunk.split('\n');
           const cleanLines = lines.filter(line => !line.trim().startsWith(': status:') && !line.trim().startsWith('ERROR:'));
           
@@ -87,16 +85,17 @@ export class TranscriptionService {
     // 3. Merge Strategy: Append and Deduplicate
     allCues = [...allCues, ...newCues];
 
-    // Remove duplicates based on exact start time and text
+    // Remove duplicates based on exact start time and text to avoid jitter
     const seen = new Set();
     allCues = allCues.filter(c => {
-        const key = `${Math.floor(c.start * 100)}_${c.text}`;
+        // Round to 1 decimal for dedupe key to be loose enough
+        const key = `${Math.floor(c.start * 10)}_${c.text.substring(0, 10)}`;
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
     });
 
-    // Sort by start time to ensure order
+    // Sort by start time
     allCues.sort((a, b) => a.start - b.start);
 
     await db.transcripts.put({
@@ -114,32 +113,27 @@ export class TranscriptionService {
 
     const parseTime = (timeStr: string) => {
       if (!timeStr) return 0;
-      // Handle "HH:MM:SS.mmm" or "MM:SS.mmm"
-      const parts = timeStr.split(':');
-      let h = 0, m = 0, s = 0, ms = 0;
+      // Handle "HH:MM:SS.mmm", "MM:SS.mmm", "MM:SS", "SS.mmm"
+      const parts = timeStr.trim().split(':');
+      let h = 0, m = 0, s = 0;
       
       if (parts.length === 3) {
-        h = parseInt(parts[0], 10);
-        m = parseInt(parts[1], 10);
-        const secParts = parts[2].split('.');
-        s = parseInt(secParts[0], 10);
-        ms = parseInt(secParts[1] || '0', 10);
+        h = parseFloat(parts[0]);
+        m = parseFloat(parts[1]);
+        s = parseFloat(parts[2]);
       } else if (parts.length === 2) {
-        m = parseInt(parts[0], 10);
-        const secParts = parts[1].split('.');
-        s = parseInt(secParts[0], 10);
-        ms = parseInt(secParts[1] || '0', 10);
+        m = parseFloat(parts[0]);
+        s = parseFloat(parts[1]);
       } else {
-         return 0;
+        s = parseFloat(parts[0]);
       }
 
-      return h * 3600 + m * 60 + s + ms / 1000;
+      return (h * 3600) + (m * 60) + s;
     };
 
     for (const line of lines) {
       const trimmed = line.trim();
       if (!trimmed) continue;
-      
       if (trimmed.startsWith(':') || trimmed.startsWith('ERROR:')) continue;
 
       try {
@@ -149,10 +143,12 @@ export class TranscriptionService {
         const obj = JSON.parse(cleanLine);
         
         if (obj.text || obj.background_noise) { 
-            // CRITICAL: Add offsetSeconds here so DB stores ABSOLUTE cues relative to book start
+            const relativeStart = parseTime(obj.start);
+            const relativeEnd = parseTime(obj.end);
+
             cues.push({ 
-                start: parseTime(obj.start) + offsetSeconds, 
-                end: parseTime(obj.end) + offsetSeconds, 
+                start: relativeStart + offsetSeconds, 
+                end: relativeEnd + offsetSeconds, 
                 text: obj.text || '',
                 speaker: obj.speaker,
                 background_noise: obj.background_noise
