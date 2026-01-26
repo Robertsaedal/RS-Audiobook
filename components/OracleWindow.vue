@@ -75,17 +75,16 @@ const sendMessage = async () => {
       4. Keep answers concise, mystical but helpful.
       5. Do not hallucinate events not in the text.
 
-      FORMATTING:
+      FORMATTING RULES (ESSENTIAL):
       - Use **Bold** for character names or key locations.
-      - Use ### headers for distinct chapter or scene breaks.
+      - Use ### headers for chapter or scene breaks.
       - Break long explanations into bullet points.
-      - Always use double line breaks between paragraphs for readability.
+      - Always use double line breaks between paragraphs for maximum readability on small screens.
       
       CONTEXT DATA:
       ${knowledgeBase.value}
     `;
 
-    // Use gemini-3-flash-preview as per standard guidelines
     const model = genAI.getGenerativeModel({ 
       model: 'gemini-3-flash-preview',
       systemInstruction: systemInstruction 
@@ -146,22 +145,22 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="w-full h-full bg-[#0f0f14]/70 backdrop-blur-[25px] rounded-[32px] border border-white/10 flex flex-col overflow-hidden relative shadow-[0_0_50px_rgba(168,85,247,0.15)]">
+  <div class="w-full h-full bg-[#0f0f14]/70 backdrop-blur-[25px] rounded-[32px] border border-white/10 flex flex-col overflow-hidden relative shadow-[0_0_80px_rgba(168,85,247,0.1)]">
     
-    <!-- Cinematic Glow Background -->
-    <div class="absolute top-[-50%] left-[-50%] w-[200%] h-[200%] bg-[radial-gradient(circle_at_center,_rgba(168,85,247,0.05),_transparent_60%)] pointer-events-none animate-pulse-slow"></div>
+    <!-- Amethyst Accent Glow (Background) -->
+    <div class="absolute top-[-50%] left-[-50%] w-[200%] h-[200%] bg-[radial-gradient(circle_at_center,_rgba(168,85,247,0.03),_transparent_60%)] pointer-events-none"></div>
 
     <!-- Header -->
-    <div class="relative z-20 flex items-center justify-between p-5 border-b border-white/5 bg-black/20">
+    <div class="relative z-20 flex items-center justify-between p-5 border-b border-white/5 bg-black/30">
       <div class="flex items-center gap-3">
         <div class="p-2 rounded-full bg-purple-500/10 border border-purple-500/30 text-purple-400">
            <BrainCircuit :size="18" />
         </div>
         <div>
-          <h2 class="text-sm font-black uppercase tracking-widest text-white">Book Oracle</h2>
-          <div v-if="contextReady" class="flex items-center gap-1.5 text-purple-400 animate-fade-in shadow-purple-glow">
-             <ShieldCheck :size="10" />
-             <span class="text-[8px] font-black uppercase tracking-[0.2em]">Spoiler-Free Mode Active</span>
+          <h2 class="text-[10px] font-black uppercase tracking-[0.4em] text-white">Book Oracle</h2>
+          <div v-if="contextReady" class="flex items-center gap-1.5 animate-pulse">
+             <ShieldCheck :size="10" class="text-purple-400" />
+             <span class="text-[8px] font-black uppercase tracking-[0.2em] text-purple-400 neon-purple-text">Spoiler-Free Active</span>
           </div>
         </div>
       </div>
@@ -174,29 +173,29 @@ onMounted(() => {
     <div class="flex-1 overflow-hidden relative flex flex-col">
       
       <!-- Context Loading State -->
-      <div v-if="isBuildingContext" class="absolute inset-0 z-30 flex flex-col items-center justify-center bg-neutral-900/80 backdrop-blur-sm gap-4">
+      <div v-if="isBuildingContext" class="absolute inset-0 z-30 flex flex-col items-center justify-center bg-[#0f0f14]/80 backdrop-blur-md gap-4">
         <div class="relative">
-          <div class="absolute inset-0 bg-purple-500 rounded-full blur-xl opacity-20 animate-ping"></div>
+          <div class="absolute inset-0 bg-purple-500 rounded-full blur-2xl opacity-20 animate-ping"></div>
           <Loader2 :size="32" class="text-purple-500 animate-spin relative z-10" />
         </div>
-        <p class="text-[10px] font-black uppercase tracking-[0.3em] text-neutral-400">Reading Archives...</p>
+        <p class="text-[9px] font-black uppercase tracking-[0.4em] text-neutral-500">Reading Frequency...</p>
       </div>
 
       <!-- Messages -->
-      <div ref="messagesContainer" class="flex-1 overflow-y-auto purple-scrollbar p-6 space-y-6">
+      <div ref="messagesContainer" class="flex-1 overflow-y-auto minimalist-purple-scrollbar p-6 space-y-8">
         
         <!-- Welcome Message -->
-        <div v-if="messages.length === 0 && !isBuildingContext" class="flex flex-col items-center justify-center h-full text-center opacity-50 space-y-4 animate-fade-in-up">
+        <div v-if="messages.length === 0 && !isBuildingContext" class="flex flex-col items-center justify-center h-full text-center opacity-40 space-y-4 animate-fade-in-up">
           <Sparkles :size="48" class="text-purple-500/50" />
-          <p class="text-[10px] font-black uppercase tracking-widest max-w-[200px] leading-relaxed">
-            Ask about characters, plot points, or lore. I will only use knowledge from what you have read so far.
+          <p class="text-[9px] font-black uppercase tracking-widest max-w-[220px] leading-relaxed">
+            Inquire about characters, lore, or plot. My visions are limited to what you have already read.
           </p>
           
           <!-- Memory Visualization -->
           <div v-if="includedBooks.length > 0" class="flex flex-wrap justify-center gap-2 mt-4 max-w-xs">
-             <div v-for="(book, idx) in includedBooks" :key="idx" class="px-2 py-1 bg-white/5 rounded border border-white/5 text-[8px] text-neutral-400 flex items-center gap-1">
+             <div v-for="(book, idx) in includedBooks" :key="idx" class="px-3 py-1 bg-white/5 rounded-full border border-white/5 text-[8px] text-neutral-400 flex items-center gap-1.5">
                <BookOpen :size="8" />
-               <span class="truncate max-w-[80px]">{{ book }}</span>
+               <span class="truncate max-w-[100px] font-bold uppercase tracking-widest">{{ book }}</span>
              </div>
           </div>
         </div>
@@ -204,44 +203,53 @@ onMounted(() => {
         <div 
           v-for="(msg, i) in messages" 
           :key="i" 
-          class="flex flex-col gap-1 max-w-[90%] animate-fade-in-up"
+          class="flex flex-col gap-1.5 max-w-[90%] animate-fade-in-up"
           :class="msg.role === 'user' ? 'self-end items-end' : 'self-start items-start'"
         >
           <div 
-            class="px-5 py-3 rounded-2xl text-sm leading-relaxed backdrop-blur-md shadow-lg markdown-content"
+            class="px-6 py-4 rounded-[24px] text-sm leading-relaxed backdrop-blur-md shadow-2xl"
             :class="[
               msg.role === 'user' 
-                ? 'bg-purple-600 text-white rounded-tr-sm' 
-                : 'bg-white/10 text-neutral-200 border border-white/5 rounded-tl-sm'
+                ? 'bg-purple-600 text-white rounded-tr-sm shadow-[0_10px_30px_rgba(168,85,247,0.2)]' 
+                : 'bg-white/5 text-neutral-200 border border-white/10 rounded-tl-sm'
             ]"
-            v-html="msg.text.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>').replace(/\n/g, '<br>')"
           >
+            <!-- Basic Markdown Renderer (Bold + Headers) -->
+            <div 
+              class="oracle-response-content space-y-4"
+              v-html="msg.text
+                .replace(/^### (.*$)/gim, '<h3 class=\'text-xs font-black uppercase tracking-[0.3em] text-purple-400 mt-4 mb-2\'>$1</h3>')
+                .replace(/\*\*(.*?)\*\*/g, '<b class=\'text-white font-black\'>$1</b>')
+                .replace(/\n\n/g, '<div class=\'h-2\'></div>')
+                .replace(/^\s*-\s*(.*$)/gim, '<div class=\'flex gap-2 items-start\'><div class=\'w-1 h-1 rounded-full bg-purple-500 mt-2 shrink-0\'></div><span class=\'text-[13px]\'>$1</span></div>')
+              "
+            ></div>
           </div>
-          <span class="text-[8px] font-bold uppercase tracking-widest opacity-40 mx-2">
-            {{ msg.role === 'user' ? 'You' : 'Oracle' }}
+          <span class="text-[8px] font-black uppercase tracking-[0.3em] opacity-30 mx-3">
+            {{ msg.role === 'user' ? 'Apostle' : 'Oracle' }}
           </span>
         </div>
 
       </div>
 
       <!-- Input Area -->
-      <div class="p-4 bg-black/40 border-t border-white/5 relative z-20">
+      <div class="p-6 bg-black/20 border-t border-white/5 relative z-20">
         <div class="relative group">
           <input 
             v-model="userInput"
             @keydown.enter="sendMessage"
             type="text" 
             placeholder="Ask the archives..."
-            class="w-full bg-neutral-900/50 border border-purple-500/30 rounded-full py-4 pl-6 pr-14 text-sm text-white placeholder-neutral-500 focus:outline-none focus:shadow-[0_0_15px_rgba(168,85,247,0.3)] focus:border-purple-500/50 transition-all"
+            class="w-full bg-[#0d0d12]/50 border border-purple-500/20 rounded-full py-5 pl-7 pr-16 text-sm text-white placeholder-neutral-600 focus:outline-none focus:shadow-[0_0_25px_rgba(168,85,247,0.15)] focus:border-purple-500/50 transition-all shadow-inner"
           />
           <button 
             @click="sendMessage"
             :disabled="!userInput.trim() || isThinking"
-            class="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-full text-white transition-all disabled:opacity-50"
-            :class="isThinking ? 'cursor-default' : 'bg-purple-600 shadow-[0_0_15px_rgba(168,85,247,0.4)] hover:bg-purple-500 hover:scale-105 active:scale-95'"
+            class="absolute right-2 top-1/2 -translate-y-1/2 p-3 rounded-full text-white transition-all disabled:opacity-40"
+            :class="isThinking ? 'cursor-default' : 'bg-purple-600 shadow-[0_10px_20px_rgba(168,85,247,0.3)] hover:bg-purple-500 hover:scale-105 active:scale-95'"
           >
-            <Sparkles v-if="isThinking" :size="18" class="text-purple-400 animate-pulse" />
-            <Send v-else :size="16" />
+            <Sparkles v-if="isThinking" :size="20" class="text-white animate-thinking-pulse" />
+            <Send v-else :size="18" />
           </button>
         </div>
       </div>
@@ -251,27 +259,40 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.purple-scrollbar::-webkit-scrollbar {
-  width: 4px;
+.minimalist-purple-scrollbar::-webkit-scrollbar {
+  width: 2px;
 }
-.purple-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
-}
-.purple-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(168, 85, 247, 0.2);
+.minimalist-purple-scrollbar::-webkit-scrollbar-thumb {
+  background: #A855F7;
   border-radius: 10px;
 }
-.animate-pulse-slow {
-  animation: pulse 8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+.minimalist-purple-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
 }
+
+.neon-purple-text {
+  text-shadow: 0 0 10px rgba(168, 85, 247, 0.8);
+}
+
+@keyframes thinkingPulse {
+  0%, 100% { opacity: 1; transform: scale(1); filter: drop-shadow(0 0 5px rgba(168, 85, 247, 0.8)); }
+  50% { opacity: 0.6; transform: scale(0.9); filter: drop-shadow(0 0 15px rgba(168, 85, 247, 1)); }
+}
+.animate-thinking-pulse {
+  animation: thinkingPulse 1.5s ease-in-out infinite;
+}
+
 .animate-fade-in-up {
-  animation: fadeInUp 0.4s ease-out forwards;
+  animation: fadeInUp 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
 }
 @keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(10px); }
+  from { opacity: 0; transform: translateY(15px); }
   to { opacity: 1; transform: translateY(0); }
 }
-.shadow-purple-glow {
-  text-shadow: 0 0 10px rgba(168, 85, 247, 0.5);
+
+.oracle-response-content :deep(b) {
+  color: #fff;
+  font-weight: 900;
+  letter-spacing: -0.01em;
 }
 </style>
