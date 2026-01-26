@@ -5,7 +5,8 @@ import { TranscriptionService } from '../services/transcriptionService';
 import { db, TranscriptCue } from '../services/db';
 import { ABSLibraryItem } from '../types';
 import { ABSService } from '../services/absService';
-import { X, Volume2, FileText, Send, CheckCircle, Loader2, RefreshCw, DownloadCloud, Sparkles } from 'lucide-vue-next';
+import { usePlayer } from '../composables/usePlayer';
+import { X, Volume2, FileText, Send, CheckCircle, Loader2, RefreshCw, DownloadCloud, Sparkles, Maximize2, Minimize2, Play, Pause, RotateCcw, RotateCw } from 'lucide-vue-next';
 import confetti from 'canvas-confetti';
 
 const props = defineProps<{
@@ -19,12 +20,16 @@ const emit = defineEmits<{
   (e: 'seek', time: number): void
 }>();
 
+// Global Player Access
+const { state: playerState, play, pause, seek } = usePlayer();
+
 const cues = ref<TranscriptCue[]>([]);
 const hasTranscript = ref(false);
 const isLoading = ref(false);
 const activeCueIndex = ref(-1);
 const scrollContainer = ref<HTMLElement | null>(null);
 const isUserScrolling = ref(false);
+const isFullscreen = ref(false);
 let userScrollTimeout: any = null;
 
 // Manual Flow States
@@ -91,9 +96,17 @@ const downloadTranscript = async () => {
 
 const handleCueClick = (cue: TranscriptCue) => {
   if (cue && typeof cue.start === 'number') {
-    emit('seek', cue.start);
+    // Seek using global player to ensure sync
+    seek(cue.start);
   }
 };
+
+const togglePlay = () => {
+  playerState.isPlaying ? pause() : play();
+};
+
+const rewind = () => seek(playerState.currentTime - 10);
+const forward = () => seek(playerState.currentTime + 30);
 
 // Optimized Scroll Sync
 watch(() => props.currentTime, (time) => {
@@ -127,6 +140,12 @@ const scrollToActive = () => {
   });
 };
 
+const toggleFullscreen = () => {
+  isFullscreen.value = !isFullscreen.value;
+  // Re-center active cue after layout change
+  setTimeout(scrollToActive, 300);
+};
+
 onMounted(() => {
   initialCheck();
 });
@@ -137,10 +156,13 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="w-full h-full bg-[#0f0f14]/70 backdrop-blur-[25px] rounded-[32px] border border-white/10 flex flex-col overflow-hidden relative shadow-2xl">
+  <div 
+    class="bg-[#0f0f14]/70 backdrop-blur-[25px] border border-white/10 flex flex-col overflow-hidden relative shadow-2xl transition-all duration-500 ease-in-out"
+    :class="isFullscreen ? 'fixed inset-0 z-[300] rounded-none' : 'w-full h-full rounded-[32px]'"
+  >
     
     <!-- Header -->
-    <div class="flex items-center justify-between p-5 border-b border-white/5 bg-black/20 z-20">
+    <div class="flex items-center justify-between p-5 border-b border-white/5 bg-black/20 z-20 shrink-0">
       <div class="flex items-center gap-3">
         <div class="p-2 rounded-full bg-purple-500/10 text-purple-400">
           <FileText :size="16" />
@@ -150,16 +172,25 @@ onUnmounted(() => {
           <p v-if="flowState === 'ready'" class="text-[8px] font-bold text-emerald-400 uppercase tracking-widest">Active & Synced</p>
         </div>
       </div>
-      <button @click="emit('close')" class="p-2 bg-white/5 rounded-full hover:bg-white/10 transition-colors text-neutral-400 hover:text-white border border-white/5">
-        <X :size="16" />
-      </button>
+      <div class="flex items-center gap-2">
+        <button 
+          @click="toggleFullscreen" 
+          class="p-2 bg-white/5 rounded-full hover:bg-white/10 transition-colors text-neutral-400 hover:text-white border border-white/5"
+        >
+          <Minimize2 v-if="isFullscreen" :size="16" />
+          <Maximize2 v-else :size="16" />
+        </button>
+        <button @click="emit('close')" class="p-2 bg-white/5 rounded-full hover:bg-white/10 transition-colors text-neutral-400 hover:text-white border border-white/5">
+          <X :size="16" />
+        </button>
+      </div>
     </div>
 
     <!-- Main Content Area -->
     <div 
       ref="scrollContainer" 
       @scroll="onScroll"
-      class="flex-1 overflow-y-auto purple-scrollbar p-6 relative"
+      class="flex-1 overflow-y-auto purple-scrollbar p-6 relative w-full"
     >
       
       <!-- INITIAL / SCANNING STATES -->
@@ -206,33 +237,35 @@ onUnmounted(() => {
       </div>
 
       <!-- THE TRANSCRIPT (Lyrics Style) -->
-      <div v-else class="space-y-8 py-[40vh] flex flex-col items-center">
+      <div v-else class="space-y-8 py-[40vh] flex flex-col items-center w-full">
         <div 
           v-for="(cue, index) in cues" 
           :key="index"
           @click="handleCueClick(cue)"
-          class="cursor-pointer p-6 rounded-3xl w-full max-w-lg transition-all duration-700 ease-out"
+          class="cursor-pointer p-6 rounded-3xl w-full max-w-2xl transition-all duration-700 ease-out text-center"
           :class="[
             activeCueIndex === index 
               ? 'active-cue opacity-100 scale-105 bg-white/5 border border-purple-500/30 shadow-[0_0_20px_rgba(168,85,247,0.1)]' 
-              : 'opacity-20 scale-95 grayscale hover:opacity-40'
+              : 'opacity-30 scale-95 grayscale hover:opacity-60 border border-transparent'
           ]"
         >
           <!-- Metadata -->
-          <div v-if="cue.speaker && activeCueIndex === index" class="mb-2 flex items-center gap-2">
+          <div v-if="cue.speaker && activeCueIndex === index" class="mb-3 flex justify-center items-center gap-2">
              <span class="text-[8px] font-black uppercase tracking-widest text-purple-400 border border-purple-400/30 px-2 py-0.5 rounded-md">
                {{ cue.speaker }}
              </span>
           </div>
 
           <p 
-            class="text-xl md:text-2xl font-black leading-tight tracking-tight text-center"
-            :class="activeCueIndex === index ? 'text-white' : 'text-neutral-400'"
+            class="font-black leading-tight tracking-tight text-center transition-all"
+            :class="[
+               activeCueIndex === index ? 'text-white text-2xl md:text-3xl' : 'text-neutral-400 text-lg md:text-xl'
+            ]"
           >
             {{ cue.text }}
           </p>
 
-          <div v-if="cue.background_noise && activeCueIndex === index" class="mt-2 flex justify-center items-center gap-1.5 text-neutral-500">
+          <div v-if="cue.background_noise && activeCueIndex === index" class="mt-3 flex justify-center items-center gap-1.5 text-neutral-500">
              <Volume2 :size="10" />
              <span class="text-[8px] font-bold italic tracking-wider">{{ cue.background_noise }}</span>
           </div>
@@ -240,6 +273,28 @@ onUnmounted(() => {
       </div>
 
     </div>
+
+    <!-- Fullscreen Mini Player Controls -->
+    <div v-if="isFullscreen && flowState === 'ready'" class="absolute bottom-8 left-1/2 -translate-x-1/2 z-50 animate-fade-in-up">
+       <div class="flex items-center gap-4 bg-black/60 backdrop-blur-xl border border-white/10 p-2 rounded-full shadow-2xl">
+          <button @click="rewind" class="p-3 text-neutral-400 hover:text-white transition-colors rounded-full hover:bg-white/10 active:scale-95">
+             <RotateCcw :size="20" />
+          </button>
+          
+          <button 
+            @click="togglePlay" 
+            class="w-12 h-12 flex items-center justify-center bg-purple-600 text-white rounded-full shadow-[0_0_15px_rgba(168,85,247,0.5)] hover:scale-105 active:scale-95 transition-all"
+          >
+             <Pause v-if="playerState.isPlaying" :size="20" fill="currentColor" />
+             <Play v-else :size="20" fill="currentColor" class="translate-x-0.5" />
+          </button>
+
+          <button @click="forward" class="p-3 text-neutral-400 hover:text-white transition-colors rounded-full hover:bg-white/10 active:scale-95">
+             <RotateCw :size="20" />
+          </button>
+       </div>
+    </div>
+
   </div>
 </template>
 
@@ -260,7 +315,7 @@ onUnmounted(() => {
 }
 
 @keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(10px); }
+  from { opacity: 0; transform: translateY(20px); }
   to { opacity: 1; transform: translateY(0); }
 }
 .animate-fade-in-up {
