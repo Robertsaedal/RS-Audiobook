@@ -190,7 +190,8 @@ onUnmounted(() => {
     <div 
       ref="scrollContainer" 
       @scroll="onScroll"
-      class="flex-1 overflow-y-auto purple-scrollbar p-6 relative w-full"
+      class="flex-1 overflow-y-auto purple-scrollbar p-6 relative w-full snap-y snap-proximity scroll-smooth"
+      style="-webkit-overflow-scrolling: touch;"
     >
       
       <!-- INITIAL / SCANNING STATES -->
@@ -237,16 +238,16 @@ onUnmounted(() => {
       </div>
 
       <!-- THE TRANSCRIPT (Lyrics Style) -->
-      <div v-else class="space-y-8 py-[40vh] flex flex-col items-center w-full">
+      <div v-else class="space-y-4 py-[40vh] flex flex-col items-center w-full">
         <div 
           v-for="(cue, index) in cues" 
           :key="index"
           @click="handleCueClick(cue)"
-          class="cursor-pointer p-6 rounded-3xl w-full max-w-2xl transition-all duration-700 ease-out text-center"
+          class="cue-line cursor-pointer p-6 rounded-3xl w-full max-w-2xl text-center snap-center transition-opacity duration-300"
           :class="[
             activeCueIndex === index 
-              ? 'active-cue opacity-100 scale-105 bg-white/5 border border-purple-500/30 shadow-[0_0_20px_rgba(168,85,247,0.1)]' 
-              : 'opacity-30 scale-95 grayscale hover:opacity-60 border border-transparent'
+              ? 'active-cue opacity-100' 
+              : 'opacity-20 hover:opacity-40'
           ]"
         >
           <!-- Metadata -->
@@ -257,10 +258,11 @@ onUnmounted(() => {
           </div>
 
           <p 
-            class="font-black leading-tight tracking-tight text-center transition-all"
+            class="text-2xl md:text-3xl font-black leading-tight tracking-tight text-center"
             :class="[
-               activeCueIndex === index ? 'text-white text-2xl md:text-3xl' : 'text-neutral-400 text-lg md:text-xl'
+               activeCueIndex === index ? 'text-white' : 'text-neutral-400'
             ]"
+            :style="activeCueIndex === index ? { textShadow: '0 0 10px rgba(168, 85, 247, 0.5)' } : {}"
           >
             {{ cue.text }}
           </p>
@@ -312,6 +314,11 @@ onUnmounted(() => {
 
 .active-cue {
   scroll-margin-block: 40vh;
+}
+
+.cue-line {
+  will-change: opacity;
+  transform: translateZ(0);
 }
 
 @keyframes fadeInUp {
