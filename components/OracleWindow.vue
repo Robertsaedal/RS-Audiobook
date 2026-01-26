@@ -28,7 +28,6 @@ const knowledgeBase = ref('');
 const messagesContainer = ref<HTMLElement | null>(null);
 
 // Initialize Gemini Client
-// We use process.env.API_KEY which is defined in vite.config.ts
 const apiKey = process.env.API_KEY || '';
 const genAI = new GoogleGenerativeAI(apiKey);
 
@@ -75,18 +74,23 @@ const sendMessage = async () => {
       3. You have full access to previous books in the series (if provided in context).
       4. Keep answers concise, mystical but helpful.
       5. Do not hallucinate events not in the text.
+
+      FORMATTING:
+      - Use **Bold** for character names or key locations.
+      - Use ### headers for distinct chapter or scene breaks.
+      - Break long explanations into bullet points.
+      - Always use double line breaks between paragraphs for readability.
       
       CONTEXT DATA:
       ${knowledgeBase.value}
     `;
 
-    // Use gemini-3-flash-preview as per standard guidelines for basic text tasks
+    // Use gemini-3-flash-preview as per standard guidelines
     const model = genAI.getGenerativeModel({ 
       model: 'gemini-3-flash-preview',
       systemInstruction: systemInstruction 
     });
 
-    // Implement Retry Logic with Exponential Backoff
     let responseText = '';
     const retries = 3;
     
@@ -95,19 +99,15 @@ const sendMessage = async () => {
         const result = await model.generateContent(query);
         const response = await result.response;
         responseText = response.text();
-        break; // Success
+        break; 
       } catch (err: any) {
         const isRateLimit = err.message?.includes('429') || err.status === 429;
-        const isLastAttempt = attempt === retries - 1;
-
-        if (isRateLimit && !isLastAttempt) {
-          const delay = 1000 * Math.pow(2, attempt); // 1s, 2s, 4s
-          console.warn(`[Oracle] Rate limited (429). Retrying in ${delay}ms...`);
+        if (isRateLimit && attempt < retries - 1) {
+          const delay = 1000 * Math.pow(2, attempt);
           await new Promise(resolve => setTimeout(resolve, delay));
           continue;
         }
-        
-        throw err; // Re-throw if not retryable or max retries reached
+        throw err;
       }
     }
 
@@ -122,9 +122,6 @@ const sendMessage = async () => {
       errorText = 'Access Denied (403): Please check your API Key configuration.';
     } else if (e.message?.includes('429')) {
       errorText = 'The Oracle is overwhelmed with requests. Please try again in a moment.';
-    } else if (e.message?.includes('404')) {
-      // Fallback for model availability issues
-      errorText = 'The requested Oracle model is currently unavailable.';
     }
     
     messages.value.push({ role: 'model', text: errorText });
@@ -149,10 +146,10 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="w-full h-full bg-neutral-900/90 backdrop-blur-xl rounded-[32px] border border-white/10 flex flex-col overflow-hidden relative shadow-[0_0_50px_rgba(168,85,247,0.15)]">
+  <div class="w-full h-full bg-[#0f0f14]/70 backdrop-blur-[25px] rounded-[32px] border border-white/10 flex flex-col overflow-hidden relative shadow-[0_0_50px_rgba(168,85,247,0.15)]">
     
     <!-- Cinematic Glow Background -->
-    <div class="absolute top-[-50%] left-[-50%] w-[200%] h-[200%] bg-[radial-gradient(circle_at_center,_rgba(168,85,247,0.1),_transparent_60%)] pointer-events-none animate-pulse-slow"></div>
+    <div class="absolute top-[-50%] left-[-50%] w-[200%] h-[200%] bg-[radial-gradient(circle_at_center,_rgba(168,85,247,0.05),_transparent_60%)] pointer-events-none animate-pulse-slow"></div>
 
     <!-- Header -->
     <div class="relative z-20 flex items-center justify-between p-5 border-b border-white/5 bg-black/20">
@@ -162,7 +159,7 @@ onMounted(() => {
         </div>
         <div>
           <h2 class="text-sm font-black uppercase tracking-widest text-white">Book Oracle</h2>
-          <div v-if="contextReady" class="flex items-center gap-1.5 text-emerald-400 animate-fade-in">
+          <div v-if="contextReady" class="flex items-center gap-1.5 text-purple-400 animate-fade-in shadow-purple-glow">
              <ShieldCheck :size="10" />
              <span class="text-[8px] font-black uppercase tracking-[0.2em]">Spoiler-Free Mode Active</span>
           </div>
@@ -186,10 +183,10 @@ onMounted(() => {
       </div>
 
       <!-- Messages -->
-      <div ref="messagesContainer" class="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-6">
+      <div ref="messagesContainer" class="flex-1 overflow-y-auto purple-scrollbar p-6 space-y-6">
         
         <!-- Welcome Message -->
-        <div v-if="messages.length === 0 && !isBuildingContext" class="flex flex-col items-center justify-center h-full text-center opacity-50 space-y-4">
+        <div v-if="messages.length === 0 && !isBuildingContext" class="flex flex-col items-center justify-center h-full text-center opacity-50 space-y-4 animate-fade-in-up">
           <Sparkles :size="48" class="text-purple-500/50" />
           <p class="text-[10px] font-black uppercase tracking-widest max-w-[200px] leading-relaxed">
             Ask about characters, plot points, or lore. I will only use knowledge from what you have read so far.
@@ -207,29 +204,22 @@ onMounted(() => {
         <div 
           v-for="(msg, i) in messages" 
           :key="i" 
-          class="flex flex-col gap-1 max-w-[90%]"
+          class="flex flex-col gap-1 max-w-[90%] animate-fade-in-up"
           :class="msg.role === 'user' ? 'self-end items-end' : 'self-start items-start'"
         >
           <div 
-            class="px-5 py-3 rounded-2xl text-sm leading-relaxed backdrop-blur-md shadow-lg"
+            class="px-5 py-3 rounded-2xl text-sm leading-relaxed backdrop-blur-md shadow-lg markdown-content"
             :class="[
               msg.role === 'user' 
                 ? 'bg-purple-600 text-white rounded-tr-sm' 
                 : 'bg-white/10 text-neutral-200 border border-white/5 rounded-tl-sm'
             ]"
+            v-html="msg.text.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>').replace(/\n/g, '<br>')"
           >
-            {{ msg.text }}
           </div>
           <span class="text-[8px] font-bold uppercase tracking-widest opacity-40 mx-2">
             {{ msg.role === 'user' ? 'You' : 'Oracle' }}
           </span>
-        </div>
-
-        <!-- Thinking Indicator -->
-        <div v-if="isThinking" class="self-start flex items-center gap-2 px-4 py-3 bg-white/5 rounded-2xl rounded-tl-sm border border-white/5">
-          <div class="w-1.5 h-1.5 bg-purple-500 rounded-full animate-bounce" style="animation-delay: 0s"></div>
-          <div class="w-1.5 h-1.5 bg-purple-500 rounded-full animate-bounce" style="animation-delay: 0.1s"></div>
-          <div class="w-1.5 h-1.5 bg-purple-500 rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
         </div>
 
       </div>
@@ -242,14 +232,16 @@ onMounted(() => {
             @keydown.enter="sendMessage"
             type="text" 
             placeholder="Ask the archives..."
-            class="w-full bg-neutral-900/50 border border-white/10 rounded-full py-4 pl-6 pr-14 text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-purple-500/50 focus:bg-neutral-900/80 transition-all shadow-inner"
+            class="w-full bg-neutral-900/50 border border-purple-500/30 rounded-full py-4 pl-6 pr-14 text-sm text-white placeholder-neutral-500 focus:outline-none focus:shadow-[0_0_15px_rgba(168,85,247,0.3)] focus:border-purple-500/50 transition-all"
           />
           <button 
             @click="sendMessage"
             :disabled="!userInput.trim() || isThinking"
-            class="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-purple-600 rounded-full text-white shadow-[0_0_15px_rgba(168,85,247,0.4)] hover:bg-purple-500 hover:scale-105 active:scale-95 disabled:opacity-50 disabled:hover:scale-100 transition-all"
+            class="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-full text-white transition-all disabled:opacity-50"
+            :class="isThinking ? 'cursor-default' : 'bg-purple-600 shadow-[0_0_15px_rgba(168,85,247,0.4)] hover:bg-purple-500 hover:scale-105 active:scale-95'"
           >
-            <Send :size="16" />
+            <Sparkles v-if="isThinking" :size="18" class="text-purple-400 animate-pulse" />
+            <Send v-else :size="16" />
           </button>
         </div>
       </div>
@@ -259,17 +251,27 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.custom-scrollbar::-webkit-scrollbar {
+.purple-scrollbar::-webkit-scrollbar {
   width: 4px;
 }
-.custom-scrollbar::-webkit-scrollbar-track {
+.purple-scrollbar::-webkit-scrollbar-track {
   background: transparent;
 }
-.custom-scrollbar::-webkit-scrollbar-thumb {
+.purple-scrollbar::-webkit-scrollbar-thumb {
   background: rgba(168, 85, 247, 0.2);
   border-radius: 10px;
 }
 .animate-pulse-slow {
   animation: pulse 8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+.animate-fade-in-up {
+  animation: fadeInUp 0.4s ease-out forwards;
+}
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.shadow-purple-glow {
+  text-shadow: 0 0 10px rgba(168, 85, 247, 0.5);
 }
 </style>

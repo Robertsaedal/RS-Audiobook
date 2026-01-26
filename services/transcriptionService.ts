@@ -1,3 +1,4 @@
+
 import { db, TranscriptCue } from './db';
 import { ABSLibraryItem } from '../types';
 import { ABSService } from './absService';
@@ -7,50 +8,19 @@ const DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/146294114832154629
 export class TranscriptionService {
   
   /**
-   * Checks IndexedDB first, then scans the item's files in ABS for a matching JSON/VTT transcript.
-   * Priority:
-   * 1. File matches audio filename (e.g. "Book.m4b" -> "Book.vtt" or "Book.json")
-   * 2. Heuristic (contains "transcript" or "lyrics")
-   * 3. Fallback (Single candidate file)
-   * 
-   * @param itemId 
-   * @param absService 
-   * @param forceRefresh If true, bypasses local cache and re-scans server files.
+   * Scans the server for a matching transcript file but DOES NOT download it.
+   * Returns metadata about the candidate file if found.
    */
-  static async getTranscript(itemId: string, absService: ABSService | null, forceRefresh = false): Promise<TranscriptCue[] | null> {
-    // 1. Check Local DB (Cache) - Skip if forcing refresh
-    if (!forceRefresh) {
-      const record = await db.transcripts.get(itemId);
-      if (record && record.cues && record.cues.length > 0) {
-        console.log(`[Transcription] Loaded from local cache: ${itemId}`);
-        return record.cues;
-      }
-    } else {
-      console.log(`[Transcription] Force refresh requested for ${itemId}. Bypassing cache.`);
-      await db.transcripts.delete(itemId);
-    }
+  static async scanForCandidate(itemId: string, absService: ABSService | null): Promise<{ url: string, name: string, ino: string } | null> {
+    if (!absService) return null;
 
-    if (!absService) {
-      console.warn('[Transcription] No ABSService available to fetch files.');
-      return null;
-    }
-
-    // 2. Scan ABS Library Files
     try {
       console.log(`[Transcription] Scanning files for item: ${itemId}`);
       const files = await absService.getItemFiles(itemId);
       
-      if (!files || files.length === 0) {
-        console.log(`[Transcription] No files returned from ABS for item ${itemId}`);
-        return null;
-      }
+      if (!files || files.length === 0) return null;
 
-      // Helper to correctly extract filename from different object structures
-      // ABS typically puts the actual filename in `metadata.filename` for library files
       const getFileName = (f: any) => (f.metadata?.filename || f.name || '').trim();
-
-      // Log all files for debugging purposes
-      console.log(`[Transcription] Found files:`, files.map((f: any) => getFileName(f)));
 
       const audioExtensions = ['.m4b', '.mp3', '.m4a', '.flac', '.ogg', '.opus', '.wav', '.wma', '.aac'];
       const ignoredJsonNames = ['metadata.json', 'abs_metadata.json', 'chapter_metadata.json', 'ffmetadata.json'];
@@ -71,7 +41,7 @@ export class TranscriptionService {
 
       let candidate: any = null;
 
-      // STRATEGY 1: Strict Name Match (Base name of Transcript must match Base name of Audio)
+      // STRATEGY 1: Strict Name Match
       if (audioFiles.length > 0) {
         for (const audio of audioFiles) {
             const audioName = getFileName(audio);
@@ -88,7 +58,6 @@ export class TranscriptionService {
             
             if (match) {
                 candidate = match;
-                console.log(`[Transcription] Strict match found: ${getFileName(candidate)} (Matches audio: ${audioName})`);
                 break;
             }
         }
@@ -98,40 +67,42 @@ export class TranscriptionService {
       if (!candidate) {
           if (transcriptFiles.length === 1) {
               candidate = transcriptFiles[0];
-              console.log(`[Transcription] No strict match, but found single valid candidate: ${getFileName(candidate)}`);
           } else if (transcriptFiles.length > 1) {
               const heuristicMatch = transcriptFiles.find((f: any) => {
                   const n = getFileName(f).toLowerCase();
                   return n.includes('transcript') || n.includes('lyrics') || n.includes('subs');
               });
-              
-              if (heuristicMatch) {
-                  candidate = heuristicMatch;
-                  console.log(`[Transcription] Heuristic match found: ${getFileName(candidate)}`);
-              } else {
-                  console.log(`[Transcription] Multiple transcript files found but none matched audio filename. Skipping.`);
-              }
+              if (heuristicMatch) candidate = heuristicMatch;
           }
       }
 
-      if (!candidate || !candidate.ino) {
-        console.log(`[Transcription] No valid transcript file identified.`);
-        return null;
+      if (candidate && candidate.ino) {
+        return {
+          url: absService.getRawFileUrl(itemId, candidate.ino),
+          name: getFileName(candidate),
+          ino: candidate.ino
+        };
       }
 
-      // Fetch
-      const candidateName = getFileName(candidate);
-      console.log(`[Transcription] Fetching: ${candidateName}...`);
-      const fileUrl = absService.getRawFileUrl(itemId, candidate.ino);
+      return null;
+    } catch (e) {
+      console.error(`[Transcription] Error scanning for ${itemId}`, e);
+      return null;
+    }
+  }
+
+  /**
+   * Downloads, parses, and caches a specific transcript file.
+   */
+  static async downloadAndCache(itemId: string, fileUrl: string, fileName: string): Promise<TranscriptCue[] | null> {
+    try {
+      console.log(`[Transcription] Downloading: ${fileName}...`);
       
       const response = await fetch(fileUrl);
-      if (!response.ok) {
-        console.warn(`[Transcription] Download failed: ${response.status} ${response.statusText}`);
-        return null;
-      }
+      if (!response.ok) throw new Error(`Download failed: ${response.status}`);
 
       let cues: TranscriptCue[] = [];
-      const isVtt = candidateName.toLowerCase().endsWith('.vtt');
+      const isVtt = fileName.toLowerCase().endsWith('.vtt');
 
       if (isVtt) {
         const textData = await response.text();
@@ -142,30 +113,46 @@ export class TranscriptionService {
       }
 
       if (cues.length > 0) {
-        console.log(`[Transcription] Successfully parsed ${cues.length} cues.`);
-        // Save to DB for faster future access
         await db.transcripts.put({
             itemId,
             cues,
             createdAt: Date.now()
         });
         return cues;
-      } else {
-        console.warn(`[Transcription] File parsed but found no valid cues.`);
       }
-
+      
       return null;
-
     } catch (e) {
-      console.error(`[Transcription] Error processing transcript for ${itemId}`, e);
+      console.error(`[Transcription] Error downloading/parsing ${itemId}`, e);
       return null;
     }
   }
 
   /**
+   * Legacy method kept for backward compatibility and Oracle context building.
+   * Tries to find AND download in one go.
+   */
+  static async getTranscript(itemId: string, absService: ABSService | null, forceRefresh = false): Promise<TranscriptCue[] | null> {
+    if (!forceRefresh) {
+      const record = await db.transcripts.get(itemId);
+      if (record && record.cues && record.cues.length > 0) {
+        return record.cues;
+      }
+    } else {
+      await db.transcripts.delete(itemId);
+    }
+
+    const candidate = await this.scanForCandidate(itemId, absService);
+    if (candidate) {
+      return this.downloadAndCache(itemId, candidate.url, candidate.name);
+    }
+    
+    return null;
+  }
+
+  /**
    * Builds a "Safe Context" for the Oracle AI.
-   * - Includes current book transcript UP TO currentTime.
-   * - Includes FULL transcripts of previous books in the series.
+   * Includes current book transcript UP TO currentTime.
    */
   static async getOracleContext(
     currentItem: ABSLibraryItem,
@@ -190,27 +177,23 @@ export class TranscriptionService {
     if (seriesId) {
       try {
         const allSeriesBooks = await absService.getSeriesBooks(seriesId);
-        // Filter for previous books
         const previousBooks = allSeriesBooks
           .filter(b => {
             const bSeq = parseFloat(String(b.media.metadata.seriesSequence || b.media.metadata.sequence || '999999'));
-            // Check implicit series array if top level is missing
             const bSeqAlt = Array.isArray(b.media.metadata.series) && b.media.metadata.series.length > 0 
                 ? parseFloat(String(b.media.metadata.series[0].sequence)) 
                 : 999999;
-            
             const finalSeq = bSeq !== 999999 ? bSeq : bSeqAlt;
             return finalSeq < currentSeq;
           })
           .sort((a, b) => {
-             // sort asc
              const seqA = parseFloat(String(a.media.metadata.seriesSequence || 0));
              const seqB = parseFloat(String(b.media.metadata.seriesSequence || 0));
              return seqA - seqB;
           });
 
-        // 3. Load full transcripts for previous books
         for (const prevBook of previousBooks) {
+           // We try to get from cache first, but we won't force download previous books to save bandwidth/time
            const cues = await this.getTranscript(prevBook.id, absService);
            if (cues && cues.length > 0) {
              const fullText = cues.map(c => c.text).join(' ');
@@ -226,7 +209,6 @@ export class TranscriptionService {
     // 4. Load & Slice Current Book
     const currentCues = await this.getTranscript(currentItem.id, absService);
     if (currentCues && currentCues.length > 0) {
-      // SLICER LOGIC: Only cues that have ended before or slightly after current time
       const safeCues = currentCues.filter(c => c.end <= currentTime + 5); 
       const safeText = safeCues.map(c => c.text).join(' ');
       
@@ -245,8 +227,6 @@ export class TranscriptionService {
   static parseVTT(vttText: string): TranscriptCue[] {
     const lines = vttText.split(/\r?\n/);
     const cues: TranscriptCue[] = [];
-    
-    // Regex for "00:00:00.000 --> 00:00:00.000" or "00:00.000 --> 00:00.000"
     const timeRegex = /((?:\d{2}:)?\d{2}:\d{2}\.\d{3})\s+-->\s+((?:\d{2}:)?\d{2}:\d{2}\.\d{3})/;
 
     for (let i = 0; i < lines.length; i++) {
@@ -257,24 +237,17 @@ export class TranscriptionService {
         if (match) {
             const start = this.parseTime(match[1]);
             const end = this.parseTime(match[2]);
-            
             let text = '';
-            
-            // Gather text lines until empty line or next timestamp
             let j = i + 1;
             while (j < lines.length) {
                 const nextLine = lines[j].trim();
-                if (!nextLine) break; // Empty line ends cue
-                if (nextLine.includes('-->')) break; // Next cue starts
-                
+                if (!nextLine) break; 
+                if (nextLine.includes('-->')) break; 
                 text += (text ? ' ' : '') + nextLine;
                 j++;
             }
-            
-            if (text) {
-                cues.push({ start, end, text });
-            }
-            i = j - 1; // Advance outer loop
+            if (text) cues.push({ start, end, text });
+            i = j - 1;
         }
     }
     return cues;
@@ -297,7 +270,6 @@ export class TranscriptionService {
   // --- JSON PARSER ---
   static parseJSON(data: any): TranscriptCue[] {
     let rawCues: any[] = [];
-
     if (Array.isArray(data)) {
       rawCues = data;
     } else if (Array.isArray(data.cues)) {
@@ -305,13 +277,9 @@ export class TranscriptionService {
     } else if (Array.isArray(data.segments)) {
       rawCues = data.segments;
     } else if (data.transcription) {
-      if (Array.isArray(data.transcription)) {
-           rawCues = data.transcription;
-      } else if (Array.isArray(data.transcription.segments)) {
-           rawCues = data.transcription.segments;
-      } else if (Array.isArray(data.transcription.cues)) {
-           rawCues = data.transcription.cues;
-      }
+      if (Array.isArray(data.transcription)) rawCues = data.transcription;
+      else if (Array.isArray(data.transcription.segments)) rawCues = data.transcription.segments;
+      else if (Array.isArray(data.transcription.cues)) rawCues = data.transcription.cues;
     }
     
     return rawCues.map((entry: any) => ({
@@ -325,13 +293,7 @@ export class TranscriptionService {
     .sort((a, b) => a.start - b.start);
   }
 
-  static async deleteTranscript(itemId: string): Promise<void> {
-    await db.transcripts.delete(itemId);
-  }
-
   static async requestTranscript(item: ABSLibraryItem, note?: string): Promise<boolean> {
-    console.log(`[Transcription] Sending request for ${item.media.metadata.title}`);
-    
     const payload = {
       embeds: [{
         title: `Transcript Request`,
@@ -347,7 +309,6 @@ export class TranscriptionService {
         timestamp: new Date().toISOString()
       }]
     };
-
     try {
       const res = await fetch(DISCORD_WEBHOOK_URL, {
         method: 'POST',
@@ -356,7 +317,6 @@ export class TranscriptionService {
       });
       return res.ok;
     } catch (e) {
-      console.error("[Transcription] Failed to send webhook", e);
       return false;
     }
   }
