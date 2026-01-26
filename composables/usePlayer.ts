@@ -22,9 +22,10 @@ interface PlayerState {
   currentRealtime: number;
   activeItem: ABSLibraryItem | null;
   isOffline: boolean;
-  accentColor: string;
+  accentColor: string; // Dynamic Color
 }
 
+// Initialize rate from storage or default to 1.0
 const storedRate = localStorage.getItem('rs_playback_rate');
 const initialRate = storedRate ? parseFloat(storedRate) : 1.0;
 
@@ -34,7 +35,7 @@ const state = reactive<PlayerState>({
   duration: 0,
   bufferedTime: 0,
   playbackRate: initialRate,
-  preservesPitch: true,
+  preservesPitch: true, // Always true now
   isLoading: false,
   error: null,
   sessionId: null,
@@ -44,7 +45,7 @@ const state = reactive<PlayerState>({
   currentRealtime: Date.now(),
   activeItem: null,
   isOffline: false,
-  accentColor: '#A855F7'
+  accentColor: '#A855F7' // Default Purple
 });
 
 let audioEl: HTMLAudioElement | null = null;
@@ -63,27 +64,34 @@ let playWhenReady = false;
 
 let absService: ABSService | null = null;
 let activeAuth: AuthState | null = null;
+
 let activeObjectUrl: string | null = null;
 
 export function usePlayer() {
   const initialize = () => {
     const existing = document.getElementById('audio-player');
-    if (existing) existing.remove();
+    if (existing) {
+      existing.remove();
+    }
 
     audioEl = document.createElement('audio');
     audioEl.id = 'audio-player';
     audioEl.style.display = 'none';
     audioEl.crossOrigin = 'anonymous';
+    
+    // Hardcode Pitch Correction
     (audioEl as any).preservesPitch = true;
     (audioEl as any).webkitPreservesPitch = true;
     (audioEl as any).mozPreservesPitch = true;
+
+    // Apply persisted rate immediately
     audioEl.playbackRate = state.playbackRate;
 
     document.body.appendChild(audioEl);
 
-    audioEl.addEventListener('play', () => state.isPlaying = true);
+    audioEl.addEventListener('play', onEvtPlay);
     audioEl.addEventListener('pause', onEvtPause);
-    audioEl.addEventListener('progress', () => { if (audioEl) state.bufferedTime = getLastBufferedTime(); });
+    audioEl.addEventListener('progress', onEvtProgress);
     audioEl.addEventListener('ended', onEvtEnded);
     audioEl.addEventListener('error', onEvtError);
     audioEl.addEventListener('loadedmetadata', onEvtLoadedMetadata);
@@ -92,9 +100,18 @@ export function usePlayer() {
     return audioEl;
   };
 
+  const onEvtPlay = () => {
+    state.isPlaying = true;
+  };
+
   const onEvtPause = () => {
     state.isPlaying = false;
-    syncNow();
+    syncNow(); // Sync on pause
+  };
+
+  const onEvtProgress = () => {
+    if (!audioEl) return;
+    state.bufferedTime = getLastBufferedTime();
   };
 
   const onEvtEnded = async () => {
@@ -108,13 +125,15 @@ export function usePlayer() {
     }
   };
 
-  const onEvtError = () => {
+  const onEvtError = (e: any) => {
     if (state.isLoading || !audioEl?.src) return;
-    state.error = "Archive stream interrupted. Reconnecting...";
+    state.error = "Archive stream interrupted. Attempting reconnection...";
   };
 
   const onEvtLoadedMetadata = () => {
-    if (audioEl && !state.isHls) audioEl.currentTime = trackStartTime;
+    if (audioEl && !state.isHls) {
+      audioEl.currentTime = trackStartTime;
+    }
     state.isLoading = false;
     if (playWhenReady) {
       playWhenReady = false;
@@ -123,14 +142,17 @@ export function usePlayer() {
   };
 
   const onEvtTimeupdate = () => {
+    // CRITICAL FIX: Ignore updates during loading/seeking to prevent progress jumping
     if (!audioEl || !state.activeItem || state.isLoading) return;
     
     state.currentRealtime = Date.now();
+
     if (state.sleepEndTime && state.currentRealtime >= state.sleepEndTime) {
       pause();
       state.sleepEndTime = null;
     }
     
+    // Safety check for valid numeric time
     const playerTime = Number.isFinite(audioEl.currentTime) ? audioEl.currentTime : 0;
     const currentTrackOffset = state.isOffline ? 0 : (audioTracks[currentTrackIndex]?.startOffset || 0);
     const newTime = currentTrackOffset + playerTime;
@@ -145,7 +167,9 @@ export function usePlayer() {
       if (lastChapterIndex !== -1 && newChapterIndex > lastChapterIndex) {
         if (state.sleepChapters > 0) {
           state.sleepChapters--;
-          if (state.sleepChapters === 0) pause();
+          if (state.sleepChapters === 0) {
+            pause();
+          }
         }
       }
       lastChapterIndex = newChapterIndex;
@@ -153,6 +177,7 @@ export function usePlayer() {
 
     state.currentTime = newTime;
 
+    // Optimistic Local Sync Dispatch (Throttled)
     const now = Date.now();
     if (now - lastSyncDispatch > 1000) {
         dispatchProgressSync();
@@ -162,14 +187,18 @@ export function usePlayer() {
 
   const dispatchProgressSync = () => {
     if (!state.activeItem) return;
-    window.dispatchEvent(new CustomEvent('rs-progress-sync', { detail: {
+    
+    const progressUpdate: ABSProgress = {
       itemId: state.activeItem.id,
       currentTime: state.currentTime,
       duration: state.duration,
       progress: state.duration > 0 ? (state.currentTime / state.duration) : 0,
       isFinished: false,
       lastUpdate: Date.now()
-    }}));
+    };
+
+    // Dispatch global event for App.vue to pick up
+    window.dispatchEvent(new CustomEvent('rs-progress-sync', { detail: progressUpdate }));
   };
 
   const getFullUrl = (relativeUrl: string) => {
@@ -182,68 +211,147 @@ export function usePlayer() {
   const loadCurrentTrack = () => {
     const currentTrack = audioTracks[currentTrackIndex];
     if (!currentTrack || !audioEl) return;
+
     state.isLoading = true;
     trackStartTime = Math.max(0, startTime - (currentTrack.startOffset || 0));
-    audioEl.src = getFullUrl(currentTrack.contentUrl);
+    
+    const url = getFullUrl(currentTrack.contentUrl);
+    audioEl.src = url;
     audioEl.load();
   };
 
   const setHlsStream = () => {
     trackStartTime = 0;
     currentTrackIndex = 0;
-    const url = getFullUrl(audioTracks[0].contentUrl);
+
+    const currentTrack = audioTracks[0];
+    const url = getFullUrl(currentTrack.contentUrl);
 
     if (!Hls.isSupported()) {
-      if (audioEl) { audioEl.src = url; audioEl.currentTime = startTime; }
+      if (audioEl) {
+        audioEl.src = url;
+        audioEl.currentTime = startTime;
+      }
       return;
     }
 
+    const hlsOptions: any = {
+      startPosition: startTime || -1,
+      fragLoadPolicy: {
+        default: {
+          maxTimeToFirstByteMs: 10000,
+          maxLoadTimeMs: 120000,
+          timeoutRetry: { maxNumRetry: 4, retryDelayMs: 0, maxRetryDelayMs: 0 },
+          errorRetry: {
+            maxNumRetry: 8,
+            retryDelayMs: 1000,
+            maxRetryDelayMs: 8000,
+            shouldRetry: (retryConfig: any, retryCount: number, isTimeout: boolean, httpStatus: any, retry: boolean) => {
+              if (httpStatus?.code === 404 && retryConfig?.maxNumRetry > retryCount) return true;
+              return retry;
+            }
+          }
+        }
+      }
+    };
+
     if (hls) hls.destroy();
-    hls = new Hls({ startPosition: startTime || -1 });
+    hls = new Hls(hlsOptions);
     if (audioEl) {
       hls.attachMedia(audioEl);
       hls.on(Hls.Events.MEDIA_ATTACHED, () => hls!.loadSource(url));
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         state.isLoading = false;
-        if (playWhenReady) { playWhenReady = false; play(); }
+        if (playWhenReady) {
+          playWhenReady = false;
+          play();
+        }
+      });
+      hls.on(Hls.Events.ERROR, (event, data) => {
+        if (data.fatal) {
+          state.error = "Archive stream link severed (HLS Error).";
+          hls?.destroy();
+        }
       });
     }
+  };
+
+  const startHeartbeat = () => {
+    stopHeartbeat();
+    lastTickTime = Date.now();
+    syncInterval = setInterval(() => {
+      const now = Date.now();
+      const delta = (now - lastTickTime) / 1000;
+      lastTickTime = now;
+
+      if (state.isPlaying && state.sessionId) {
+        listeningTimeSinceSync += delta;
+        if (listeningTimeSinceSync >= 10) {
+          syncNow();
+        }
+      }
+    }, 1000);
+  };
+
+  const syncNow = () => {
+    dispatchProgressSync(); // Immediate local update
+    if (state.sessionId && absService) {
+        const timeToSync = Math.floor(listeningTimeSinceSync);
+        absService.syncSession(state.sessionId, timeToSync, state.currentTime);
+        listeningTimeSinceSync = 0;
+    }
+  };
+
+  const stopHeartbeat = () => {
+    if (syncInterval) clearInterval(syncInterval);
   };
 
   const load = async (item: ABSLibraryItem, auth: AuthState, startAt?: number) => {
     state.isLoading = true;
     state.error = null;
     state.activeItem = item;
+    state.sleepChapters = 0; 
+    state.sleepEndTime = null;
     state.isOffline = false;
+    lastChapterIndex = -1;
     activeAuth = auth;
     absService = new ABSService(auth.serverUrl, auth.user?.token || '');
     
     initialize();
 
+    // Trigger Color Extraction for Glow Effects
     const coverUrl = `${auth.serverUrl.replace(/\/api\/?$/, '')}/api/items/${item.id}/cover?token=${auth.user?.token}`;
+    getDominantColor(coverUrl).then(color => {
+      state.accentColor = color;
+    });
 
     try {
-      // 🚀 PARALLEL OPTIMIZATION: Start all initialization tasks at once
-      const [offlineBook, dominantColor] = await Promise.all([
-        OfflineManager.getBook(item.id),
-        getDominantColor(coverUrl)
-      ]);
+      if (await OfflineManager.isDownloaded(item.id)) {
+        console.log('📦 Loading from Local Offline Storage');
+        const offlineBook = await OfflineManager.getBook(item.id);
+        if (offlineBook) {
+          state.isOffline = true;
+          state.isHls = false;
+          state.sessionId = null; 
+          state.activeItem = offlineBook.metadata;
+          state.duration = offlineBook.metadata.media.duration;
+          
+          if (activeObjectUrl) URL.revokeObjectURL(activeObjectUrl);
+          
+          if (!offlineBook.blob || offlineBook.blob.size === 0) {
+             throw new Error("Offline file is corrupt or empty.");
+          }
 
-      state.accentColor = dominantColor;
-
-      if (offlineBook && offlineBook.blob) {
-        state.isOffline = true;
-        state.isHls = false;
-        state.sessionId = null;
-        state.duration = offlineBook.metadata.media.duration;
-        if (activeObjectUrl) URL.revokeObjectURL(activeObjectUrl);
-        activeObjectUrl = URL.createObjectURL(offlineBook.blob);
-        audioEl!.src = activeObjectUrl;
-        trackStartTime = startAt !== undefined ? startAt : (item.userProgress?.currentTime || 0);
-        startTime = trackStartTime;
-        playWhenReady = true;
-        audioEl!.load();
-        return;
+          activeObjectUrl = URL.createObjectURL(offlineBook.blob);
+          
+          audioEl!.src = activeObjectUrl;
+          trackStartTime = startAt !== undefined ? startAt : (item.userProgress?.currentTime || 0);
+          startTime = trackStartTime;
+          playWhenReady = true;
+          
+          audioEl!.load();
+          return;
+        }
       }
 
       const deviceInfo = {
@@ -255,7 +363,7 @@ export function usePlayer() {
       const mimeTypes = ['audio/flac', 'audio/mpeg', 'audio/mp4', 'audio/ogg', 'audio/aac'];
       const session = await absService.startPlaybackSession(item.id, deviceInfo, mimeTypes);
       
-      if (!session) throw new Error("Portal creation failed.");
+      if (!session) throw new Error("Portal creation failed. Server unreachable.");
 
       state.sessionId = session.id;
       state.activeItem = session.libraryItem;
@@ -269,86 +377,16 @@ export function usePlayer() {
       if (state.isHls) {
         setHlsStream();
       } else {
-        const trackIdx = audioTracks.findIndex((t) => startTime >= t.startOffset && startTime < t.startOffset + t.duration);
-        currentTrackIndex = Math.max(0, trackIdx);
+        const trackIndex = audioTracks.findIndex((t) => startTime >= t.startOffset && startTime < t.startOffset + t.duration);
+        currentTrackIndex = trackIndex >= 0 ? trackIndex : 0;
         loadCurrentTrack();
       }
 
       startHeartbeat();
       setupMediaSession(state.activeItem, auth);
     } catch (err: any) {
-      state.error = err.message || "Archive link failed.";
+      state.error = err.message || "Failed to initialize archive link.";
       state.isLoading = false;
-    }
-  };
-
-  const startHeartbeat = () => {
-    stopHeartbeat();
-    lastTickTime = Date.now();
-    syncInterval = setInterval(() => {
-      const now = Date.now();
-      const delta = (now - lastTickTime) / 1000;
-      lastTickTime = now;
-      if (state.isPlaying && state.sessionId) {
-        listeningTimeSinceSync += delta;
-        if (listeningTimeSinceSync >= 10) syncNow();
-      }
-    }, 1000);
-  };
-
-  const syncNow = () => {
-    dispatchProgressSync();
-    if (state.sessionId && absService) {
-        absService.syncSession(state.sessionId, Math.floor(listeningTimeSinceSync), state.currentTime);
-        listeningTimeSinceSync = 0;
-    }
-  };
-
-  const stopHeartbeat = () => { if (syncInterval) clearInterval(syncInterval); };
-  const play = () => audioEl?.play().catch(() => {});
-  const pause = () => audioEl?.pause();
-
-  const seek = (time: number) => {
-    if (!audioEl) return;
-    const target = Math.max(0, Math.min(time, state.duration));
-    playWhenReady = state.isPlaying;
-
-    if (state.isOffline) {
-      audioEl.currentTime = target;
-    } else if (state.isHls) {
-      const offsetTime = target - (audioTracks[currentTrackIndex]?.startOffset || 0);
-      audioEl.currentTime = Math.max(0, offsetTime);
-    } else {
-      const currentTrack = audioTracks[currentTrackIndex];
-      if (target < currentTrack.startOffset || target > currentTrack.startOffset + currentTrack.duration) {
-        const trackIdx = audioTracks.findIndex((t) => target >= t.startOffset && target < t.startOffset + t.duration);
-        if (trackIdx >= 0) { startTime = target; currentTrackIndex = trackIdx; loadCurrentTrack(); }
-      } else {
-        audioEl.currentTime = target - currentTrack.startOffset;
-      }
-    }
-    state.currentTime = target;
-    dispatchProgressSync(); 
-  };
-
-  const setPlaybackRate = (rate: number) => {
-    const newRate = parseFloat(Math.max(0.5, Math.min(3.0, rate)).toFixed(2));
-    state.playbackRate = newRate;
-    if (audioEl) audioEl.playbackRate = newRate;
-    localStorage.setItem('rs_playback_rate', String(newRate));
-  };
-
-  // --- NEW: Helper to set sleep chapters count ---
-  const setSleepChapters = (chapters: number) => {
-    state.sleepChapters = chapters;
-  };
-
-  // --- NEW: Helper to set sleep timer in minutes ---
-  const setSleepTimer = (minutes: number | null) => {
-    if (minutes === null) {
-      state.sleepEndTime = null;
-    } else {
-      state.sleepEndTime = Date.now() + (minutes * 60 * 1000);
     }
   };
 
@@ -367,23 +405,135 @@ export function usePlayer() {
     }
   };
 
+  const play = () => audioEl?.play().catch(e => console.warn("Play interrupted", e));
+  const pause = () => audioEl?.pause();
+
+  const seek = (time: number) => {
+    if (!audioEl) return;
+    const target = Math.max(0, Math.min(time, state.duration));
+    playWhenReady = state.isPlaying;
+
+    if (state.isOffline) {
+      try {
+        audioEl.currentTime = target;
+        state.currentTime = target;
+        dispatchProgressSync(); // Update UI immediately on seek
+        
+        if (playWhenReady) {
+           audioEl.play().catch(e => console.warn("Offline seek resume failed", e));
+        }
+      } catch (e) {
+        console.error("Offline seek failed", e);
+      }
+      return;
+    } 
+
+    if (state.isHls) {
+      const offsetTime = target - (audioTracks[currentTrackIndex]?.startOffset || 0);
+      audioEl.currentTime = Math.max(0, offsetTime);
+    } else {
+      const currentTrack = audioTracks[currentTrackIndex];
+      // Sync Logic Fix: If moving to a new track, update index and load
+      if (target < currentTrack.startOffset || target > currentTrack.startOffset + currentTrack.duration) {
+        const trackIdx = audioTracks.findIndex((t) => target >= t.startOffset && target < t.startOffset + t.duration);
+        if (trackIdx >= 0) {
+          startTime = target;
+          currentTrackIndex = trackIdx;
+          loadCurrentTrack();
+        }
+      } else {
+        const offsetTime = target - currentTrack.startOffset;
+        audioEl.currentTime = Math.max(0, offsetTime);
+      }
+    }
+    // Update state immediately to reflect UI change, regardless of loading delay
+    state.currentTime = target;
+    dispatchProgressSync(); 
+  };
+
+  const setPlaybackRate = (rate: number) => {
+    const newRate = parseFloat(Math.max(0.5, Math.min(3.0, rate)).toFixed(2));
+    state.playbackRate = newRate;
+    if (audioEl) audioEl.playbackRate = newRate;
+    // Persist to local storage
+    localStorage.setItem('rs_playback_rate', String(newRate));
+  };
+
+  // Deprecated/No-op as pitch is now always preserved
+  const setPreservesPitch = (val: boolean) => {
+    state.preservesPitch = true;
+  };
+
+  const setSleepChapters = (count: number) => {
+    state.sleepChapters = Math.max(0, count);
+    state.sleepEndTime = null; 
+  };
+
+  const setSleepTimer = (seconds: number) => {
+    state.sleepChapters = 0; 
+    if (seconds <= 0) {
+      state.sleepEndTime = null;
+    } else {
+      state.sleepEndTime = Date.now() + (seconds * 1000);
+    }
+  };
+
   const getLastBufferedTime = () => {
     if (!audioEl) return 0;
     try {
       const seekable = audioEl.buffered;
-      if (!seekable.length) return 0;
-      return seekable.end(seekable.length - 1) + (state.isOffline ? 0 : (audioTracks[currentTrackIndex]?.startOffset || 0));
-    } catch { return 0; }
+      const ranges = [];
+      for (let i = 0; i < seekable.length; i++) {
+        ranges.push({ start: seekable.start(i), end: seekable.end(i) });
+      }
+      if (!ranges.length) return 0;
+      const buff = ranges.find((b) => b.start < audioEl!.currentTime && b.end > audioEl!.currentTime);
+      if (buff) return buff.end + (state.isOffline ? 0 : (audioTracks[currentTrackIndex]?.startOffset || 0));
+      const last = ranges[ranges.length - 1];
+      return last.end + (state.isOffline ? 0 : (audioTracks[currentTrackIndex]?.startOffset || 0));
+    } catch (e) {
+      return 0;
+    }
   };
 
   const destroy = () => {
     stopHeartbeat();
-    if (activeObjectUrl) URL.revokeObjectURL(activeObjectUrl);
-    if (state.sessionId) absService?.closeSession(state.sessionId, { timeListened: Math.floor(listeningTimeSinceSync), currentTime: state.currentTime });
+    if (activeObjectUrl) {
+      URL.revokeObjectURL(activeObjectUrl);
+      activeObjectUrl = null;
+    }
+    if (state.sessionId) {
+      absService?.closeSession(state.sessionId, {
+        timeListened: Math.floor(listeningTimeSinceSync),
+        currentTime: state.currentTime
+      });
+    }
     if (hls) hls.destroy();
-    if (audioEl) { audioEl.pause(); audioEl.src = ''; audioEl.remove(); }
-    state.sessionId = null; state.isPlaying = false; state.activeItem = null;
+    if (audioEl) {
+      audioEl.pause();
+      audioEl.src = '';
+      audioEl.remove();
+    }
+    state.sessionId = null;
+    state.isPlaying = false;
+    state.activeItem = null;
+    state.sleepChapters = 0;
+    state.sleepEndTime = null;
+    state.isOffline = false;
+    activeAuth = null;
   };
 
-  return { state, load, play, pause, seek, setPlaybackRate, setSleepChapters, setSleepTimer, syncNow, destroy };
+  return {
+    state,
+    load,
+    play,
+    pause,
+    seek,
+    setPlaybackRate,
+    setPreservesPitch,
+    setSleepChapters,
+    setSleepTimer,
+    syncNow,
+    destroy
+  };
 }
