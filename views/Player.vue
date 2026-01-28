@@ -511,7 +511,7 @@ const infoRows = computed(() => {
           <div class="grid grid-cols-2 gap-3 md:gap-4 w-full h-36 md:h-40">
             
             <!-- SPEED CONTROL CARD -->
-            <div class="bg-neutral-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-5 md:p-6 flex flex-col justify-between relative overflow-hidden group">
+            <div class="bg-neutral-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-3.5 md:p-6 flex flex-col justify-between relative overflow-hidden group">
                <div class="absolute -right-6 -top-6 w-20 h-20 bg-purple-500/10 rounded-full blur-xl group-hover:bg-purple-500/20 transition-colors pointer-events-none"></div>
 
                <div class="flex items-center gap-2 text-neutral-500 z-10 relative">
@@ -549,7 +549,7 @@ const infoRows = computed(() => {
             </div>
 
             <!-- SLEEP TIMER CARD -->
-            <div class="bg-neutral-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-5 md:p-6 flex flex-col justify-between relative overflow-hidden group">
+            <div class="bg-neutral-900/50 backdrop-blur-md border border-white/5 rounded-2xl p-3.5 md:p-6 flex flex-col justify-between relative overflow-hidden group">
                <div class="absolute -left-6 -top-6 w-20 h-20 bg-blue-500/10 rounded-full blur-xl group-hover:bg-blue-500/20 transition-colors pointer-events-none"></div>
 
                <div class="flex items-center justify-between z-10 relative">
@@ -560,7 +560,7 @@ const infoRows = computed(() => {
                  <div class="w-2 h-2 rounded-full" :class="isSleepActive ? 'bg-blue-500 animate-pulse' : 'bg-neutral-800'"></div>
                </div>
                
-               <div class="flex-1 flex flex-col items-center justify-center z-10 relative">
+               <div class="flex-1 flex flex-col items-center justify-center z-10 relative py-1">
                  <div v-if="liveSleepCountdownText" class="flex flex-col items-center animate-fade-in">
                     <span class="text-2xl md:text-3xl font-black font-mono tracking-tighter text-blue-100 drop-shadow-lg">{{ liveSleepCountdownText.split('•')[0] }}</span>
                     <span v-if="liveSleepCountdownText.includes('•')" class="text-[9px] font-black uppercase tracking-widest text-blue-400 mt-1">{{ liveSleepCountdownText.split('•')[1] }}</span>
@@ -568,16 +568,16 @@ const infoRows = computed(() => {
                  <span v-else class="text-xs font-black uppercase tracking-widest text-neutral-700">Timer Off</span>
                </div>
                
-               <div class="flex items-center gap-2 w-full z-10 relative">
-                  <div class="flex-1 flex items-center justify-between bg-black/40 rounded-lg p-1 border border-white/5 relative">
-                     <button @click="adjustSleepTime(-900)" class="w-8 h-8 flex items-center justify-center text-neutral-500 hover:text-white active:scale-90"><Minus :size="12" /></button>
-                     <span class="text-[9px] font-black text-neutral-300">MIN</span>
-                     <button @click="adjustSleepTime(900)" class="w-8 h-8 flex items-center justify-center text-neutral-500 hover:text-white active:scale-90"><Plus :size="12" /></button>
+               <div class="flex items-center gap-1.5 w-full z-10 relative">
+                  <div class="flex-1 flex items-center justify-between bg-black/40 rounded-lg p-0.5 md:p-1 border border-white/5 relative">
+                     <button @click="adjustSleepTime(-900)" class="w-6 h-8 md:w-8 flex items-center justify-center text-neutral-500 hover:text-white active:scale-90"><Minus :size="10" /></button>
+                     <span class="text-[8px] md:text-[9px] font-black text-neutral-400">MIN</span>
+                     <button @click="adjustSleepTime(900)" class="w-6 h-8 md:w-8 flex items-center justify-center text-neutral-500 hover:text-white active:scale-90"><Plus :size="10" /></button>
                   </div>
-                  <div class="flex-1 flex items-center justify-between bg-black/40 rounded-lg p-1 border border-white/5 relative">
-                     <button @click="adjustSleepChapters(-1)" class="w-8 h-8 flex items-center justify-center text-neutral-500 hover:text-white active:scale-90"><Minus :size="12" /></button>
-                     <span class="text-[9px] font-black text-neutral-300">CH</span>
-                     <button @click="adjustSleepChapters(1)" class="w-8 h-8 flex items-center justify-center text-neutral-500 hover:text-white active:scale-90"><Plus :size="12" /></button>
+                  <div class="flex-1 flex items-center justify-between bg-black/40 rounded-lg p-0.5 md:p-1 border border-white/5 relative">
+                     <button @click="adjustSleepChapters(-1)" class="w-6 h-8 md:w-8 flex items-center justify-center text-neutral-500 hover:text-white active:scale-90"><Minus :size="10" /></button>
+                     <span class="text-[8px] md:text-[9px] font-black text-neutral-400">CH</span>
+                     <button @click="adjustSleepChapters(1)" class="w-6 h-8 md:w-8 flex items-center justify-center text-neutral-500 hover:text-white active:scale-90"><Plus :size="10" /></button>
                   </div>
                </div>
             </div>
